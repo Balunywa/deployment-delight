@@ -47,6 +47,19 @@ releases in `src/lib/alz/`):
   alerts, activity logs, policy). Everything in Microsoft's reference is always drawn; tick or untick any piece —
   firewall tier, Bastion, VPN and ExpressRoute gateways, DDoS, private DNS, a second hub region, Sentinel,
   Identity, landing zone groups, Defender, Update Manager, backup, alerts — and what's left out is shown dashed.
+- **Your own hierarchy, not a fixed template.** Hover any management group to add a group or a subscription under
+  it, or remove it (Identity, Security and Decommissioned can be left out — their subscription moves up to
+  Platform); rename any group; left-out library groups stay dashed with "+ add back". New groups use a library policy
+  set (Corp, Online, Sandbox, Local) or inherit only, and are emitted as archetype overrides in the custom library.
+  Added subscriptions are vended with `avm-ptn-alz-sub-vending`. The group where new subscriptions land by default
+  (`management_group_hierarchy_settings`) is selectable, with Sandbox recommended.
+- **Environments the CAF way.** Dev, test, QA, UAT, prod are subscriptions in the same Corp or Online group — each
+  customer install gets one subscription per environment — not separate management groups, following the Cloud
+  Adoption Framework's guidance. Splitting by environment is still possible but flagged as not recommended.
+- **Workload landing zones.** Attach Microsoft's active workload accelerators to a landing zone group — AKS, App
+  Service, Container Apps, API Management, Azure Virtual Desktop, Azure Red Hat OpenShift, Azure VMware Solution, AI
+  Landing Zone and SAP — each with its repo, Azure Verified Module and the platform pieces it needs (with a one-click
+  fix when the design is missing one). Archived accelerators are not offered.
 - **Traffic flows.** Paths that exist in the design (users → Online install, Corp egress through the firewall,
   office → Corp over VPN/ExpressRoute, spoke-to-spoke, private endpoint DNS, Bastion, logs to Sentinel) are
   highlighted hop by hop on the drawing, each step naming the ALZ policy that enforces it. Paths the design can't

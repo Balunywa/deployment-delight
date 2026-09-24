@@ -309,6 +309,40 @@ const PATCH_KEYS: Record<string, (v: unknown) => boolean> = {
         typeof x.role === "string" &&
         typeof x.scope === "string",
     ),
+  customGroups: (v) =>
+    Array.isArray(v) &&
+    v.every(
+      (x) =>
+        x &&
+        /^[a-z][a-z0-9-]{1,40}$/.test(x.id) &&
+        typeof x.name === "string" &&
+        typeof x.parent === "string" &&
+        ["corp", "online", "local", "sandbox", "inherit"].includes(x.archetype),
+    ),
+  removedGroups: (v) =>
+    Array.isArray(v) &&
+    v.every((x) =>
+      ["management", "connectivity", "identity", "security", "decommissioned"].includes(x),
+    ),
+  groupNames: (v) => !!v && typeof v === "object" && !Array.isArray(v),
+  environments: (v) =>
+    Array.isArray(v) &&
+    v.length > 0 &&
+    v.every((x) => typeof x === "string" && /^[a-z][a-z0-9-]{0,19}$/.test(x)),
+  extraSubscriptions: (v) =>
+    Array.isArray(v) &&
+    v.every(
+      (x) =>
+        x &&
+        typeof x.id === "string" &&
+        typeof x.name === "string" &&
+        typeof x.group === "string" &&
+        typeof x.environment === "string",
+    ),
+  defaultGroup: (v) => typeof v === "string",
+  workloads: (v) =>
+    Array.isArray(v) &&
+    v.every((x) => x && typeof x.group === "string" && typeof x.id === "string"),
   policyAdds: (v) =>
     Array.isArray(v) &&
     v.every((x) => x && POLICY_OPTIONS.some((o) => o.id === x.id) && typeof x.scope === "string"),

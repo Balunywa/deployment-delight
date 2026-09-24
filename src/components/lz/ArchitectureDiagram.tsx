@@ -41,6 +41,10 @@ import {
   LANDING_ZONE_LABEL,
   type MgNode,
   type OptionalGroup,
+  REMOVABLE_GROUPS,
+  type RemovableGroup,
+  isCustomGroup,
+  placementGroup,
   effectivePolicies,
   hasFirewall,
   hasHub,
@@ -48,6 +52,9 @@ import {
   platformResources,
 } from "@/lib/alz/engine";
 import type { Flow, Sel, Spoke } from "@/lib/alz/scene";
+import { workloadById } from "@/lib/alz/workloads";
+
+import { type Adding, AddDialog } from "./HierarchyEditor";
 import { cn } from "@/lib/utils";
 
 type Patch = (p: Partial<Answers>) => void;
@@ -213,6 +220,25 @@ export function ArchitectureDiagram({
   const res = new Set(platformResources(answers).map((r) => r.id));
   const has = (id: string) => tree.some((n) => n.libraryId === id);
   const exists = (id: string) => lib.managementGroups.some((m) => m.id === id);
+  const [adding, setAdding] = useState<Adding>(null);
+  const underLz = (id: string): boolean => {
+    let n = tree.find((t) => t.libraryId === id);
+    while (n) {
+      if (n.libraryId === "landingzones") return true;
+      n = tree.find((t) => t.id === n?.parentId);
+    }
+    return false;
+  };
+  const lzGroups = [
+    ...(["corp", "online", "local"] as const).map((g) => ({
+      id: g as string,
+      included: has(g),
+      exists: exists(g),
+    })),
+    ...tree
+      .filter((n) => isCustomGroup(answers, n.libraryId) && underLz(n.libraryId))
+      .map((n) => ({ id: n.libraryId, included: true, exists: true })),
+  ].filter((g) => g.exists);
   const shown = spokes.filter(
     (s) => s.group === "corp" || s.group === "online" || s.group === "local",
   );
@@ -443,7 +469,7 @@ export function ArchitectureDiagram({
 
       {/* C — management groups and subscriptions */}
       <Area letter="C" title="Management groups and subscriptions">
-        <OrgChart ctx={ctx} spokes={spokes} exists={exists} />
+        <OrgChart ctx={ctx} spokes={spokes} exists={exists} onAdd={setAdding} />
       </Area>
 
       {/* Outside Azure */}
@@ -708,23 +734,36 @@ export function ArchitectureDiagram({
 
       {/* F / H — landing zones and sandbox */}
       <div className="space-y-4">
-        <Area letter="F" title="Landing zone subscriptions — one per customer install">
-          <div
-            className="grid gap-3"
-            style={{
-              gridTemplateColumns: `repeat(${(["corp", "online", "local"] as const).filter(exists).length}, minmax(0, 1fr))`,
-            }}
-          >
-            {(["corp", "online", "local"] as const).map((g) => (
+        <Area
+          letter="F"
+          title="Landing zones — each customer install gets a subscription per environment"
+        >
+          <div className="grid grid-cols-3 gap-3">
+            {lzGroups.map((g) => (
               <LandingGroup
-                key={g}
+                key={g.id}
                 ctx={ctx}
-                group={g}
-                spokes={shown.filter((s) => s.group === g)}
-                included={has(g)}
-                exists={exists(g)}
+                group={g.id}
+                spokes={shown.filter((s) => s.group === g.id)}
+                included={g.included}
+                exists={g.exists}
+                onAdd={setAdding}
               />
             ))}
+            {set && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setAdding({ kind: "group", parent: "landingzones" });
+                }}
+                className="grid min-h-[96px] place-items-center rounded-lg border border-dashed border-[#8a8886] text-[12px] text-[#605e5c] hover:border-[#0078d4] hover:text-[#0078d4]"
+              >
+                + Add a landing zone group
+                <span className="block text-[10.5px]">
+                  e.g. Confidential, AKS platform, Regulated
+                </span>
+              </button>
+            )}
           </div>
         </Area>
         <div className="grid grid-cols-2 gap-3">
@@ -748,6 +787,7 @@ export function ArchitectureDiagram({
               on={has("sandbox")}
               select={{ kind: "mg", id: "sandbox" }}
             />
+            {has("sandbox") && <ExtraSubs ctx={ctx} group="sandbox" onAdd={setAdding} />}
           </Subscription>
           <Subscription
             ctx={ctx}
@@ -768,6 +808,15 @@ export function ArchitectureDiagram({
         Framework, hub and spoke). Solid = in your design · dashed = left out · tick or untick
         anything to change it. {res.size} platform resources.
       </p>
+      {set && (
+        <AddDialog
+          adding={adding}
+          onClose={() => setAdding(null)}
+          tree={tree}
+          answers={answers}
+          set={set}
+        />
+      )}
     </div>
   );
 }
@@ -1092,18 +1141,45 @@ function LandingGroup({
   spokes,
   included,
   exists,
+  onAdd,
 }: {
   ctx: Ctx;
-  group: OptionalGroup;
+  group: string;
   spokes: Spoke[];
   included: boolean;
   exists: boolean;
+  onAdd: (a: Adding) => void;
 }) {
+  const node = ctx.tree.find((n) => n.libraryId === group);
+  const custom = isCustomGroup(ctx.answers, group);
+  const parent = ctx.tree.find((n) => n.id === node?.parentId);
   const installs = spokes.filter((s) => !s.ghost);
-  const visible = spokes.slice(0, installs.length > 3 ? 2 : 3);
-  const more = installs.length > 3 ? installs.length - 2 : 0;
+  const customers = [...new Set(installs.map((s) => s.placement!.customerId))].map((id) => ({
+    id,
+    spokes: installs.filter((s) => s.placement!.customerId === id),
+  }));
+  const visible = customers.slice(0, customers.length > 3 ? 2 : 3);
+  const more = customers.length - visible.length;
   const selected = ctx.sel?.kind === "mg" && ctx.sel.id === group;
+  const workloads = ctx.answers.workloads
+    .filter((w) => w.group === group)
+    .map((w) => workloadById(w.id))
+    .filter(Boolean);
+  const unmet = workloads.flatMap((w) =>
+    w!
+      .needs(ctx.answers)
+      .filter((n) => !n.ok)
+      .map((n) => ({ w: w!, n })),
+  );
   if (!exists) return null;
+  const title = node?.displayName ?? LANDING_ZONE_LABEL[group]?.title ?? group;
+  const kind = custom
+    ? `${node?.archetype === "inherit" ? "inherits" : `${node?.archetype} policy`}${parent && parent.libraryId !== "landingzones" ? ` · under ${parent.displayName}` : ""}`
+    : group === "corp"
+      ? "peered to the hub"
+      : group === "online"
+        ? "internet-facing, not peered"
+        : "Azure Local";
   return (
     <div
       onClick={() => ctx.onSelect({ kind: "mg", id: group })}
@@ -1113,116 +1189,259 @@ function LandingGroup({
         selected && "ring-2 ring-[#0078d4]",
       )}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <p className={cn("text-[12px] font-semibold", !included && "text-[#8a8886]")}>
-          {LANDING_ZONE_LABEL[group]?.title}{" "}
-          <span className="font-normal text-[#605e5c]">
-            ·{" "}
-            {included
-              ? group === "corp"
-                ? "peered to the hub"
-                : group === "online"
-                  ? "internet-facing, not peered"
-                  : "Azure Local"
-              : "left out"}
-          </span>
+      <div className="mb-1.5 flex items-start justify-between gap-2">
+        <p className={cn("min-w-0 text-[12px] font-semibold", !included && "text-[#8a8886]")}>
+          {title}{" "}
+          <span className="font-normal text-[#605e5c]">· {included ? kind : "left out"}</span>
         </p>
-        {ctx.set && (
-          <Tick
-            on={included}
-            locked={
-              included && installs.length
-                ? `${installs.length} install${installs.length === 1 ? "" : "s"} live here — move them before removing ${LANDING_ZONE_LABEL[group]?.title}`
-                : undefined
-            }
-            onClick={() => toggleGroup(ctx.set!, ctx.answers, group)}
-          />
-        )}
+        {ctx.set &&
+          (custom ? (
+            <button
+              title={`Remove ${title}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                removeGroup(ctx.set!, ctx.answers, group);
+              }}
+              className="shrink-0 rounded px-1 text-[12px] text-[#8a8886] hover:bg-white hover:text-danger"
+            >
+              ×
+            </button>
+          ) : (
+            <Tick
+              on={included}
+              locked={
+                included && installs.length
+                  ? `${customers.length} customer${customers.length === 1 ? "" : "s"} live here — move them before removing ${title}`
+                  : undefined
+              }
+              onClick={() => toggleGroup(ctx.set!, ctx.answers, group as OptionalGroup)}
+            />
+          ))}
       </div>
+      {included && workloads.length > 0 && (
+        <p className="mb-1.5 flex flex-wrap gap-1">
+          {workloads.map((w) => (
+            <span
+              key={w!.id}
+              className="rounded-sm bg-[#0078d4] px-1.5 py-px text-[10px] font-medium text-white"
+            >
+              {w!.short}
+            </span>
+          ))}
+        </p>
+      )}
+      {included && unmet.length > 0 && (
+        <p className="mb-1.5 rounded-sm border border-warning/40 bg-warning/5 px-1.5 py-1 text-[10.5px] text-warning">
+          {unmet.length} platform prerequisite{unmet.length === 1 ? "" : "s"} missing — open the
+          group to fix
+        </p>
+      )}
       {included && (
         <div className="grid grid-cols-1 gap-1.5">
-          {visible.map((s) => (
-            <Install key={s.id} ctx={ctx} spoke={s} />
+          {visible.map((c) => (
+            <Install key={c.id} ctx={ctx} spokes={c.spokes} />
           ))}
-          {more > 0 && (
-            <div className="grid place-items-center rounded-md border border-[#e1dfdd] bg-white px-2 py-1.5 text-[11px] text-[#605e5c]">
-              +{more} more installs
+          {!customers.length && (
+            <div
+              data-anchor={`spoke:${group}:next`}
+              className="rounded-md border border-dashed border-[#a19f9d] px-2 py-1.5 text-[11px] text-[#605e5c]"
+            >
+              Next customer install lands here —{" "}
+              {ctx.answers.environments.map((e) => e.toUpperCase()).join(" · ")} subscriptions
             </div>
           )}
+          {more > 0 && (
+            <div className="grid place-items-center rounded-md border border-[#e1dfdd] bg-white px-2 py-1.5 text-[11px] text-[#605e5c]">
+              +{more} more customer{more === 1 ? "" : "s"}
+            </div>
+          )}
+          <ExtraSubs ctx={ctx} group={group} onAdd={onAdd} />
         </div>
       )}
     </div>
   );
 }
 
-function Install({ ctx, spoke }: { ctx: Ctx; spoke: Spoke }) {
-  const selected = ctx.sel?.kind === "spoke" && ctx.sel.id === spoke.id;
-  const lit = !ctx.involved || ctx.involved.has(`spoke:${spoke.id}`);
+/** Subscriptions the platform team added to a group, and the button to add one. */
+function ExtraSubs({ ctx, group, onAdd }: { ctx: Ctx; group: string; onAdd: (a: Adding) => void }) {
+  const subs = ctx.answers.extraSubscriptions.filter((x) => x.group === group);
   return (
-    <div
-      data-anchor={`spoke:${spoke.id}`}
-      onClick={(e) => {
-        e.stopPropagation();
-        ctx.onSelect({ kind: "spoke", id: spoke.id });
-      }}
-      className={cn(
-        "min-w-0 rounded-md border px-2 py-1.5 transition",
-        spoke.ghost
-          ? "border-dashed border-[#a19f9d] bg-transparent"
-          : "border-[#e1dfdd] bg-white hover:border-[#0078d4]",
-        selected && "ring-2 ring-[#0078d4]",
-        !lit && "opacity-35",
-      )}
-    >
-      <p className="flex items-center gap-1 truncate text-[11.5px] font-semibold">
-        <KeyRound className="size-3 shrink-0 text-[#e8a900]" />
-        <span className="truncate">
-          {spoke.placement ? spoke.placement.customerName : "Next install lands here"}
-        </span>
-      </p>
-      <p className="truncate text-[10.5px] text-[#605e5c]">
-        {spoke.placement
-          ? `${spoke.placement.environment} · ${spoke.placement.offering}`
-          : "Vended on onboarding"}
-      </p>
-      {!spoke.ghost && (
-        <p className="mt-1 flex gap-1">
-          {(spoke.group === "online" ? ["VNet", "NSGs", "WAF"] : ["VNet", "NSGs", "UDRs"]).map(
-            (c) => (
-              <span
-                key={c}
-                className="rounded-sm border border-[#e1dfdd] px-1 text-[9.5px] text-[#605e5c]"
-              >
-                {c}
-              </span>
-            ),
+    <div className="flex flex-wrap items-center gap-1">
+      {subs.map((x) => (
+        <span
+          key={x.id}
+          className="flex items-center gap-1 rounded-sm border border-[#e8c65b] bg-[#fff4ce] px-1.5 py-0.5 text-[10.5px]"
+        >
+          <KeyRound className="size-3 text-[#e8a900]" />
+          {x.name} · {x.environment}
+          {ctx.set && (
+            <button
+              title="Remove subscription"
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.set!({
+                  extraSubscriptions: ctx.answers.extraSubscriptions.filter((y) => y.id !== x.id),
+                });
+              }}
+              className="text-[#8a8886] hover:text-danger"
+            >
+              ×
+            </button>
           )}
-          <Blocks className="ml-auto size-3 text-[#0078d4]" />
-        </p>
+        </span>
+      ))}
+      {ctx.set && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAdd({ kind: "subscription", parent: group });
+          }}
+          className="rounded-sm border border-dashed border-[#a19f9d] px-1.5 py-0.5 text-[10.5px] text-[#605e5c] hover:border-[#0078d4] hover:text-[#0078d4]"
+        >
+          + subscription
+        </button>
       )}
     </div>
   );
 }
 
-function OrgChart({ ctx, exists }: { ctx: Ctx; spokes: Spoke[]; exists: (id: string) => boolean }) {
+/** One customer in a landing zone: a subscription per environment (CAF), each clickable. */
+function Install({ ctx, spokes }: { ctx: Ctx; spokes: Spoke[] }) {
+  const first = spokes[0]!;
+  const lit = !ctx.involved || spokes.some((s) => ctx.involved!.has(`spoke:${s.id}`));
+  return (
+    <div
+      className={cn(
+        "min-w-0 rounded-md border border-[#e1dfdd] bg-white px-2 py-1.5 transition hover:border-[#0078d4]",
+        !lit && "opacity-35",
+      )}
+    >
+      <p className="truncate text-[11.5px] font-semibold">{first.placement!.customerName}</p>
+      <p className="truncate text-[10.5px] text-[#605e5c]">{first.placement!.offering}</p>
+      <div className="mt-1 flex flex-wrap gap-1">
+        {spokes.map((s) => {
+          const selected = ctx.sel?.kind === "spoke" && ctx.sel.id === s.id;
+          return (
+            <button
+              key={s.id}
+              data-anchor={`spoke:${s.id}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                ctx.onSelect({ kind: "spoke", id: s.id });
+              }}
+              title={`${s.placement!.environment} subscription`}
+              className={cn(
+                "flex items-center gap-1 rounded-sm border border-[#e8c65b] bg-[#fff4ce] px-1.5 py-0.5 text-[10px] font-medium",
+                selected && "ring-2 ring-[#0078d4]",
+              )}
+            >
+              <KeyRound className="size-2.5 text-[#e8a900]" />
+              {s.placement!.environment}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function OrgChart({
+  ctx,
+  spokes,
+  exists,
+  onAdd,
+}: {
+  ctx: Ctx;
+  spokes: Spoke[];
+  exists: (id: string) => boolean;
+  onAdd: (a: Adding) => void;
+}) {
   const { tree, answers } = ctx;
-  const node = (id: string) => tree.find((n) => n.libraryId === id);
-  const root = node("alz");
-  const optional = (id: string) => ["corp", "online", "local", "sandbox"].includes(id);
-  const subsFor: Record<string, { label: string; on: boolean }[]> = {
-    security: [{ label: "Subscription", on: on(answers.securitySubscription) }],
-    management: [{ label: "Subscription", on: true }],
-    identity: [{ label: "Subscription", on: on(answers.identity) }],
-    connectivity: [{ label: "Subscription", on: hasHub(answers) }],
-    decommissioned: [{ label: "Cancelled subs", on: true }],
+  const root = tree.find((n) => !n.parentId);
+  const installs = (g: string) =>
+    new Set(spokes.filter((x) => x.group === g && !x.ghost).map((x) => x.id)).size;
+  const platformSubs: [string, string, boolean][] = [
+    ["security", "Security", on(answers.securitySubscription)],
+    ["management", "Management", true],
+    ["identity", "Identity", on(answers.identity)],
+    ["connectivity", "Connectivity", hasHub(answers)],
+  ];
+  const tags = (id: string) => {
+    const out: { label: string; on: boolean; pending?: boolean }[] = [];
+    for (const [g, label, isOn] of platformSubs)
+      if (placementGroup(answers, g) === id)
+        out.push({ label: id === g ? "Subscription" : `${label} subscription`, on: isOn });
+    if (id === "decommissioned") out.push({ label: "Cancelled subs", on: true });
+    const n = installs(id);
+    const underLandingZones = (() => {
+      let x = tree.find((t) => t.libraryId === id);
+      while (x) {
+        if (x.libraryId === "landingzones") return true;
+        x = tree.find((t) => t.id === x?.parentId);
+      }
+      return false;
+    })();
+    if (n) out.push({ label: `${n} subscription${n === 1 ? "" : "s"}`, on: true });
+    else if (underLandingZones && id !== "landingzones")
+      out.push({ label: "1 per install × env", on: true, pending: true });
+    else if (id === "sandbox")
+      out.push({ label: "Sandbox subscriptions", on: true, pending: true });
+    const extra = answers.extraSubscriptions.filter((x) => x.group === id).length;
+    if (extra) out.push({ label: `+${extra} added`, on: true });
+    return out;
   };
-  const mgBox = (id: string, label?: string) => {
-    const n = node(id);
-    const included = !!n && (!ctx.present || ctx.present.has(id));
-    if (!exists(id) && id !== "alz") return null;
+  const removable = (id: string) =>
+    isCustomGroup(answers, id) || (REMOVABLE_GROUPS as readonly string[]).includes(id);
+  const optional = (id: string) => ["corp", "online", "local", "sandbox"].includes(id);
+
+  const box = (n: MgNode) => {
+    const id = n.libraryId;
+    const included = !ctx.present || ctx.present.has(id);
     const selected = ctx.sel?.kind === "mg" && ctx.sel.id === id;
     return (
-      <div key={id} className="flex flex-col items-center gap-1">
+      <div className="group/mg relative flex flex-col items-center gap-1">
+        {ctx.set && (
+          <span className="absolute bottom-full left-1/2 z-10 hidden -translate-x-1/2 gap-0.5 pb-0.5 group-focus-within/mg:flex group-hover/mg:flex">
+            {id !== "decommissioned" && (
+              <button
+                title="Add a management group under this one"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdd({ kind: "group", parent: id });
+                }}
+                className="rounded bg-[#0078d4] px-1 text-[10px] leading-4 text-white"
+              >
+                + group
+              </button>
+            )}
+            <button
+              title="Add a subscription here"
+              onClick={(e) => {
+                e.stopPropagation();
+                onAdd({ kind: "subscription", parent: id });
+              }}
+              className="rounded bg-[#e8a900] px-1 text-[10px] leading-4 text-white"
+            >
+              + sub
+            </button>
+            {removable(id) && (
+              <button
+                title={
+                  isCustomGroup(answers, id)
+                    ? "Remove this group"
+                    : "Remove — its subscription moves to Platform"
+                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeGroup(ctx.set!, answers, id);
+                }}
+                className="rounded bg-[#a4262c] px-1 text-[10px] leading-4 text-white"
+              >
+                ×
+              </button>
+            )}
+          </span>
+        )}
         <div
           role="button"
           tabIndex={0}
@@ -1235,59 +1454,98 @@ function OrgChart({ ctx, exists }: { ctx: Ctx; spokes: Spoke[]; exists: (id: str
             included
               ? "border-[#c8c6c4] bg-white hover:border-[#0078d4]"
               : "border-dashed border-[#a19f9d] bg-transparent text-[#8a8886]",
+            isCustomGroup(answers, id) && "border-[#0078d4]/50",
             selected && "ring-2 ring-[#0078d4]",
           )}
-          title={
-            included
-              ? `${n!.enforced} assigned here · ${n!.inherited} inherited`
-              : "Left out of this design"
-          }
+          title={`${n.enforced} assigned here · ${n.inherited} inherited`}
         >
           <span className={cn("block text-[11.5px] font-semibold", !included && "line-through")}>
-            {label ?? n?.displayName ?? id}
+            {n.displayName}
           </span>
           <span className="block font-mono text-[9.5px] text-[#605e5c]">
             {included
-              ? (ctx.asIs?.counts[id] ?? `${n!.enforced} + ${n!.inherited}`)
-              : ctx.present
-                ? "not in tenant"
-                : "left out"}
+              ? (ctx.asIs?.counts[id] ?? `${n.enforced} + ${n.inherited}`)
+              : "not in tenant"}
           </span>
           {ctx.set && optional(id) && (
             <span className="absolute -top-1.5 -right-1.5">
-              <Tick
-                on={included}
-                onClick={() => toggleGroup(ctx.set!, answers, id as OptionalGroup)}
-              />
+              <Tick on onClick={() => toggleGroup(ctx.set!, answers, id as OptionalGroup)} />
             </span>
           )}
         </div>
         {included &&
-          subsFor[id]?.map((s) => (
+          tags(id).map((t) => (
             <span
-              key={s.label}
+              key={t.label}
+              title={t.pending ? "Created when a customer is onboarded" : undefined}
               className={cn(
-                "rounded-sm border px-1.5 py-0.5 text-[10px]",
-                s.on
-                  ? "border-[#e8c65b] bg-[#fff4ce]"
-                  : "border-dashed border-[#a19f9d] text-[#8a8886] line-through",
+                "rounded-sm border px-1.5 py-0.5 text-[10px] whitespace-nowrap",
+                t.pending
+                  ? "border-dashed border-[#e8c65b] bg-[#fffbeb] text-[#605e5c]"
+                  : t.on
+                    ? "border-[#e8c65b] bg-[#fff4ce]"
+                    : "border-dashed border-[#a19f9d] text-[#8a8886] line-through",
               )}
             >
-              {s.label}
+              {t.label}
             </span>
           ))}
       </div>
     );
   };
-  const branch = (parent: string, kids: string[]) => (
-    <div className="flex flex-col items-center">
-      {mgBox(parent)}
-      <span className="h-3 w-px bg-[#8a8886]" />
-      <div className="flex gap-2 border-t border-[#8a8886] px-2 pt-3">
-        {kids.map((k) => mgBox(k))}
+  const branch = (n: MgNode): ReactNode => {
+    const kids = tree.filter((k) => k.parentId === n.id);
+    // Library groups the design left out stay visible (dashed) so they can be added back.
+    const leftOut =
+      n.libraryId === "landingzones"
+        ? (["corp", "online", "local"] as const).filter(
+            (g) => exists(g) && !tree.some((t) => t.libraryId === g),
+          )
+        : n.libraryId === "alz"
+          ? (["sandbox"] as const).filter((g) => exists(g) && !tree.some((t) => t.libraryId === g))
+          : [];
+    const removedHere =
+      n.libraryId === "platform"
+        ? answers.removedGroups.filter((g) => g !== "decommissioned")
+        : n.libraryId === "alz"
+          ? answers.removedGroups.filter((g) => g === "decommissioned")
+          : [];
+    const ghosts = [...leftOut, ...removedHere];
+    return (
+      <div className="flex flex-col items-center">
+        {box(n)}
+        {(kids.length > 0 || ghosts.length > 0) && (
+          <>
+            <span className="h-3 w-px bg-[#8a8886]" />
+            <div className="flex items-start gap-2 border-t border-[#8a8886] px-2 pt-3">
+              {kids.map((k) => (
+                <div key={k.id}>{branch(k)}</div>
+              ))}
+              {ghosts.map((g) => (
+                <button
+                  key={g}
+                  disabled={!ctx.set}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if ((REMOVABLE_GROUPS as readonly string[]).includes(g))
+                      ctx.set?.({ removedGroups: answers.removedGroups.filter((x) => x !== g) });
+                    else toggleGroup(ctx.set!, answers, g as OptionalGroup);
+                  }}
+                  className="min-w-[88px] rounded border border-dashed border-[#a19f9d] px-2 py-1 text-center text-[#8a8886] enabled:hover:border-[#0078d4] enabled:hover:text-[#0078d4]"
+                  title="Left out — click to add back"
+                >
+                  <span className="block text-[11.5px] font-semibold line-through">
+                    {LANDING_ZONE_LABEL[g]?.title ?? g.charAt(0).toUpperCase() + g.slice(1)}
+                  </span>
+                  <span className="block text-[9.5px]">{ctx.set ? "+ add back" : "left out"}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
-    </div>
-  );
+    );
+  };
   if (!root) return null;
   return (
     <div
@@ -1299,19 +1557,36 @@ function OrgChart({ ctx, exists }: { ctx: Ctx; spokes: Spoke[]; exists: (id: str
           Tenant root group
         </span>
         <span className="h-3 w-px bg-[#8a8886]" />
-        {mgBox("alz", root.displayName)}
-        <span className="h-3 w-px bg-[#8a8886]" />
-        <div className="flex items-start gap-4 border-t border-[#8a8886] px-4 pt-3">
-          {branch("platform", ["security", "management", "identity", "connectivity"])}
-          {branch("landingzones", ["corp", "online", "local"])}
-          {mgBox("sandbox")}
-          {mgBox("decommissioned")}
-        </div>
+        {branch(root)}
       </div>
-      <p className="mt-2 text-center text-[10px] text-[#605e5c]">
-        Numbers: policy assignments made here + inherited from above. Click a group to see and
-        change them.
+      <p className="mt-3 text-center text-[10px] text-[#605e5c]">
+        Numbers: policy assignments made here + inherited. Hover a group to add a group or
+        subscription under it, or remove it; click it for details.
       </p>
     </div>
   );
 }
+
+const removeGroup = (set: Patch, a: Answers, id: string) => {
+  if (a.customGroups.some((c) => c.id === id)) {
+    // Removing a group removes the groups under it too.
+    const gone = new Set([id]);
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (const c of a.customGroups)
+        if (gone.has(c.parent) && !gone.has(c.id)) {
+          gone.add(c.id);
+          grew = true;
+        }
+    }
+    set({
+      customGroups: a.customGroups.filter((c) => !gone.has(c.id)),
+      workloads: a.workloads.filter((w) => !gone.has(w.group)),
+      extraSubscriptions: a.extraSubscriptions.filter((x) => !gone.has(x.group)),
+      rbac: a.rbac.filter((r) => !gone.has(r.scope)),
+      policyAdds: a.policyAdds.filter((p) => !gone.has(p.scope)),
+    });
+  } else if ((REMOVABLE_GROUPS as readonly string[]).includes(id))
+    set({ removedGroups: [...new Set([...a.removedGroups, id as RemovableGroup])] });
+};

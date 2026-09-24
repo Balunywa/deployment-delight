@@ -15,6 +15,7 @@ import {
   Play,
   Route,
   ShieldCheck,
+  Lightbulb,
   Sparkles,
   Undo2,
   X,
@@ -26,6 +27,7 @@ import { AccessPanel, AdvisorPanel, PolicyAddsPanel } from "@/components/lz/Pane
 import type { Assessment } from "@/lib/alz/assess";
 import { designContext } from "@/lib/alz/context";
 import { PERSONAS } from "@/lib/alz/governance";
+import { WORKLOADS } from "@/lib/alz/workloads";
 import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +40,9 @@ import {
   type OptionalGroup,
   LANDING_ZONE_LABEL,
   MG_PURPOSE,
+  REMOVABLE_GROUPS,
+  type CustomGroup,
+  type RemovableGroup,
   changesFor,
   effectivePolicies,
   hasHub,
@@ -555,6 +560,27 @@ function Palette({
             </label>
           </div>
           <label className="block text-[11px] text-muted-foreground">
+            New subscriptions go to
+            <select
+              className="mt-0.5 h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
+              value={answers.defaultGroup}
+              onChange={(e) => set({ defaultGroup: e.target.value })}
+            >
+              <option value="">Tenant root (Azure default)</option>
+              {hierarchy(lib, answers).map((n) => (
+                <option key={n.id} value={n.libraryId}>
+                  {n.displayName}
+                </option>
+              ))}
+            </select>
+            {answers.defaultGroup !== "sandbox" && (
+              <span className="mt-1 flex gap-1 text-[11px] text-[#5c4400]">
+                <Lightbulb className="mt-px size-3 shrink-0 text-[#c08b00]" />
+                Microsoft recommends Sandbox, so stray subscriptions never land under the root.
+              </span>
+            )}
+          </label>
+          <label className="block text-[11px] text-muted-foreground">
             Display name
             <Input
               className="mt-0.5 h-7 text-xs"
@@ -562,6 +588,42 @@ function Palette({
               onChange={(e) => set({ intermediateRootName: e.target.value })}
             />
           </label>
+        </Section>
+
+        <Section title="Environments">
+          <p className="text-[11.5px] text-muted-foreground">
+            Each customer install gets one subscription per environment, in its Corp or Online
+            group.
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {answers.environments.map((e) => (
+              <span
+                key={e}
+                className="flex items-center gap-1 rounded-sm border border-[#e8c65b] bg-[#fff4ce] px-1.5 py-0.5 text-[11.5px]"
+              >
+                {e}
+                {answers.environments.length > 1 && (
+                  <button
+                    className="text-muted-foreground hover:text-danger"
+                    onClick={() =>
+                      set({ environments: answers.environments.filter((x) => x !== e) })
+                    }
+                    aria-label={`Remove ${e}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            <EnvAdd
+              onAdd={(e) => set({ environments: [...new Set([...answers.environments, e])] })}
+            />
+          </div>
+          <p className="flex gap-1.5 rounded-sm border border-[#f3d27a] bg-[#fff8e1] px-2 py-1.5 text-[11px] text-[#5c4400]">
+            <Lightbulb className="mt-px size-3.5 shrink-0 text-[#c08b00]" />
+            CAF: environments are separate subscriptions in the same group, not separate management
+            groups. Dev and test inherit the same guardrails as prod.
+          </p>
         </Section>
 
         <Section title="Landing zones">
@@ -771,6 +833,28 @@ function Palette({
         </div>
       </div>
     </>
+  );
+}
+
+function EnvAdd({ onAdd }: { onAdd: (e: string) => void }) {
+  const [v, setV] = useState("");
+  const commit = () => {
+    const e = v
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9-]/g, "");
+    if (e) onAdd(e);
+    setV("");
+  };
+  return (
+    <input
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onKeyDown={(e) => e.key === "Enter" && commit()}
+      onBlur={commit}
+      placeholder="+ qa, uat, staging…"
+      className="h-6 w-28 rounded-sm border border-dashed border-border bg-transparent px-1.5 text-[11.5px]"
+    />
   );
 }
 
@@ -1282,7 +1366,6 @@ function MgDetail({ id, tree, answers, set, placed, lib }: IP & { id: string }) 
   const n = tree.find((t) => t.libraryId === id);
   if (!n) return null;
   const count = placed.filter((p) => p.landingZone === id).length;
-  const optional = (["corp", "online", "local", "sandbox"] as string[]).includes(id);
   const deny = n.here.filter(
     (h) =>
       (h.assignment?.effect ?? "").toLowerCase().startsWith("deny") &&
@@ -1296,11 +1379,17 @@ function MgDetail({ id, tree, answers, set, placed, lib }: IP & { id: string }) 
           {n.id} · archetype {n.archetype}
         </p>
       </div>
-      <p className="text-[12.5px]">{MG_PURPOSE[id]}</p>
+      <p className="text-[12.5px]">
+        {MG_PURPOSE[id] ??
+          (n.archetype === "inherit"
+            ? "Added by you. Adds no policy of its own — everything is inherited from the groups above."
+            : `Added by you, with the ALZ ${n.archetype} policy set.`)}
+      </p>
       <div className="grid grid-cols-2 gap-2">
         <Stat label="Assigned here" value={n.enforced} />
         <Stat label="Inherited" value={n.inherited} />
       </div>
+      {set && <GroupEditor id={id} tree={tree} answers={answers} set={set} placedCount={count} />}
       {deny.length > 0 && (
         <div>
           <p className="mb-1 text-[11px] font-medium text-muted-foreground">Blocks at this level</p>
@@ -1311,26 +1400,225 @@ function MgDetail({ id, tree, answers, set, placed, lib }: IP & { id: string }) 
           </ul>
         </div>
       )}
-      {optional && (
-        <Toggle
-          label={`Include ${n.displayName}`}
-          checked
-          disabled={count > 0}
-          onChange={
-            set &&
-            ((v) => !v && set({ landingZones: answers.landingZones.filter((g) => g !== id) }))
-          }
-        />
-      )}
-      {optional && count > 0 && (
-        <p className="text-[11.5px] text-muted-foreground">
-          {count} install{count === 1 ? "" : "s"} live here, so it can't be removed.
-        </p>
-      )}
       <p className="text-[11.5px] text-muted-foreground">
         From Microsoft's ALZ {shortRef(lib.ref)}. Every assignment that applies here is listed below
         — keep it, set it to audit only, or remove it.
       </p>
+    </div>
+  );
+}
+
+/** Rename, change the policy basis, choose workload landing zones and manage subscriptions for one group. */
+function GroupEditor({
+  id,
+  tree,
+  answers,
+  set,
+  placedCount,
+}: {
+  id: string;
+  tree: MgNode[];
+  answers: Answers;
+  set: (p: Partial<Answers>) => void;
+  placedCount: number;
+}) {
+  const n = tree.find((t) => t.libraryId === id)!;
+  const custom = answers.customGroups.find((c) => c.id === id);
+  const underLz = (() => {
+    let x: MgNode | undefined = n;
+    while (x) {
+      if (x.libraryId === "landingzones") return x.libraryId !== id;
+      x = tree.find((t) => t.id === x?.parentId);
+    }
+    return false;
+  })();
+  const chosen = answers.workloads.filter((w) => w.group === id).map((w) => w.id);
+  const subs = answers.extraSubscriptions.filter((x) => x.group === id);
+  const removable =
+    !!custom ||
+    (REMOVABLE_GROUPS as readonly string[]).includes(id) ||
+    (["corp", "online", "local", "sandbox"].includes(id) && !placedCount);
+  const remove = () => {
+    if (custom) {
+      const gone = new Set([id]);
+      for (let i = 0; i < 6; i++)
+        for (const c of answers.customGroups) if (gone.has(c.parent)) gone.add(c.id);
+      set({
+        customGroups: answers.customGroups.filter((c) => !gone.has(c.id)),
+        workloads: answers.workloads.filter((w) => !gone.has(w.group)),
+        extraSubscriptions: answers.extraSubscriptions.filter((x) => !gone.has(x.group)),
+        rbac: answers.rbac.filter((r) => !gone.has(r.scope)),
+        policyAdds: answers.policyAdds.filter((p) => !gone.has(p.scope)),
+      });
+    } else if ((REMOVABLE_GROUPS as readonly string[]).includes(id))
+      set({ removedGroups: [...new Set([...answers.removedGroups, id as RemovableGroup])] });
+    else set({ landingZones: answers.landingZones.filter((g) => g !== id) });
+  };
+  return (
+    <div className="space-y-3 rounded-md border border-border p-3">
+      <label className="block text-[11px] font-medium text-muted-foreground">
+        Display name
+        <Input
+          className="mt-0.5 h-7 text-xs"
+          value={custom ? custom.name : (answers.groupNames[id] ?? n.displayName)}
+          disabled={id === "alz"}
+          onChange={(e) =>
+            custom
+              ? set({
+                  customGroups: answers.customGroups.map((c) =>
+                    c.id === id ? { ...c, name: e.target.value } : c,
+                  ),
+                })
+              : set({ groupNames: { ...answers.groupNames, [id]: e.target.value } })
+          }
+        />
+      </label>
+      {custom && (
+        <label className="block text-[11px] font-medium text-muted-foreground">
+          Policy
+          <select
+            className="mt-0.5 h-7 w-full rounded-md border border-input bg-background px-1.5 text-xs"
+            value={custom.archetype}
+            onChange={(e) =>
+              set({
+                customGroups: answers.customGroups.map((c) =>
+                  c.id === id ? { ...c, archetype: e.target.value as CustomGroup["archetype"] } : c,
+                ),
+              })
+            }
+          >
+            <option value="inherit">Inherit only (no extra policy)</option>
+            <option value="corp">Corp policy set</option>
+            <option value="online">Online policy set</option>
+            <option value="sandbox">Sandbox policy set</option>
+            <option value="local">Local policy set</option>
+          </select>
+        </label>
+      )}
+      {(underLz || ["corp", "online", "local"].includes(id)) && (
+        <div>
+          <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+            Workload landing zones here
+          </p>
+          <div className="space-y-1.5">
+            {WORKLOADS.map((w) => {
+              const isOn = chosen.includes(w.id);
+              const unmet = isOn ? w.needs(answers).filter((x) => !x.ok) : [];
+              return (
+                <div
+                  key={w.id}
+                  className={cn(
+                    "rounded-md border px-2 py-1.5",
+                    isOn ? "border-primary/40 bg-primary/5" : "border-border",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-[12px] font-medium">{w.name}</p>
+                      {isOn && (
+                        <p className="text-[11px] text-muted-foreground">
+                          Deploys {w.deploys.join(", ")}.{" "}
+                          <a
+                            className="text-primary hover:underline"
+                            href={`https://github.com/${w.repo}`}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {w.repo}
+                          </a>
+                          {w.module && <span className="font-mono"> · {w.module.source}</span>}
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      checked={isOn}
+                      onCheckedChange={(v) =>
+                        set({
+                          workloads: v
+                            ? [...answers.workloads, { group: id, id: w.id }]
+                            : answers.workloads.filter((x) => !(x.group === id && x.id === w.id)),
+                        })
+                      }
+                    />
+                  </div>
+                  {isOn &&
+                    w.archetype !== (custom?.archetype ?? id) &&
+                    ["corp", "online"].includes(w.archetype) && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">
+                        Microsoft's accelerator assumes a{" "}
+                        {w.archetype === "corp" ? "Corp" : "Online"} landing zone.
+                      </p>
+                    )}
+                  {unmet.map((u) => (
+                    <p
+                      key={u.text}
+                      className="mt-1 flex items-start justify-between gap-2 text-[11px] text-warning"
+                    >
+                      <span>Needs {u.text}</span>
+                      {u.patch && (
+                        <button
+                          className="shrink-0 font-medium text-primary hover:underline"
+                          onClick={() => set(u.patch!)}
+                        >
+                          Fix
+                        </button>
+                      )}
+                    </p>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div>
+        <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+          Subscriptions you added here
+        </p>
+        {subs.length ? (
+          <ul className="space-y-1">
+            {subs.map((x) => (
+              <li
+                key={x.id}
+                className="flex items-center justify-between rounded-sm border border-border px-2 py-1 text-[12px]"
+              >
+                <span>
+                  {x.name} <span className="text-muted-foreground">· {x.environment}</span>
+                </span>
+                <button
+                  className="text-muted-foreground hover:text-danger"
+                  onClick={() =>
+                    set({
+                      extraSubscriptions: answers.extraSubscriptions.filter((y) => y.id !== x.id),
+                    })
+                  }
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[11.5px] text-muted-foreground">
+            None. Hover the group on the canvas and choose “+ sub”.
+          </p>
+        )}
+      </div>
+      {removable && id !== "alz" && (
+        <Button size="sm" variant="outline" className="text-danger" onClick={remove}>
+          {custom
+            ? "Remove this group"
+            : (REMOVABLE_GROUPS as readonly string[]).includes(id)
+              ? "Remove — its subscription moves to Platform"
+              : "Leave this group out"}
+        </Button>
+      )}
+      {!removable && placedCount > 0 && (
+        <p className="text-[11.5px] text-muted-foreground">
+          {placedCount} customer install subscription{placedCount === 1 ? "" : "s"} live here, so it
+          can't be removed.
+        </p>
+      )}
     </div>
   );
 }

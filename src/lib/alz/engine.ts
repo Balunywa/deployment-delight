@@ -19,6 +19,7 @@ import {
   RESTRICT_PRIVILEGED_CONDITION,
   type RbacAssignment,
 } from "./governance";
+import { WORKLOADS } from "./workloads";
 
 export type Assignment = {
   displayName: string;
@@ -70,6 +71,19 @@ export type OptionalGroup = (typeof OPTIONAL_GROUPS)[number];
 
 export type YesNo = "yes" | "no";
 
+export const REMOVABLE_GROUPS = [
+  "management",
+  "connectivity",
+  "identity",
+  "security",
+  "decommissioned",
+] as const;
+export type RemovableGroup = (typeof REMOVABLE_GROUPS)[number];
+/** ALZ policy sets a new group can be built on; "inherit" adds nothing beyond what its parents assign. */
+export type CustomArchetype = "corp" | "online" | "local" | "sandbox" | "inherit";
+export type CustomGroup = { id: string; name: string; parent: string; archetype: CustomArchetype };
+export type ExtraSubscription = { id: string; name: string; group: string; environment: string };
+
 export type Answers = {
   intermediateRootId: string;
   intermediateRootName: string;
@@ -92,6 +106,20 @@ export type Answers = {
   policyAdds: PolicyAdd[];
   /** Tag name required on resource groups when that policy is added. */
   customerTag: string;
+  /** Management groups the customer added: an ALZ policy set to build on, or inherit only. */
+  customGroups: CustomGroup[];
+  /** Platform or other groups the customer removed (their subscriptions move up to the parent). */
+  removedGroups: RemovableGroup[];
+  /** Display names the customer chose for any group. */
+  groupNames: Record<string, string>;
+  /** One subscription per environment for each customer install (CAF: environments are subscriptions). */
+  environments: string[];
+  /** Subscriptions the platform team adds by hand (shared services, tooling), per management group. */
+  extraSubscriptions: ExtraSubscription[];
+  /** Where new subscriptions land by default (Microsoft recommends Sandbox), or "" to leave Azure's default. */
+  defaultGroup: string;
+  /** Workload landing zone accelerators used in a landing zone group. */
+  workloads: { group: string; id: string }[];
   /** Second hub region ("" for none). Hubs peer to each other automatically. */
   secondaryRegion: string;
   defender: YesNo;
@@ -123,6 +151,13 @@ export const DEFAULT_ANSWERS: Answers = {
   rbac: [],
   policyAdds: [],
   customerTag: "customer",
+  customGroups: [],
+  removedGroups: [],
+  groupNames: {},
+  environments: ["dev", "test", "prod"],
+  extraSubscriptions: [],
+  defaultGroup: "sandbox",
+  workloads: [],
   secondaryRegion: "",
   defender: "yes",
   updateManager: "yes",
@@ -165,9 +200,39 @@ const AMA_ASSIGNMENTS = [
 
 /** Management groups in the design: the library's, minus landing zone groups that were switched off. */
 export function includedGroups(library: AlzLibrary, answers: Answers) {
-  const off = OPTIONAL_GROUPS.filter((g) => !answers.landingZones.includes(g));
-  return library.managementGroups.filter((m) => !(off as string[]).includes(m.id));
+  const off = new Set<string>([
+    ...OPTIONAL_GROUPS.filter((g) => !answers.landingZones.includes(g)),
+    ...answers.removedGroups,
+  ]);
+  const base = library.managementGroups.filter((m) => !off.has(m.id));
+  const known = new Set(base.map((m) => m.id));
+  const custom: AlzLibrary["managementGroups"] = [];
+  // Add in dependency order, dropping groups whose parent no longer exists.
+  let pending = answers.customGroups.filter((c) => !known.has(c.id));
+  for (let pass = 0; pass < 8 && pending.length; pass++) {
+    const next: CustomGroup[] = [];
+    for (const c of pending) {
+      if (known.has(c.parent)) {
+        custom.push({
+          id: c.id,
+          displayName: c.name,
+          parentId: c.parent,
+          archetypes: [c.archetype],
+        });
+        known.add(c.id);
+      } else next.push(c);
+    }
+    pending = next;
+  }
+  return [...base, ...custom];
 }
+
+/** Where a platform subscription is placed: its own group, or the Platform group if that was removed. */
+export const placementGroup = (answers: Answers, group: string) =>
+  (answers.removedGroups as string[]).includes(group) ? "platform" : group;
+
+export const isCustomGroup = (answers: Answers, id: string) =>
+  answers.customGroups.some((c) => c.id === id);
 
 /** The documented customizations implied by the answers, resolved against the pinned library. */
 export function changesFor(library: AlzLibrary, answers: Answers): Change[] {
@@ -309,7 +374,10 @@ export function hierarchy(library: AlzLibrary, answers: Answers): MgNode[] {
     return {
       id: mgIdFor(answers, m.id),
       libraryId: m.id,
-      displayName: m.id === "alz" ? answers.intermediateRootName || m.displayName : m.displayName,
+      displayName:
+        m.id === "alz"
+          ? answers.intermediateRootName || m.displayName
+          : answers.groupNames[m.id] || m.displayName,
       parentId: m.parentId ? mgIdFor(answers, m.parentId) : null,
       archetype,
       depth: depthOf(m.id),
@@ -327,7 +395,19 @@ export function hierarchy(library: AlzLibrary, answers: Answers): MgNode[] {
       p = find(p.parentId);
     }
   }
-  return nodes.sort((a, b) => MG_ORDER.indexOf(a.libraryId) - MG_ORDER.indexOf(b.libraryId));
+  // Depth-first from the root, library groups in Microsoft's order, added groups after their siblings.
+  const rank = (n: MgNode) =>
+    MG_ORDER.includes(n.libraryId) ? MG_ORDER.indexOf(n.libraryId) : 100;
+  const out: MgNode[] = [];
+  const visit = (n: MgNode) => {
+    out.push(n);
+    nodes
+      .filter((k) => k.parentId === n.id)
+      .sort((a, b) => rank(a) - rank(b) || a.displayName.localeCompare(b.displayName))
+      .forEach(visit);
+  };
+  nodes.filter((n) => !n.parentId).forEach(visit);
+  return out;
 }
 
 /** Every assignment that applies at a management group, nearest first, with the group it comes from. */
@@ -603,17 +683,32 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
   const library = libraryFor(ref);
   const changes = changesFor(library, answers);
   const groups = includedGroups(library, answers);
-  const byArchetype = new Map<string, string[]>();
-  for (const c of changes.filter((x) => x.action === "remove"))
-    byArchetype.set(c.archetype, [
-      ...new Set([...(byArchetype.get(c.archetype) ?? []), c.assignment]),
-    ]);
+  // One archetype override per management group that has removals. Library groups keep "<archetype>_custom";
+  // added groups sharing an archetype get their own, so a change in one group never leaks into another.
+  const canonical = new Set(library.managementGroups.map((m) => m.id));
+  const overrideFor = (mgId: string, archetype: string) =>
+    canonical.has(mgId)
+      ? `${archetype}_custom`
+      : `${archetype}_${mgId.replace(/[^a-z0-9]+/gi, "_")}`;
+  const byArchetype = new Map<string, { base: string; removed: string[] }>();
+  for (const c of changes.filter((x) => x.action === "remove")) {
+    const name = overrideFor(c.managementGroup, c.archetype);
+    const cur = byArchetype.get(name) ?? { base: c.archetype, removed: [] };
+    byArchetype.set(name, {
+      base: c.archetype,
+      removed: [...new Set([...cur.removed, c.assignment])],
+    });
+  }
+  const usesInherit = groups.some((g) => g.archetypes.includes("inherit"));
   const audits = changes.filter((c) => c.action === "audit");
   const custom =
     byArchetype.size > 0 ||
     answers.intermediateRootId !== "alz" ||
-    groups.length !== library.managementGroups.length;
-  const overrideName = (a: string) => (byArchetype.has(a) ? `${a}_custom` : a);
+    groups.length !== library.managementGroups.length ||
+    groups.some((g) => !canonical.has(g.id)) ||
+    Object.keys(answers.groupNames).length > 0;
+  const overrideName = (mgId: string, a: string) =>
+    byArchetype.has(overrideFor(mgId, a)) ? overrideFor(mgId, a) : a;
   const mg = (id: string) => mgIdFor(answers, id);
   const defaults = requiredDefaults(library, answers);
   const region = answers.primaryRegion;
@@ -934,9 +1029,19 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
     `  subscription_placement = {`,
     ...placements.map(
       ([key, sub, group]) =>
-        `    ${key} = { subscription_id = ${sub}, management_group_name = ${q(mg(group))} }`,
+        `    ${key} = { subscription_id = ${sub}, management_group_name = ${q(mg(placementGroup(answers, group)))} }`,
     ),
     `  }`,
+    ...(answers.defaultGroup && included.has(answers.defaultGroup)
+      ? [
+          ``,
+          `  # New subscriptions land here instead of the tenant root, and only authorized principals can create groups.`,
+          `  management_group_hierarchy_settings = {`,
+          `    default_management_group_name            = ${q(mg(answers.defaultGroup))}`,
+          `    require_authorization_for_group_creation = true`,
+          `  }`,
+        ]
+      : []),
     ...(rbac.length
       ? [
           ``,
@@ -1061,21 +1166,96 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
     ]),
   ].join("\n");
 
+  const extraSubs = answers.extraSubscriptions.filter((x) => included.has(x.group));
+  const subscriptionsTf = extraSubs
+    .map((x) => {
+      const alias = `${answers.intermediateRootId || "alz"}-${x.name}`
+        .toLowerCase()
+        .replace(/[^a-z0-9-]+/g, "-");
+      return [
+        `module "sub_${x.id.replace(/[^a-z0-9]+/gi, "_")}" {`,
+        `  source  = "Azure/avm-ptn-alz-sub-vending/azure"`,
+        `  version = "0.3.2"`,
+        ``,
+        `  location                   = ${q(region)}`,
+        `  subscription_alias_enabled = true`,
+        `  subscription_alias_name    = ${q(alias)}`,
+        `  subscription_display_name  = ${q(x.name)}`,
+        `  subscription_workload      = ${q(x.environment === "prod" ? "Production" : "DevTest")}`,
+        `  subscription_billing_scope = var.billing_scope`,
+        `  subscription_tags          = { environment = ${q(x.environment)} }`,
+        ``,
+        `  subscription_management_group_association_enabled = true`,
+        `  subscription_management_group_id                  = ${q(mg(x.group))}`,
+        ``,
+        `  depends_on = [module.alz]`,
+        `}`,
+      ].join("\n");
+    })
+    .join("\n\n");
+  const workloadRows = answers.workloads
+    .filter((w) => included.has(w.group))
+    .map((w) => ({ ...w, def: WORKLOADS.find((x) => x.id === w.id) }))
+    .filter((w) => w.def);
+  const workloadsTf = workloadRows.length
+    ? [
+        `# Workload landing zones. Each customer install's subscriptions in these groups are deployed from the`,
+        `# workload accelerator below by the delivery pipeline, on top of the platform built in main.tf.`,
+        ...workloadRows.flatMap((w) => [
+          ``,
+          `# ${w.def!.name} in ${mg(w.group)}`,
+          `#   Accelerator: https://github.com/${w.def!.repo}`,
+          ...(w.def!.module
+            ? [`#   Terraform:   ${w.def!.module.source} ${w.def!.module.version}`]
+            : []),
+          `#   Needs from the platform: ${w.def!.platformNeeds}`,
+        ]),
+      ].join("\n")
+    : "";
   const files = [
     { path: "main.tf", content: alignHcl(main) + "\n" },
     { path: "providers.tf", content: alignHcl(providers) + "\n" },
-    { path: "variables.tf", content: variables + "\n" },
+    {
+      path: "variables.tf",
+      content:
+        variables +
+        (extraSubs.length
+          ? `\n\nvariable "billing_scope" {\n  type        = string\n  description = "Billing scope for new subscriptions: an EA enrollment account or MCA invoice section ID."\n}`
+          : "") +
+        "\n",
+    },
+    ...(extraSubs.length
+      ? [{ path: "subscriptions.tf", content: alignHcl(subscriptionsTf) + "\n" }]
+      : []),
+    ...(workloadsTf ? [{ path: "workloads.tf", content: workloadsTf + "\n" }] : []),
   ];
   if (custom) {
-    for (const [archetype, removed] of byArchetype)
+    if (usesInherit)
       files.push({
-        path: `lib/${archetype}_custom.alz_archetype_override.json`,
+        path: "lib/inherit.alz_archetype_definition.json",
+        content: JSON.stringify(
+          {
+            $schema:
+              "https://raw.githubusercontent.com/Azure/Azure-Landing-Zones-Library/main/schemas/archetype_definition.json",
+            name: "inherit",
+            policy_assignments: [],
+            policy_definitions: [],
+            policy_set_definitions: [],
+            role_definitions: [],
+          },
+          null,
+          2,
+        ),
+      });
+    for (const [name, { base, removed }] of byArchetype)
+      files.push({
+        path: `lib/${name}.alz_archetype_override.json`,
         content: JSON.stringify(
           {
             $schema:
               "https://raw.githubusercontent.com/Azure/Azure-Landing-Zones-Library/main/schemas/archetype_override.json",
-            name: `${archetype}_custom`,
-            base_archetype: archetype,
+            name,
+            base_archetype: base,
             policy_assignments_to_remove: removed,
           },
           null,
@@ -1091,9 +1271,12 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
           name: "custom",
           management_groups: groups.map((m) => ({
             id: mg(m.id),
-            display_name: m.id === "alz" ? answers.intermediateRootName : m.displayName,
+            display_name:
+              m.id === "alz"
+                ? answers.intermediateRootName
+                : answers.groupNames[m.id] || m.displayName,
             parent_id: m.parentId ? mg(m.parentId) : null,
-            archetypes: m.archetypes.map(overrideName),
+            archetypes: m.archetypes.map((a) => overrideName(m.id, a)),
             exists: false,
           })),
         },

@@ -16,6 +16,7 @@ import {
 import { PERSONAS, POLICY_OPTIONS } from "./governance";
 import type { Placement } from "./placement";
 import { flowsFor, spokesFor } from "./scene";
+import { WORKLOADS } from "./workloads";
 
 export function designContext(
   lib: AlzLibrary,
@@ -87,6 +88,22 @@ export function designContext(
         why: p.why,
       })),
     },
+    workloadLandingZones: WORKLOADS.map((w) => ({
+      id: w.id,
+      name: w.name,
+      accelerator: `https://github.com/${w.repo}`,
+      terraformModule: w.module ? `${w.module.source} ${w.module.version}` : null,
+      assumes: w.archetype,
+      deploys: w.deploys,
+      platformNeeds: w.platformNeeds,
+      usedIn: answers.workloads.filter((x) => x.id === w.id).map((x) => x.group),
+      missingNow: answers.workloads.some((x) => x.id === w.id)
+        ? w
+            .needs(answers)
+            .filter((n) => !n.ok)
+            .map((n) => n.text)
+        : [],
+    })),
     extraPolicyOptions: POLICY_OPTIONS.map((o) => ({
       id: o.id,
       name: o.name,

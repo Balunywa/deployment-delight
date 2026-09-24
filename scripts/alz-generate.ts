@@ -71,12 +71,23 @@ const cases: { name: string; answers: Partial<Answers> }[] = [
   {
     name: "isv-hosted-overrides",
     answers: {
+      customGroups: [
+        { id: "corp-confidential", name: "Confidential", parent: "corp", archetype: "inherit" },
+        { id: "aks", name: "AKS platform", parent: "landingzones", archetype: "corp" },
+      ],
+      removedGroups: ["identity", "security"],
+      groupNames: { online: "Hosted customers" },
+      extraSubscriptions: [
+        { id: "shared-prod", name: "Shared services prod", group: "online", environment: "prod" },
+      ],
+      workloads: [{ group: "aks", id: "aks" }],
       intermediateRootId: "isv",
       intermediateRootName: "ISV hosting",
       firewall: "Basic",
       landingZones: ["online", "corp"],
       policyOverrides: {
         "corp/Deny-Public-Endpoints": "audit",
+        "aks/Deny-HybridNetworking": "remove",
         "landingzones/Deny-Subnet-Without-Nsg": "audit",
         "alz/Deploy-ASC-Monitoring": "remove",
       },

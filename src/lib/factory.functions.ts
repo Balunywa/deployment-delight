@@ -1306,6 +1306,36 @@ const answersSchema = z.object({
   siem: z.enum(["sentinel", "other"]),
   identity: z.enum(["yes", "no"]),
   securitySubscription: z.enum(["yes", "no"]),
+  customGroups: z
+    .array(
+      z.object({
+        id: z.string().regex(/^[a-z][a-z0-9-]{1,40}$/),
+        name: z.string().min(1).max(80),
+        parent: z.string().max(40),
+        archetype: z.enum(["corp", "online", "local", "sandbox", "inherit"]),
+      }),
+    )
+    .max(30),
+  removedGroups: z.array(
+    z.enum(["management", "connectivity", "identity", "security", "decommissioned"]),
+  ),
+  groupNames: z.record(z.string().max(40), z.string().min(1).max(80)),
+  environments: z
+    .array(z.string().regex(/^[a-z][a-z0-9-]{0,19}$/))
+    .min(1)
+    .max(10),
+  extraSubscriptions: z
+    .array(
+      z.object({
+        id: z.string().max(60),
+        name: z.string().min(1).max(64),
+        group: z.string().max(40),
+        environment: z.string().max(20),
+      }),
+    )
+    .max(50),
+  defaultGroup: z.string().max(40),
+  workloads: z.array(z.object({ group: z.string().max(40), id: z.string().max(20) })).max(60),
   rbac: z
     .array(
       z.object({
@@ -1324,7 +1354,7 @@ const answersSchema = z.object({
   vmBackup: z.enum(["yes", "no"]),
   landingZones: z.array(z.enum(["corp", "online", "local", "sandbox"])),
   policyOverrides: z.record(
-    z.string().regex(/^[a-z_]+\/[A-Za-z0-9-]+$/),
+    z.string().regex(/^[a-z][a-z0-9_-]*\/[A-Za-z0-9-]+$/),
     z.enum(["audit", "remove"]),
   ),
   securityContactEmail: z.string().email().or(z.literal("")),
