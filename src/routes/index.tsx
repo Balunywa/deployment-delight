@@ -213,10 +213,10 @@ function Home() {
         <StripLink to="/audit" label="Audit trail" value="Immutable" hint="Every decision and step recorded" />
       </div>
 
-      {deps.length > 0 && (
+      {deps[0] && (
         <p className="mt-4 text-xs text-muted-foreground">
           Latest activity:{" "}
-          <Pill tone={deploymentTone(deps[0].status)}>{deps[0].status.replace(/_/g, " ")}</Pill> {envName(deps[0])} · {relative(deps[0].requested_at)}
+          <LatestActivity d={deps[0]} name={envName(deps[0])} />
         </p>
       )}
     </>
@@ -246,5 +246,13 @@ function StripLink({ to, label, value, hint }: { to: "/compliance" | "/costs" | 
       <p className="mono-num mt-1 text-xl font-semibold">{value}</p>
       <p className="text-xs text-muted-foreground">{hint}</p>
     </Link>
+  );
+}
+
+function LatestActivity({ d, name }: { d: { status: string; requested_at: string }; name: string }) {
+  return (
+    <>
+      <Pill tone={deploymentTone(d.status)}>{d.status.replace(/_/g, " ")}</Pill> {name} · {relative(d.requested_at)}
+    </>
   );
 }
