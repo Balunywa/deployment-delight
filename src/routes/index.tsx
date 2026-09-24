@@ -1,297 +1,258 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowRight, Boxes, Building2, Layers, Rocket } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, GitBranch, ShieldAlert, XCircle } from "lucide-react";
 
-import { Dot, Metric, PageHeader, Panel, Pill, deploymentTone, severityTone } from "@/components/Primitives";
-import { currency, percent, relative } from "@/lib/format";
-import { deploymentsQuery, driftQuery, estateQuery } from "@/lib/queries";
+import { Dot, PageHeader, Panel, Pill, deploymentTone } from "@/components/Primitives";
+import { currency, relative } from "@/lib/format";
+import { deploymentsQuery, driftQuery, estateQuery, wavesQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Overview · Azure ISV Deployment Factory" },
+      { title: "Home · GridWorks Deployment Factory" },
       {
         name: "description",
         content:
-          "Estate health, platform versions, deployment health and projected Azure consumption across every ISV customer environment.",
+          "Current release, decisions awaiting you, fleet version progression and active customer rollouts for your productized Azure deployment.",
       },
-      { property: "og:title", content: "Overview · Azure ISV Deployment Factory" },
+      { property: "og:title", content: "Home · GridWorks Deployment Factory" },
       {
         property: "og:description",
-        content: "Estate health, platform versions, deployment health and projected Azure consumption.",
+        content: "Release, decide, roll out: your Azure deployment as a versioned product.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
-  component: Overview,
+  component: Home,
 });
 
-function Overview() {
+type V = { version?: string } | null;
+const ver = (x: unknown) => (x as V)?.version;
+
+function Home() {
   const estate = useQuery(estateQuery);
   const deployments = useQuery(deploymentsQuery);
   const drift = useQuery(driftQuery);
+  const waves = useQuery(wavesQuery);
 
   const envs = estate.data ?? [];
   const prod = envs.filter((e) => e.environment_type === "production");
-  const customers = new Set(envs.map((e) => e.customer_id));
   const deps = deployments.data ?? [];
   const openDrift = (drift.data ?? []).filter((d) => d.status === "open");
+  const latest = "4.2.0";
+
+  const onLatest = prod.filter((e) => ver(e.actual) === latest).length;
+  const behind = prod.filter((e) => ver(e.actual) && ver(e.actual) !== latest);
+  const adoption = prod.length ? Math.round((onLatest / prod.length) * 100) : 0;
 
   const versionCounts = prod.reduce<Record<string, number>>((acc, e) => {
-    const v = (e.actual as { version?: string } | null)?.version ?? "not deployed";
+    const v = ver(e.actual) ?? "none";
     acc[v] = (acc[v] ?? 0) + 1;
     return acc;
   }, {});
+  const versions = Object.entries(versionCounts).sort((a, b) => b[0].localeCompare(a[0]));
 
-  const outdated = prod.filter(
-    (e) =>
-      (e.actual as { version?: string } | null)?.version !==
-      (e.desired as { version?: string } | null)?.version,
-  );
-  const failed = deps.filter((d) => d.status === "FAILED" || d.status === "REQUIRES_REMEDIATION");
-  const inFlight = deps.filter((d) => ["QUEUED", "DEPLOYING", "PLANNING", "VALIDATING"].includes(d.status));
   const awaiting = deps.filter((d) => d.status === "AWAITING_APPROVAL" || d.status === "AWAITING_PLAN_APPROVAL");
-  const succeeded = deps.filter((d) => d.status === "SUCCEEDED");
-  const successRate = deps.length ? Math.round((succeeded.length / (succeeded.length + failed.length || 1)) * 100) : 0;
-  const monthly = envs.reduce((sum, e) => sum + Number(e.monthly_cost_estimate ?? 0), 0);
-  const complianceIssues = envs.filter((e) => Number(e.compliance_score) < 100);
+  const failed = deps.filter((d) => d.status === "FAILED" || d.status === "REQUIRES_REMEDIATION");
+  const manualReview = prod.filter((e) => ver(e.actual)?.startsWith("3."));
+  const decisions = awaiting.length + failed.length + openDrift.length + (manualReview.length ? 1 : 0);
+
+  const envName = (d: (typeof deps)[number]) => {
+    const e = d.environments as { name?: string; customers?: { name?: string } } | null;
+    return `${e?.customers?.name ?? "Customer"} · ${e?.name ?? ""}`;
+  };
+
+  const rolloutStages = [
+    { label: "Planned", n: deps.filter((d) => ["DRAFT", "READY", "VALIDATING", "PLANNING"].includes(d.status)).length, tone: "neutral" as const },
+    { label: "Awaiting approval", n: awaiting.length, tone: "warning" as const },
+    { label: "Deploying", n: deps.filter((d) => ["QUEUED", "DEPLOYING"].includes(d.status)).length, tone: "info" as const },
+    { label: "Succeeded", n: deps.filter((d) => d.status === "SUCCEEDED" && d.deployment_type === "upgrade").length, tone: "success" as const },
+    { label: "Failed", n: failed.length, tone: "danger" as const },
+  ];
+
+  const monthly = envs.reduce((s, e) => s + Number(e.monthly_cost_estimate ?? 0), 0);
+  const complianceGaps = envs.filter((e) => Number(e.compliance_score) < 100).length;
 
   return (
     <>
       <PageHeader
-        title="Overview"
-        description="You've productized your software. This is your Azure deployment, productized — one versioned catalog deployed repeatably into every customer tenant."
-        meta={
-          <>
-            <Pill tone="primary">GridWorks · Grid Analytics Platform</Pill>
-            <Pill tone="warning">Demo mode — deployments are simulated, no Azure calls</Pill>
-          </>
-        }
+        title="Deployment factory"
+        description="Define once → version deliberately → plan safely → approve explicitly → deploy repeatedly → reconcile continuously."
+        meta={<Pill tone="warning">Demo mode — every deployment here is simulated</Pill>}
         actions={
-          <Link
-            to="/onboard"
-            className="rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:opacity-90"
-          >
+          <Link to="/onboard" className="rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:opacity-90">
             Onboard customer
           </Link>
         }
       />
 
-      <div className="mb-8 overflow-hidden rounded-md border border-border bg-card">
-        <div className="border-b border-border bg-muted/30 px-4 py-2.5">
-          <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">
-            Catalog-to-Customer Lifecycle
-          </h2>
-        </div>
-        <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-4 sm:divide-x sm:divide-y-0">
-          <WorkflowStep
-            to="/products"
-            label="Productize"
-            desc="Define Azure architecture"
-            icon={Boxes}
-          />
-          <WorkflowStep
-            to="/offerings"
-            label="Version"
-            desc="Publish immutable blueprints"
-            icon={Layers}
-          />
-          <WorkflowStep
-            to="/onboard"
-            label="Onboard"
-            desc="Connect customer tenants"
-            icon={Building2}
-          />
-          <WorkflowStep
-            to="/deployments"
-            label="Deploy"
-            desc="Lifecycle execution & drift"
-            icon={Rocket}
-          />
-        </div>
-      </div>
-
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric label="Customers" value={customers.size} hint={`${envs.length} environments under management`} />
-        <Metric
-          label="Outdated environments"
-          value={outdated.length}
-          tone={outdated.length ? "warning" : "success"}
-          hint="Desired version differs from actual"
-        />
-        <Metric
-          label="Drift findings"
-          value={openDrift.length}
-          tone={openDrift.length ? "warning" : "success"}
-          hint="Open, awaiting decision"
-        />
-        <Metric
-          label="Projected Azure spend"
-          value={currency(monthly, { compact: true })}
-          hint={`${currency(monthly * 12, { compact: true })} annualized · ESTIMATE`}
-        />
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Panel
-          title="Customer estate"
-          description="Version posture across production environments"
-          actions={
-            <Link to="/estate" className="text-xs font-medium text-primary hover:underline">
-              Open estate
-            </Link>
-          }
-        >
-          <dl className="space-y-2 text-sm">
-            <Row label="Customers" value={String(customers.size)} />
-            <Row label="Current" value={String(prod.length - outdated.length)} tone="success" />
-            <Row label="Upgrade available" value={String(outdated.length)} tone="warning" />
-            <Row
-              label="Attention required"
-              value={String(envs.filter((e) => e.status === "attention_required").length)}
-              tone="danger"
-            />
-          </dl>
-        </Panel>
-
-        <Panel title="Platform versions" description="Production environments by deployed offering version">
-          <ul className="space-y-2">
-            {Object.entries(versionCounts)
-              .sort((a, b) => b[1] - a[1])
-              .map(([version, count]) => (
-                <li key={version} className="flex items-center gap-3">
-                  <span className="mono-num w-14 text-foreground">v{version.replace("not deployed", "—")}</span>
-                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                    <span
-                      className="block h-full rounded-full bg-primary"
-                      style={{ width: `${(count / Math.max(prod.length, 1)) * 100}%` }}
-                    />
+      {/* Current release */}
+      <section className="mb-4 rounded-md border border-border bg-card">
+        <div className="grid gap-0 divide-y divide-border lg:grid-cols-[1.3fr_1fr] lg:divide-x lg:divide-y-0">
+          <div className="p-5">
+            <p className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Current release</p>
+            <div className="mt-2 flex flex-wrap items-baseline gap-3">
+              <h2 className="text-2xl font-semibold text-foreground">Grid Analytics Platform</h2>
+              <span className="mono-num text-2xl font-semibold text-primary">v{latest}</span>
+              <Pill tone="success">Published · immutable</Pill>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">Enterprise Private blueprint · deploys into existing enterprise landing zones</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link to="/offerings" className="rounded-sm border border-border px-3 py-1.5 text-[13px] font-medium hover:bg-muted">
+                View blueprint
+              </Link>
+              <Link to="/estate" className="rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:opacity-90">
+                Plan upgrade for {behind.length} environments
+              </Link>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="flex items-baseline justify-between">
+              <p className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Production adoption</p>
+              <span className="mono-num text-sm font-semibold">{onLatest}/{prod.length} · {adoption}%</span>
+            </div>
+            <div className="mt-3 flex h-3 overflow-hidden rounded-full bg-muted">
+              {versions.map(([v, n], i) => (
+                <span
+                  key={v}
+                  title={`v${v}: ${n}`}
+                  className={i === 0 ? "bg-primary" : i === 1 ? "bg-warning" : "bg-danger"}
+                  style={{ width: `${(n / Math.max(prod.length, 1)) * 100}%` }}
+                />
+              ))}
+            </div>
+            <ul className="mt-3 space-y-1.5 text-sm">
+              {versions.map(([v, n], i) => (
+                <li key={v} className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <span className={`size-2 rounded-full ${i === 0 ? "bg-primary" : i === 1 ? "bg-warning" : "bg-danger"}`} />
+                    <span className="mono-num">v{v}</span>
+                    <span className="text-xs text-muted-foreground">
+                      {v === latest ? "current" : v.startsWith("3.") ? "manual review required" : "upgrade-compatible"}
+                    </span>
                   </span>
-                  <span className="mono-num w-16 text-right text-muted-foreground">{count} cust.</span>
+                  <span className="mono-num text-muted-foreground">{n}</span>
                 </li>
               ))}
-          </ul>
-        </Panel>
-
-        <Panel title="Deployment health" description="All recorded deployments (demo engine)">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <Row label="Success rate" value={`${successRate}%`} tone="success" />
-            <Row label="Succeeded" value={String(succeeded.length)} />
-            <Row label="Failed" value={String(failed.length)} tone={failed.length ? "danger" : "neutral"} />
-            <Row label="In progress" value={String(inFlight.length)} tone="info" />
-            <Row
-              label="Awaiting approval"
-              value={String(awaiting.length)}
-              tone={awaiting.length ? "warning" : "neutral"}
-            />
-            <Row
-              label="Compliance issues"
-              value={String(complianceIssues.length)}
-              tone={complianceIssues.length ? "warning" : "success"}
-            />
+            </ul>
           </div>
-        </Panel>
-      </div>
+        </div>
+      </section>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+        {/* Decisions */}
         <Panel
-          title="Needs your attention"
-          description="Approvals, failures and drift that block the lifecycle"
+          title={`Decisions required · ${decisions}`}
+          description="Nothing moves until someone decides. Approving a plan does not start a deployment by itself."
           bodyClassName="p-0"
         >
           <ul className="divide-y divide-border">
-            {[...awaiting, ...failed].slice(0, 6).map((d) => (
-              <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <Link to="/deployments/$deploymentId" params={{ deploymentId: d.id }} className="text-sm font-medium hover:underline">
-                    {(d.environments as { customers?: { name?: string } } | null)?.customers?.name ?? "Environment"} ·{" "}
-                    {(d.environments as { name?: string } | null)?.name}
-                  </Link>
-                  <p className="text-xs text-muted-foreground">
-                    {d.deployment_type} → v{d.desired_version ?? "—"} · requested {relative(d.requested_at)}
-                  </p>
-                </div>
-                <Pill tone={deploymentTone(d.status)}>
-                  <Dot tone={deploymentTone(d.status)} />
-                  {d.status.replace(/_/g, " ")}
-                </Pill>
-              </li>
+            {awaiting.map((d) => (
+              <Decision key={d.id} icon={<ShieldAlert className="size-4 text-warning" />} title={`Approve production plan · ${envName(d)}`}
+                detail={`${d.deployment_type} → v${d.desired_version ?? "—"} · requested ${relative(d.requested_at)}`}
+                action={<Link to="/deployments/$deploymentId" params={{ deploymentId: d.id }} className="text-xs font-medium text-primary hover:underline">Review plan</Link>} />
             ))}
-            {openDrift.slice(0, 4).map((f) => (
-              <li key={f.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {(f.environments as { customers?: { name?: string } } | null)?.customers?.name} · drift in {f.category}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">{f.recommended_remediation}</p>
-                </div>
-                <Pill tone={severityTone(f.severity)}>{f.severity}</Pill>
-              </li>
+            {failed.map((d) => (
+              <Decision key={d.id} icon={<XCircle className="size-4 text-danger" />} title={`Failed deployment · ${envName(d)}`}
+                detail="No automatic rollback. Remediate and re-plan."
+                action={<Link to="/deployments/$deploymentId" params={{ deploymentId: d.id }} className="text-xs font-medium text-primary hover:underline">Investigate</Link>} />
             ))}
-            {!awaiting.length && !failed.length && !openDrift.length && (
-              <li className="px-4 py-6 text-sm text-muted-foreground">Nothing needs attention.</li>
+            {openDrift.map((f) => (
+              <Decision key={f.id} icon={<AlertTriangle className="size-4 text-warning" />}
+                title={`Drift · ${(f.environments as { customers?: { name?: string } } | null)?.customers?.name ?? "Environment"} · ${f.category}`}
+                detail={`${f.severity} · accept, remediate, ignore or escalate`}
+                action={<Link to="/customers" className="text-xs font-medium text-primary hover:underline">Decide</Link>} />
+            ))}
+            {manualReview.length > 0 && (
+              <Decision icon={<GitBranch className="size-4 text-info" />} title={`${manualReview.length} environments on v3.x need manual upgrade review`}
+                detail="Breaking changes between 3.9 and 4.2 — cannot join an automatic wave."
+                action={<Link to="/estate" className="text-xs font-medium text-primary hover:underline">Review</Link>} />
+            )}
+            {decisions === 0 && (
+              <li className="flex items-center gap-2 px-4 py-6 text-sm text-muted-foreground"><CheckCircle2 className="size-4 text-success" />Nothing waiting on you.</li>
             )}
           </ul>
         </Panel>
 
+        {/* Active rollout */}
         <Panel
-          title="Estimated Azure consumption"
-          description="Estimates from offering cost models — not billed consumption"
-          actions={
-            <Link to="/costs" className="text-xs font-medium text-primary hover:underline">
-              FinOps view
-            </Link>
-          }
+          title="Active rollout · v4.1 → v4.2"
+          description="Waves progress only after plans are approved"
+          actions={<Link to="/upgrades" className="text-xs font-medium text-primary hover:underline">Open rollouts</Link>}
         >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Metric label="Monthly (estimate)" value={currency(monthly, { compact: true })} />
-            <Metric label="Annualized (estimate)" value={currency(monthly * 12, { compact: true })} />
-          </div>
-          <p className="mt-3 text-xs text-muted-foreground">
-            Average compliance across the estate is{" "}
-            {percent(envs.reduce((s, e) => s + Number(e.compliance_score), 0) / Math.max(envs.length, 1))}. Actual
-            consumption appears here once Azure Cost Management ingestion is connected.
-          </p>
+          <ol className="space-y-2">
+            {rolloutStages.map((s, i) => (
+              <li key={s.label} className="flex items-center gap-3">
+                <span className="mono-num w-4 text-xs text-muted-foreground">{i + 1}</span>
+                <Dot tone={s.tone} />
+                <span className="flex-1 text-sm">{s.label}</span>
+                <span className="mono-num text-sm font-semibold">{s.n}</span>
+              </li>
+            ))}
+          </ol>
+          {(waves.data ?? []).length > 0 && (
+            <div className="mt-4 border-t border-border pt-3">
+              <p className="mb-2 text-[11px] font-bold tracking-wider text-muted-foreground uppercase">Waves</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[...(waves.data ?? [])].sort((a, b) => a.sequence - b.sequence).map((w) => (
+                  <Pill key={w.id} tone={w.status === "completed" ? "success" : w.status === "in_progress" ? "info" : "neutral"}>
+                    {w.name} · {w.environment_ids.length}
+                  </Pill>
+                ))}
+              </div>
+            </div>
+          )}
         </Panel>
       </div>
+
+      {/* Trust & cost strip */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <StripLink to="/compliance" label="Compliance gaps" value={String(complianceGaps)} hint="Evidence-backed checks only" />
+        <StripLink to="/costs" label="Monthly cost · ESTIMATED" value={currency(monthly, { compact: true })} hint="ACTUAL appears once billing is connected" />
+        <StripLink to="/audit" label="Audit trail" value="Immutable" hint="Every decision and step recorded" />
+      </div>
+
+      {deps[0] && (
+        <p className="mt-4 text-xs text-muted-foreground">
+          Latest activity:{" "}
+          <LatestActivity d={deps[0]} name={envName(deps[0])} />
+        </p>
+      )}
     </>
   );
 }
 
-function WorkflowStep({ to, label, desc, icon: Icon }: { to: string; label: string; desc: string; icon: any }) {
+function Decision({ icon, title, detail, action }: { icon: React.ReactNode; title: string; detail: string; action: React.ReactNode }) {
   return (
-    <Link to={to} className="group relative flex flex-col p-4 transition-colors hover:bg-muted/50">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="grid size-8 place-items-center rounded-md bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
-          <Icon className="size-4" />
-        </div>
-        <ArrowRight className="size-3 text-muted-foreground opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100" />
+    <li className="flex items-center gap-3 px-4 py-3">
+      {icon}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-medium">{title}</p>
+        <p className="truncate text-xs text-muted-foreground">{detail}</p>
       </div>
-      <p className="text-sm font-semibold text-foreground">{label}</p>
-      <p className="text-[11px] text-muted-foreground">{desc}</p>
+      {action}
+    </li>
+  );
+}
+
+function StripLink({ to, label, value, hint }: { to: "/compliance" | "/costs" | "/audit"; label: string; value: string; hint: string }) {
+  return (
+    <Link to={to} className="group rounded-md border border-border bg-card p-4 hover:bg-muted/40">
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-bold tracking-wider text-muted-foreground uppercase">{label}</p>
+        <ArrowRight className="size-3 text-muted-foreground" />
+      </div>
+      <p className="mono-num mt-1 text-xl font-semibold">{value}</p>
+      <p className="text-xs text-muted-foreground">{hint}</p>
     </Link>
   );
 }
 
-function Row({
-  label,
-  value,
-  tone = "neutral",
-}: {
-  label: string;
-  value: string;
-  tone?: "neutral" | "success" | "warning" | "danger" | "info";
-}) {
-  const toneClass = {
-    neutral: "text-foreground",
-    success: "text-success",
-    warning: "text-warning",
-    danger: "text-danger",
-    info: "text-info",
-  }[tone];
+function LatestActivity({ d, name }: { d: { status: string; requested_at: string }; name: string }) {
   return (
-    <div className="flex items-baseline justify-between gap-2">
-      <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className={`mono-num font-semibold ${toneClass}`}>{value}</dd>
-    </div>
+    <>
+      <Pill tone={deploymentTone(d.status)}>{d.status.replace(/_/g, " ")}</Pill> {name} · {relative(d.requested_at)}
+    </>
   );
 }
