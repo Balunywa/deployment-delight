@@ -19,17 +19,35 @@ import { Pill } from "@/components/Primitives";
 import { cn } from "@/lib/utils";
 
 const nav = [
-  { to: "/", label: "Overview", icon: LayoutDashboard },
-  { to: "/products", label: "Products", icon: Boxes },
-  { to: "/offerings", label: "Offerings", icon: Layers },
-  { to: "/customers", label: "Customers", icon: Building2 },
-  { to: "/deployments", label: "Deployments", icon: Rocket },
-  { to: "/estate", label: "Estate", icon: Activity },
-  { to: "/compliance", label: "Compliance", icon: ShieldCheck },
-  { to: "/upgrades", label: "Upgrades", icon: BadgeCheck },
-  { to: "/costs", label: "Costs", icon: DollarSign },
-  { to: "/audit", label: "Audit", icon: ScrollText },
-  { to: "/settings", label: "Settings", icon: Cog },
+  {
+    label: "Inventory",
+    items: [
+      { to: "/", label: "Overview", icon: LayoutDashboard },
+      { to: "/estate", label: "Estate Fleet", icon: Activity },
+      { to: "/customers", label: "Customers", icon: Building2 },
+      { to: "/deployments", label: "Deployments", icon: Rocket },
+    ],
+  },
+  {
+    label: "Catalog",
+    items: [
+      { to: "/products", label: "Products", icon: Boxes },
+      { to: "/offerings", label: "Offerings", icon: Layers },
+    ],
+  },
+  {
+    label: "Governance",
+    items: [
+      { to: "/upgrades", label: "Rollouts", icon: BadgeCheck },
+      { to: "/compliance", label: "Compliance", icon: ShieldCheck },
+      { to: "/costs", label: "Cost Management", icon: DollarSign },
+      { to: "/audit", label: "Audit Logs", icon: ScrollText },
+    ],
+  },
+  {
+    label: "System",
+    items: [{ to: "/settings", label: "Settings", icon: Cog }],
+  },
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
