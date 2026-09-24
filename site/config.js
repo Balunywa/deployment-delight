@@ -2,4 +2,6 @@
 window.CLOUD_DELIVERY = {
   consoleUrl: "http://localhost:5174/",
   repoUrl: "https://github.com/Balunywa/deployment-delight",
+  deployUrl:
+    "https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2FcreateUiDefinition.json",
 };

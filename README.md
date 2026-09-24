@@ -6,6 +6,10 @@ Cloud Delivery is for software companies that deliver their product on Azure. To
 usually means weeks of custom cloud work: network design, security reviews, new infrastructure scripts
 and pipelines. Cloud Delivery lets you do that work once.
 
+[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2FcreateUiDefinition.json)
+
+Deploy the Cloud Delivery console into any Azure tenant in one click — see [deploy/azure](deploy/azure/README.md).
+
 ## Two ways to run it
 
 |                        | Hosted in your Azure (most common)                           | In the customer's own Azure                                                              |
@@ -35,6 +39,7 @@ Either way, it's the same product setup, the same deployment process and the sam
 | ------------------------ | ---------------------------------------------------------------------------- |
 | `src/`                   | The Cloud Delivery app (TanStack Start + React)                              |
 | `db/`                    | Database schema and demo data (PostgreSQL)                                   |
+| `deploy/azure/`          | One-click deployment of the console (Bicep, ARM template, portal wizard)     |
 | `site/`                  | Separate marketing page for prospects — see [site/README.md](site/README.md) |
 | `docs/original-brief.md` | The original product brief this was built from                               |
 

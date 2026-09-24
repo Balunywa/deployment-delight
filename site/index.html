@@ -24,7 +24,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=6" />
+    <link rel="stylesheet" href="styles.css?v=8" />
     <script src="config.js"></script>
   </head>
   <body>
@@ -39,7 +39,9 @@
           <a href="#estate">All customers</a>
         </nav>
         <div class="nav-cta">
-          <a class="btn btn-ghost" data-link="repo" href="#">Deploy from GitHub</a>
+          <a class="btn btn-ghost" data-link="deploy" href="#" target="_blank" rel="noopener"
+            ><i data-lucide="cloud-upload"></i>Deploy to Azure</a
+          >
           <a class="btn btn-primary" data-link="console" href="#">Open the console</a>
         </div>
       </div>
@@ -66,7 +68,14 @@
               <a class="btn btn-primary btn-lg" data-link="console" href="#"
                 >See it live <i data-lucide="arrow-right"></i
               ></a>
-              <a class="btn btn-ghost-dark btn-lg" href="#translate">See how it works</a>
+              <a
+                class="btn btn-ghost-dark btn-lg"
+                data-link="deploy"
+                href="#"
+                target="_blank"
+                rel="noopener"
+                ><i data-lucide="cloud-upload"></i>Deploy to Azure</a
+              >
             </div>
           </div>
 
@@ -797,15 +806,22 @@
         <div class="wrap">
           <h2>Your next customer should take hours,<br />not another Azure project.</h2>
           <p class="sub">
-            Install Cloud Delivery in your own Azure from GitHub, describe how your product runs,
-            and bring on your next customer — hosted by you or in their Azure.
+            One click deploys Cloud Delivery into your own Azure — the web app and its database,
+            ready in about 10 minutes. Describe how your product runs, then bring on your next
+            customer, hosted by you or in their Azure.
           </p>
           <div class="ctas">
-            <a class="btn btn-primary btn-lg" data-link="console" href="#"
-              >Open the console <i data-lucide="arrow-right"></i
-            ></a>
+            <a
+              class="btn btn-primary btn-lg"
+              data-link="deploy"
+              href="#"
+              target="_blank"
+              rel="noopener"
+              ><i data-lucide="cloud-upload"></i>Deploy to Azure</a
+            >
+            <a class="btn btn-ghost btn-lg" data-link="console" href="#">See the demo console</a>
             <a class="btn btn-ghost btn-lg" data-link="repo" href="#"
-              ><i data-lucide="github"></i>Deploy from GitHub</a
+              ><i data-lucide="github"></i>View on GitHub</a
             >
           </div>
           <div class="built">
@@ -830,7 +846,9 @@
     <script>
       const cfg = window.CLOUD_DELIVERY || {};
       document.querySelectorAll("[data-link]").forEach((a) => {
-        const url = a.dataset.link === "console" ? cfg.consoleUrl : cfg.repoUrl;
+        const url = { console: cfg.consoleUrl, repo: cfg.repoUrl, deploy: cfg.deployUrl }[
+          a.dataset.link
+        ];
         if (url) a.href = url;
       });
       const plans = {

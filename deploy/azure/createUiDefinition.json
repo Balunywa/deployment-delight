@@ -1,0 +1,133 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/0.1.2-preview/CreateUIDefinition.MultiVm.json#",
+  "handler": "Microsoft.Azure.CreateUIDef",
+  "version": "0.1.2-preview",
+  "parameters": {
+    "config": {
+      "isWizard": false,
+      "basics": {
+        "description": "**Cloud Delivery** — set up your product on Azure once, then deploy it for every customer, hosted in your Azure or theirs.\n\nThis deploys the Cloud Delivery console: App Service, Azure Database for PostgreSQL and Application Insights. The app creates its own database tables on first start.",
+        "location": {
+          "label": "Region",
+          "toolTip": "Where the console and its database run.",
+          "resourceTypes": ["Microsoft.Web/sites", "Microsoft.DBforPostgreSQL/flexibleServers"]
+        }
+      }
+    },
+    "basics": [
+      {
+        "name": "namePrefix",
+        "type": "Microsoft.Common.TextBox",
+        "label": "Name prefix",
+        "defaultValue": "clouddelivery",
+        "toolTip": "Used to build resource names. A short random suffix is added so names are unique.",
+        "constraints": {
+          "required": true,
+          "regex": "^[a-z][a-z0-9-]{2,15}$",
+          "validationMessage": "3–16 characters: lowercase letters, numbers and hyphens, starting with a letter."
+        }
+      }
+    ],
+    "steps": [
+      {
+        "name": "app",
+        "label": "Web app",
+        "elements": [
+          {
+            "name": "appServiceSku",
+            "type": "Microsoft.Common.DropDown",
+            "label": "App Service plan",
+            "defaultValue": "B1 — Basic (demo)",
+            "toolTip": "B1 is enough for a demo. Choose a Premium plan for production.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "B1 — Basic (demo)", "value": "B1" },
+                { "label": "B2 — Basic", "value": "B2" },
+                { "label": "P0v3 — Premium", "value": "P0v3" },
+                { "label": "P1v3 — Premium (production)", "value": "P1v3" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "seedDemoData",
+            "type": "Microsoft.Common.CheckBox",
+            "label": "Load demo data (fictional ISV GridWorks and 24 utility customers)",
+            "defaultValue": true
+          }
+        ]
+      },
+      {
+        "name": "database",
+        "label": "Database",
+        "elements": [
+          {
+            "name": "postgresSku",
+            "type": "Microsoft.Common.DropDown",
+            "label": "PostgreSQL size",
+            "defaultValue": "Burstable B1ms (demo)",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Burstable B1ms (demo)", "value": "Standard_B1ms" },
+                { "label": "Burstable B2s", "value": "Standard_B2s" },
+                { "label": "General Purpose D2ds v5 (production)", "value": "Standard_D2ds_v5" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "databaseAuth",
+            "type": "Microsoft.Common.OptionsGroup",
+            "label": "How the app signs in to the database",
+            "defaultValue": "Managed identity (recommended — no password)",
+            "toolTip": "Managed identity: the web app's identity is the database's Entra admin, so no password exists. Password: the connection string is kept in Key Vault; requires permission to create role assignments.",
+            "constraints": {
+              "allowedValues": [
+                { "label": "Managed identity (recommended — no password)", "value": "entra" },
+                { "label": "Password stored in Key Vault", "value": "password" }
+              ],
+              "required": true
+            }
+          },
+          {
+            "name": "administratorLogin",
+            "type": "Microsoft.Common.TextBox",
+            "label": "Database admin login",
+            "defaultValue": "cdadmin",
+            "visible": "[equals(steps('database').databaseAuth, 'password')]",
+            "constraints": {
+              "required": true,
+              "regex": "^[a-z][a-z0-9_]{2,31}$",
+              "validationMessage": "3–32 characters: lowercase letters, numbers and underscores."
+            }
+          },
+          {
+            "name": "administratorLoginPassword",
+            "type": "Microsoft.Common.PasswordBox",
+            "label": {
+              "password": "Database admin password",
+              "confirmPassword": "Confirm password"
+            },
+            "visible": "[equals(steps('database').databaseAuth, 'password')]",
+            "constraints": {
+              "required": true,
+              "regex": "^(?=.*[A-Z])(?=.*[a-z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{12,128}$",
+              "validationMessage": "At least 12 characters with upper and lower case letters, a number and a symbol."
+            },
+            "options": { "hideConfirmation": false }
+          }
+        ]
+      }
+    ],
+    "outputs": {
+      "location": "[location()]",
+      "namePrefix": "[basics('namePrefix')]",
+      "appServiceSku": "[steps('app').appServiceSku]",
+      "seedDemoData": "[steps('app').seedDemoData]",
+      "postgresSku": "[steps('database').postgresSku]",
+      "databaseAuth": "[steps('database').databaseAuth]",
+      "administratorLogin": "[steps('database').administratorLogin]",
+      "administratorLoginPassword": "[if(equals(steps('database').databaseAuth, 'password'), steps('database').administratorLoginPassword, '')]"
+    }
+  }
+}

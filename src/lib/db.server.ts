@@ -24,6 +24,7 @@ if (!g[TYPES_SET]) {
 }
 
 let pool: pg.Pool | undefined;
+let ready: Promise<pg.Pool> | undefined;
 
 async function entraPassword() {
   const { DefaultAzureCredential } = await import("@azure/identity");
@@ -31,18 +32,63 @@ async function entraPassword() {
   return async () => (await credential.getToken(ENTRA_SCOPE)).token;
 }
 
-export async function db() {
-  if (pool) return pool;
+/** Returns the shared pool; with AUTO_MIGRATE=true the schema (and optional demo seed) is applied first. */
+export function db(): Promise<pg.Pool> {
+  ready ??= (async () => {
+    if (process.env["AUTO_MIGRATE"] === "true") await ensureDatabase();
+    const p = await createPool();
+    if (process.env["AUTO_MIGRATE"] === "true") {
+      const { migrate } = await import("./migrate.server");
+      await migrate(p);
+    }
+    return p;
+  })();
+  ready.catch(() => {
+    ready = undefined;
+  });
+  return ready;
+}
+
+/**
+ * Creates the application database if it doesn't exist yet, so the app's own identity owns it
+ * (PostgreSQL 15+ only lets a database's owner create objects in its public schema).
+ */
+async function ensureDatabase() {
   const url = process.env["DATABASE_URL"];
+  if (!url) return;
+  const target = new URL(url);
+  const name = decodeURIComponent(target.pathname.replace(/^\//, ""));
+  if (!name || name === "postgres") return;
+  target.pathname = "/postgres";
+  const client = new pg.Client(await connectionConfig(target.toString()));
+  await client.connect();
+  try {
+    const { rowCount } = await client.query("select 1 from pg_database where datname = $1", [name]);
+    if (!rowCount) {
+      await client.query(`create database "${name.replace(/"/g, '""')}"`);
+      console.log(`[db] created database ${name}`);
+    }
+  } finally {
+    await client.end();
+  }
+}
+
+async function connectionConfig(url: string | undefined): Promise<pg.ClientConfig> {
   const host = url ? new URL(url).hostname : (process.env["PGHOST"] ?? "localhost");
   const azure = host.endsWith(".postgres.database.azure.com");
   const sslDisabled = process.env["PGSSLMODE"] === "disable";
   const entra = process.env["AZURE_POSTGRES_ENTRA_AUTH"] === "true";
-
-  pool = new pg.Pool({
+  return {
     ...(url ? { connectionString: url } : {}),
     ...(entra ? { password: await entraPassword() } : {}),
     ssl: sslDisabled ? false : azure ? { rejectUnauthorized: true } : undefined,
+  };
+}
+
+async function createPool() {
+  if (pool) return pool;
+  pool = new pg.Pool({
+    ...(await connectionConfig(process.env["DATABASE_URL"])),
     max: Number(process.env["PGPOOL_MAX"] ?? 10),
   });
   // Idle connections can be terminated by the server (maintenance, failover). Log and let the pool reconnect.

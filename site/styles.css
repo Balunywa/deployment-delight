@@ -1398,3 +1398,4 @@ footer .wrap {
   text-align: center;
   font-weight: 500;
 }
+.hero h1 { font-size: clamp(32px, 3.7vw, 46px); }

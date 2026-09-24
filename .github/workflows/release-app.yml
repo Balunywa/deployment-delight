@@ -1,0 +1,85 @@
+name: Release Cloud Delivery app
+
+# Builds a self-contained, prebuilt package of the Cloud Delivery console and publishes it as a stable
+# release asset. The Deploy to Azure template points WEBSITE_RUN_FROM_PACKAGE at this asset, so App Service
+# mounts it read-only and starts it — no build on the server, no manual publish step.
+#
+# Stable download URL:
+#   https://github.com/<owner>/<repo>/releases/download/app-latest/cloud-delivery-app.zip
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "db/**"
+      - "public/**"
+      - "package.json"
+      - "bun.lock"
+      - "vite.config.ts"
+      - ".github/workflows/release-app.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-app
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install, check and build
+        run: |
+          bun install --frozen-lockfile
+          npx tsc --noEmit -p .
+          npx vite build
+
+      - name: Stage package
+        run: |
+          set -euo pipefail
+          STAGE="$RUNNER_TEMP/cloud-delivery-app"
+          rm -rf "$STAGE" && mkdir -p "$STAGE"
+          cp -R .output "$STAGE/.output"
+          # SQL migrations + demo seed; the server applies them on first use when AUTO_MIGRATE=true.
+          cp -R db "$STAGE/db"
+          cat > "$STAGE/package.json" <<'JSON'
+          {
+            "name": "cloud-delivery-app",
+            "private": true,
+            "type": "module",
+            "engines": { "node": ">=22" },
+            "scripts": { "start": "node .output/server/index.mjs" }
+          }
+          JSON
+          ls -la "$STAGE"
+
+      - name: Zip package (contents at archive root)
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/cloud-delivery-app.zip"
+          ( cd "$RUNNER_TEMP/cloud-delivery-app" && zip -qr "$OUT" . )
+          echo "ARTIFACT_ZIP=$OUT" >> "$GITHUB_ENV"
+          ls -la "$OUT"
+
+      - name: Publish stable release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app-latest
+          name: Cloud Delivery app (latest build)
+          body: |
+            Prebuilt, self-contained Cloud Delivery console.
+            Consumed by deploy/azure/azuredeploy.json via WEBSITE_RUN_FROM_PACKAGE.
+            Commit: ${{ github.sha }}
+          files: ${{ env.ARTIFACT_ZIP }}
+          make_latest: true
