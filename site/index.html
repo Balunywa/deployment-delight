@@ -24,7 +24,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css?v=3" />
     <script src="config.js"></script>
   </head>
   <body>
@@ -32,7 +32,7 @@
       <div class="wrap">
         <a class="brand" href="#top"><img src="favicon.svg" alt="" />Cloud Delivery</a>
         <nav class="nav-links">
-          <a href="#problem">Why</a>
+          <a href="#translate">How it works</a>
           <a href="#abstraction">What we abstract</a>
           <a href="#adapt">Any Azure estate</a>
           <a href="#lifecycle">Lifecycle</a>
@@ -47,97 +47,115 @@
 
     <main id="top">
       <!-- HERO -->
-      <section class="hero">
-        <div class="wrap hero-grid">
-          <div>
-            <p class="eyebrow">For software vendors delivering into customer Azure</p>
-            <h1 style="margin-top: 14px">
-              One product.<br /><span>Every customer Azure environment.</span>
-            </h1>
+      <section class="hero dark">
+        <div class="wrap">
+          <div class="hero-copy">
+            <p class="eyebrow on-dark">For software vendors delivering into customer Azure</p>
+            <h1>One product.<br /><span>Every customer Azure environment.</span></h1>
             <p class="lede">
-              Turn your Azure architecture into a repeatable customer offering. Define what your
-              product needs once — the delivery layer translates it into each customer's
-              subscriptions, networking, identity, security, governance, infrastructure and CI/CD,
-              and runs it for its whole lifecycle.
+              Define what your product needs once. The delivery layer translates it into each
+              customer's subscriptions, networking, identity, security, governance, infrastructure
+              and CI/CD — and runs it for its whole lifecycle.
             </p>
-            <p class="punch">Customer #50 should be configuration, not another Azure project.</p>
             <div class="ctas">
               <a class="btn btn-primary btn-lg" data-link="console" href="#"
                 >See it live <i data-lucide="arrow-right"></i
               ></a>
-              <a class="btn btn-ghost btn-lg" href="#abstraction">What gets abstracted</a>
-            </div>
-            <div class="meta">
-              <span><i data-lucide="check"></i>Runs in your Azure, deployed from a repo</span>
-              <span><i data-lucide="check"></i>Works with existing landing zones</span>
-              <span><i data-lucide="check"></i>Bicep + Azure Verified Modules</span>
+              <a class="btn btn-ghost-dark btn-lg" href="#translate">Watch the translation</a>
             </div>
           </div>
 
           <div
-            class="canvas flow"
-            aria-label="One product definition delivered into three different customer Azure environments"
+            class="stage"
+            aria-label="One product definition rolling out a new release across three customer Azure environments"
           >
-            <div class="product-card">
-              <span class="logo">G</span>
-              <div>
-                <b>GridWorks Grid Analytics</b>
-                <p>Your product · defined once · v4.2</p>
+            <div class="stage-top">
+              <div class="product-card">
+                <span class="logo">G</span>
+                <div>
+                  <b>GridWorks Grid Analytics</b>
+                  <p>Product definition · <span class="mono" id="def-version">v4.3</span></p>
+                </div>
               </div>
             </div>
-            <div class="v-line"></div>
+            <svg
+              class="wires short"
+              viewBox="0 0 900 40"
+              preserveAspectRatio="none"
+              aria-hidden="true"
+            >
+              <path d="M450 0 V40" />
+            </svg>
             <div class="layer">
               <header>
                 <b>ISV delivery layer</b>
-                <p>translates your intent into each customer's Azure</p>
+                <p id="rollout-status">Rolling out v4.3 · ring 0</p>
               </header>
               <div class="layer-items">
-                <div><i data-lucide="layers"></i>Offerings &amp; blueprint</div>
-                <div><i data-lucide="shield-check"></i>Security &amp; policy</div>
-                <div><i data-lucide="network"></i>Network &amp; identity</div>
-                <div><i data-lucide="boxes"></i>Azure services</div>
-                <div><i data-lucide="git-branch"></i>CI/CD &amp; approvals</div>
-                <div><i data-lucide="refresh-cw"></i>Upgrades &amp; drift</div>
+                <div><i data-lucide="layers"></i>Blueprint</div>
+                <div><i data-lucide="shield-check"></i>Policy</div>
+                <div><i data-lucide="network"></i>Network</div>
+                <div><i data-lucide="fingerprint"></i>Identity</div>
+                <div><i data-lucide="git-branch"></i>Pipeline</div>
+                <div><i data-lucide="refresh-cw"></i>Lifecycle</div>
               </div>
             </div>
-            <div class="fan"></div>
+            <svg class="wires" viewBox="0 0 900 60" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M450 0 C450 40 150 20 150 60" />
+              <path d="M450 0 V60" />
+              <path d="M450 0 C450 40 750 20 750 60" />
+            </svg>
             <div class="customers">
-              <div class="cust">
-                <h3>Metro Energy</h3>
+              <div class="cust" data-ring="0">
+                <div class="cust-head">
+                  <h3>Metro Energy</h3>
+                  <span class="ver mono">4.2</span>
+                </div>
                 <span class="tag">Existing landing zone</span>
-                <div class="stack">
-                  <span class="tile t-compute"><i data-lucide="container"></i></span
-                  ><span class="tile t-data"><i data-lucide="database"></i></span
-                  ><span class="tile t-msg"><i data-lucide="radio"></i></span
-                  ><span class="tile t-sec"><i data-lucide="key-round"></i></span>
-                </div>
-                <div class="ver">Consumes their hub, DNS, SOC <code>v4.2</code></div>
+                <p>Consumes their hub, DNS and SOC workspace</p>
               </div>
-              <div class="cust">
-                <h3>Prairie Electric</h3>
+              <div class="cust" data-ring="1">
+                <div class="cust-head">
+                  <h3>Prairie Electric</h3>
+                  <span class="ver mono">4.2</span>
+                </div>
                 <span class="tag new">New to Azure</span>
-                <div class="stack">
-                  <span class="tile t-net"><i data-lucide="network"></i></span
-                  ><span class="tile t-compute"><i data-lucide="container"></i></span
-                  ><span class="tile t-data"><i data-lucide="database"></i></span
-                  ><span class="tile t-sec"><i data-lucide="key-round"></i></span>
-                </div>
-                <div class="ver">Baseline provisioned first <code>v4.2</code></div>
+                <p>Governed baseline provisioned first</p>
               </div>
-              <div class="cust">
-                <h3>Coastal Power</h3>
-                <span class="tag">Existing landing zone · regulated</span>
-                <div class="stack">
-                  <span class="tile t-compute"><i data-lucide="container"></i></span
-                  ><span class="tile t-data"><i data-lucide="database"></i></span
-                  ><span class="tile t-sec"><i data-lucide="shield"></i></span
-                  ><span class="tile t-obs"><i data-lucide="activity"></i></span>
+              <div class="cust" data-ring="2">
+                <div class="cust-head">
+                  <h3>Coastal Power</h3>
+                  <span class="ver mono">4.2</span>
                 </div>
-                <div class="ver">CMK, 730-day retention <code>v4.2</code></div>
+                <span class="tag">Existing landing zone · regulated</span>
+                <p>Customer-managed keys, 730-day retention</p>
               </div>
             </div>
-            <p class="caption">One product definition. Every customer environment.</p>
+            <p class="caption">
+              One product definition. Every customer environment. One release, everywhere.
+            </p>
           </div>
+        </div>
+      </section>
+
+      <!-- NUMBERS -->
+      <section class="numbers">
+        <div class="wrap">
+          <p class="numbers-label">
+            What one Enterprise Private install involves — and what the customer is asked for
+          </p>
+          <div class="numbers-row">
+            <div><b>12</b><span>Azure resources</span></div>
+            <div><b>4</b><span>private endpoints</span></div>
+            <div><b>21</b><span>pipeline jobs</span></div>
+            <div><b>1</b><span>approval gate</span></div>
+            <div class="eq"><i data-lucide="arrow-right"></i></div>
+            <div class="asked"><b>6</b><span>inputs from the customer</span></div>
+          </div>
+          <p class="numbers-note">
+            Counted from the reference architecture in the product. Everything left of the arrow is
+            generated.
+          </p>
         </div>
       </section>
 
@@ -212,6 +230,57 @@
               platform translates them into the right Azure implementation for each customer.</b
             >
           </p>
+        </div>
+      </section>
+
+      <!-- TRANSLATE -->
+      <section id="translate" class="translate">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">The translation</p>
+            <h2>Same definition. Different Azure.<br />Zero forks.</h2>
+            <p class="sub">
+              Pick a customer. Your definition doesn't change — the plan the delivery layer produces
+              for their Azure does.
+            </p>
+          </div>
+          <div class="tx">
+            <div class="tx-def">
+              <div class="tx-bar">
+                <span class="mono">grid-analytics · enterprise-private · v4.3</span
+                ><span class="lock"><i data-lucide="lock"></i>unchanged</span>
+              </div>
+              <pre class="mono"><span class="k">offering</span>: enterprise-private
+<span class="k">services</span>:
+  - aks            <span class="c"># application tier</span>
+  - postgres       <span class="c"># ha: zone-redundant</span>
+  - event-hubs
+  - storage
+  - key-vault
+<span class="k">network</span>:  private-only
+<span class="k">security</span>: <span id="tx-sec">hardened</span>
+<span class="k">regions</span>:  [eastus2, centralus]
+<span class="k">pipeline</span>: github-actions</pre>
+            </div>
+            <div class="tx-mid" aria-hidden="true">
+              <i data-lucide="arrow-right"></i><span>translates</span>
+            </div>
+            <div class="tx-out">
+              <div class="tx-tabs" role="tablist">
+                <button role="tab" class="on" data-cust="metro">
+                  Metro Energy<small>existing landing zone</small>
+                </button>
+                <button role="tab" data-cust="prairie">
+                  Prairie Electric<small>new to Azure</small>
+                </button>
+                <button role="tab" data-cust="coastal">
+                  Coastal Power<small>regulated</small>
+                </button>
+              </div>
+              <div class="tx-plan mono" id="tx-plan"></div>
+              <div class="tx-sum" id="tx-sum"></div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -445,6 +514,59 @@
         </div>
       </section>
 
+      <!-- CUSTOMER ADMIN -->
+      <section class="admin">
+        <div class="wrap admin-grid">
+          <div>
+            <p class="eyebrow">Your customer's side</p>
+            <h2>A security review, not a project.</h2>
+            <p class="sub" style="margin-top: 14px">
+              Your customer's Azure admin gets a branded install link. They see exactly what will
+              land in their subscription, confirm the platform resources we discovered, and approve
+              scoped, revocable access. No credentials change hands.
+            </p>
+            <ul class="checks">
+              <li><i data-lucide="check"></i>Architecture shown before any access is granted</li>
+              <li><i data-lucide="check"></i>Federated identity, scoped to one resource group</li>
+              <li><i data-lucide="check"></i>Their policy evaluated before every deployment</li>
+              <li><i data-lucide="check"></i>Revocable at any time from their tenant</li>
+            </ul>
+          </div>
+          <div class="install">
+            <div class="install-bar">
+              <span class="dotrow"><i></i><i></i><i></i></span
+              ><span class="mono">install.gridworks.example/metro-energy</span>
+            </div>
+            <div class="install-body">
+              <p class="small muted">Prepared for Metro Energy</p>
+              <h3 class="install-title">Connect your Azure to GridWorks Grid Analytics</h3>
+              <div class="istep done">
+                <span>1</span>
+                <div>
+                  <b>Sign in and choose a subscription</b
+                  ><small>sub-metro-grid-analytics-prod</small>
+                </div>
+              </div>
+              <div class="istep done">
+                <span>2</span>
+                <div>
+                  <b>Confirm your platform resources</b
+                  ><small>vnet-metro-hub-eastus2 · rg-metro-dns · law-metro-soc</small>
+                </div>
+              </div>
+              <div class="istep">
+                <span>3</span>
+                <div>
+                  <b>Approve access for GridWorks</b
+                  ><small>Contributor on one resource group · Reader on the subscription</small>
+                </div>
+              </div>
+              <div class="ibtn">Approve access</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- LIFECYCLE -->
       <section id="lifecycle">
         <div class="wrap">
@@ -646,8 +768,8 @@
       <section>
         <div class="wrap">
           <div class="section-head">
-            <p class="eyebrow">What changes for your team</p>
-            <h2>Turn one Azure architecture into every customer deployment.</h2>
+            <p class="eyebrow">Outcomes</p>
+            <h2>What changes for your team.</h2>
           </div>
           <div class="outcomes">
             <div>
@@ -718,6 +840,115 @@
         const url = a.dataset.link === "console" ? cfg.consoleUrl : cfg.repoUrl;
         if (url) a.href = url;
       });
+      const plans = {
+        metro: {
+          sec: "hardened",
+          lines: [
+            ["=", "Microsoft.Network/virtualNetworks", "customer hub (theirs)"],
+            ["=", "Microsoft.Network/azureFirewalls", "customer firewall (theirs)"],
+            ["=", "Microsoft.Network/privateDnsZones", "customer DNS (theirs)"],
+            ["=", "Microsoft.OperationalInsights/workspaces", "customer SOC workspace (theirs)"],
+            ["+", "Microsoft.Network/virtualNetworks/peerings", "spoke → hub"],
+            ["+", "Microsoft.ContainerService/managedClusters", "aks-metro-prod"],
+            [
+              "+",
+              "Microsoft.DBforPostgreSQL/flexibleServers",
+              "postgres-metro-prod (zone-redundant)",
+            ],
+            ["+", "Microsoft.EventHub/namespaces", "evh-metro-prod"],
+            ["+", "Microsoft.Network/privateEndpoints", "×4, records in their DNS"],
+          ],
+          sum: ["9 create", "4 consumed from the customer", "0 changes to their platform"],
+        },
+        prairie: {
+          sec: "hardened",
+          lines: [
+            ["+", "Microsoft.Subscription/aliases", "sub-prairie-grid-analytics (vended)"],
+            ["+", "Microsoft.Authorization/policyAssignments", "baseline policy set"],
+            ["+", "Microsoft.Network/virtualNetworks", "vnet-prairie-prod 10.40.0.0/22"],
+            ["+", "Microsoft.OperationalInsights/workspaces", "law-prairie-prod"],
+            ["+", "Microsoft.Network/privateDnsZones", "privatelink zones"],
+            ["+", "Microsoft.ContainerService/managedClusters", "aks-prairie-prod"],
+            [
+              "+",
+              "Microsoft.DBforPostgreSQL/flexibleServers",
+              "postgres-prairie-prod (zone-redundant)",
+            ],
+            ["+", "Microsoft.EventHub/namespaces", "evh-prairie-prod"],
+            ["+", "Microsoft.Network/privateEndpoints", "×4"],
+          ],
+          sum: [
+            "baseline + product",
+            "created with the customer's authorization",
+            "same release as everyone",
+          ],
+        },
+        coastal: {
+          sec: "utility-critical",
+          lines: [
+            ["=", "Microsoft.Network/virtualNetworks", "customer hub (theirs)"],
+            ["=", "Microsoft.OperationalInsights/workspaces", "customer SOC workspace (theirs)"],
+            ["+", "Microsoft.ContainerService/managedClusters", "aks-coastal-prod"],
+            ["+", "Microsoft.DBforPostgreSQL/flexibleServers", "postgres-coastal-prod (CMK)"],
+            ["+", "Microsoft.KeyVault/vaults", "kv-coastal-prod (HSM keys)"],
+            ["+", "Microsoft.Security/pricings", "Defender: containers, databases, storage"],
+            ["+", "Microsoft.Insights/diagnosticSettings", "730-day retention"],
+            ["+", "Microsoft.Authorization/policyAssignments", "utility-critical controls"],
+            ["+", "Microsoft.Network/privateEndpoints", "×4, records in their DNS"],
+          ],
+          sum: ["stricter controls applied", "same product definition", "no fork to maintain"],
+        },
+      };
+      const render = (key) => {
+        const p = plans[key];
+        document.getElementById("tx-sec").textContent = p.sec;
+        document.getElementById("tx-plan").innerHTML = p.lines
+          .map(
+            ([s, t, n], i) =>
+              `<div class="pl ${s === "=" ? "keep" : "add"}" style="animation-delay:${i * 45}ms"><b>${s}</b><span>${t}</span><em>${n}</em></div>`,
+          )
+          .join("");
+        document.getElementById("tx-sum").innerHTML = p.sum
+          .map((x) => `<span>${x}</span>`)
+          .join("");
+        document
+          .querySelectorAll(".tx-tabs button")
+          .forEach((b) => b.classList.toggle("on", b.dataset.cust === key));
+      };
+      document
+        .querySelectorAll(".tx-tabs button")
+        .forEach((b) => b.addEventListener("click", () => render(b.dataset.cust)));
+      render("metro");
+
+      // Hero: a release rolls out ring by ring and each customer's version flips.
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const custs = [...document.querySelectorAll(".cust")];
+      const status = document.getElementById("rollout-status");
+      let tick = 0;
+      const step = () => {
+        const phase = tick % 8;
+        custs.forEach((c, i) => {
+          const v = c.querySelector(".ver");
+          const state = phase <= i * 2 ? "old" : phase === i * 2 + 1 ? "deploying" : "live";
+          c.dataset.state = state;
+          v.textContent = state === "old" ? "4.2" : state === "deploying" ? "→ 4.3" : "4.3";
+        });
+        const ring = Math.min(2, Math.floor((phase - 1) / 2));
+        status.textContent =
+          phase === 0
+            ? "v4.3 published · planning rollout"
+            : phase >= 7
+              ? "v4.3 live on every install"
+              : `Rolling out v4.3 · ring ${ring}`;
+        tick += 1;
+      };
+      if (reduce) {
+        tick = 7;
+        step();
+      } else {
+        step();
+        setInterval(step, 1400);
+      }
       if (window.lucide) window.lucide.createIcons();
     </script>
   </body>
