@@ -1984,6 +1984,10 @@ AZURE_POSTGRES_ENTRA_AUTH=true
 Tokens come from `DefaultAzureCredential` and TLS is enforced for `*.postgres.database.azure.com`. Password authentication also works
 by putting the password in `DATABASE_URL` and leaving `AZURE_POSTGRES_ENTRA_AUTH` unset.
 
+### Marketing site
+
+`site/` is a separate static page for prospects (not part of the console). See [site/README.md](site/README.md).
+
 ### Build and run
 
 ```sh

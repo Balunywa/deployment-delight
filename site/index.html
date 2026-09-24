@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cloud Delivery — One product. Every customer Azure environment.</title>
+    <meta
+      name="description"
+      content="The abstraction layer between an ISV's product and its customers' Azure environments. Define what your product needs once; every customer deployment becomes configuration, not another Azure project."
+    />
+    <meta
+      property="og:title"
+      content="Cloud Delivery — One product. Every customer Azure environment."
+    />
+    <meta
+      property="og:description"
+      content="Standardize how your software lands on Azure without standardizing every customer's Azure estate."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="config.js"></script>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap">
+        <a class="brand" href="#top"><img src="favicon.svg" alt="" />Cloud Delivery</a>
+        <nav class="nav-links">
+          <a href="#problem">Why</a>
+          <a href="#abstraction">What we abstract</a>
+          <a href="#adapt">Any Azure estate</a>
+          <a href="#lifecycle">Lifecycle</a>
+          <a href="#estate">Installed base</a>
+        </nav>
+        <div class="nav-cta">
+          <a class="btn btn-ghost" data-link="repo" href="#">Deploy from GitHub</a>
+          <a class="btn btn-primary" data-link="console" href="#">Open the console</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- HERO -->
+      <section class="hero">
+        <div class="wrap hero-grid">
+          <div>
+            <p class="eyebrow">For software vendors delivering into customer Azure</p>
+            <h1 style="margin-top: 14px">
+              One product.<br /><span>Every customer Azure environment.</span>
+            </h1>
+            <p class="lede">
+              Turn your Azure architecture into a repeatable customer offering. Define what your
+              product needs once — the delivery layer translates it into each customer's
+              subscriptions, networking, identity, security, governance, infrastructure and CI/CD,
+              and runs it for its whole lifecycle.
+            </p>
+            <p class="punch">Customer #50 should be configuration, not another Azure project.</p>
+            <div class="ctas">
+              <a class="btn btn-primary btn-lg" data-link="console" href="#"
+                >See it live <i data-lucide="arrow-right"></i
+              ></a>
+              <a class="btn btn-ghost btn-lg" href="#abstraction">What gets abstracted</a>
+            </div>
+            <div class="meta">
+              <span><i data-lucide="check"></i>Runs in your Azure, deployed from a repo</span>
+              <span><i data-lucide="check"></i>Works with existing landing zones</span>
+              <span><i data-lucide="check"></i>Bicep + Azure Verified Modules</span>
+            </div>
+          </div>
+
+          <div
+            class="canvas flow"
+            aria-label="One product definition delivered into three different customer Azure environments"
+          >
+            <div class="product-card">
+              <span class="logo">G</span>
+              <div>
+                <b>GridWorks Grid Analytics</b>
+                <p>Your product · defined once · v4.2</p>
+              </div>
+            </div>
+            <div class="v-line"></div>
+            <div class="layer">
+              <header>
+                <b>ISV delivery layer</b>
+                <p>translates your intent into each customer's Azure</p>
+              </header>
+              <div class="layer-items">
+                <div><i data-lucide="layers"></i>Offerings &amp; blueprint</div>
+                <div><i data-lucide="shield-check"></i>Security &amp; policy</div>
+                <div><i data-lucide="network"></i>Network &amp; identity</div>
+                <div><i data-lucide="boxes"></i>Azure services</div>
+                <div><i data-lucide="git-branch"></i>CI/CD &amp; approvals</div>
+                <div><i data-lucide="refresh-cw"></i>Upgrades &amp; drift</div>
+              </div>
+            </div>
+            <div class="fan"></div>
+            <div class="customers">
+              <div class="cust">
+                <h3>Metro Energy</h3>
+                <span class="tag">Existing landing zone</span>
+                <div class="stack">
+                  <span class="tile t-compute"><i data-lucide="container"></i></span
+                  ><span class="tile t-data"><i data-lucide="database"></i></span
+                  ><span class="tile t-msg"><i data-lucide="radio"></i></span
+                  ><span class="tile t-sec"><i data-lucide="key-round"></i></span>
+                </div>
+                <div class="ver">Consumes their hub, DNS, SOC <code>v4.2</code></div>
+              </div>
+              <div class="cust">
+                <h3>Prairie Electric</h3>
+                <span class="tag new">New to Azure</span>
+                <div class="stack">
+                  <span class="tile t-net"><i data-lucide="network"></i></span
+                  ><span class="tile t-compute"><i data-lucide="container"></i></span
+                  ><span class="tile t-data"><i data-lucide="database"></i></span
+                  ><span class="tile t-sec"><i data-lucide="key-round"></i></span>
+                </div>
+                <div class="ver">Baseline provisioned first <code>v4.2</code></div>
+              </div>
+              <div class="cust">
+                <h3>Coastal Power</h3>
+                <span class="tag">Existing landing zone · regulated</span>
+                <div class="stack">
+                  <span class="tile t-compute"><i data-lucide="container"></i></span
+                  ><span class="tile t-data"><i data-lucide="database"></i></span
+                  ><span class="tile t-sec"><i data-lucide="shield"></i></span
+                  ><span class="tile t-obs"><i data-lucide="activity"></i></span>
+                </div>
+                <div class="ver">CMK, 730-day retention <code>v4.2</code></div>
+              </div>
+            </div>
+            <p class="caption">One product definition. Every customer environment.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- PROBLEM -->
+      <section id="problem">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">The problem</p>
+            <h2>Stop rebuilding Azure for every customer.</h2>
+            <p class="sub">
+              You productized your software. How it gets delivered on Azure is still a project —
+              every new customer drags your team back into subscriptions, networking, security
+              reviews, pipelines and customer-specific requirements.
+            </p>
+          </div>
+          <div class="compare">
+            <div class="panel">
+              <h3>Today</h3>
+              <p>Every customer is a new cloud engineering engagement.</p>
+              <div class="repeat">
+                <div class="row">
+                  <span>Customer #1</span>
+                  <div class="chips">
+                    <i>Workshop</i><i>Networking</i><i>Security review</i><i>Landing zone</i
+                    ><i>IaC</i><i>CI/CD</i><i>Monitoring</i><i>Deploy</i>
+                  </div>
+                </div>
+                <div class="row">
+                  <span>Customer #2</span>
+                  <div class="chips">
+                    <i>Workshop</i><i>Networking</i><i>Security review</i><i>Landing zone</i
+                    ><i>IaC</i><i>CI/CD</i><i>Monitoring</i><i>Deploy</i>
+                  </div>
+                </div>
+                <div class="row fade">
+                  <span>Customer #3</span>
+                  <div class="chips">
+                    <i>Workshop</i><i>Networking</i><i>Security review</i><i>Landing zone</i
+                    ><i>IaC</i><i>CI/CD</i><i>Monitoring</i><i>Deploy</i>
+                  </div>
+                </div>
+                <div class="row fade2">
+                  <span>Customer #24</span>
+                  <div class="chips"><i>Start again…</i></div>
+                </div>
+              </div>
+            </div>
+            <div class="panel">
+              <h3>With a delivery layer</h3>
+              <p>Build the delivery model once. Every customer after that is configuration.</p>
+              <div class="once">
+                <div class="step">Your product</div>
+                <div class="arrow">↓</div>
+                <div class="step strong">Product blueprint · defined once</div>
+                <div class="arrow">↓</div>
+                <div class="split">
+                  <div class="step">Enterprise Private</div>
+                  <div class="step">Customer Hosted</div>
+                  <div class="step">Regulated</div>
+                </div>
+                <div class="arrow">↓</div>
+                <div class="step">Customer intake — only what their Azure needs to supply</div>
+                <div class="arrow">↓</div>
+                <div class="step">Same pipeline → customer's Azure</div>
+              </div>
+            </div>
+          </div>
+          <p class="pull">
+            Your customer shouldn't need to understand how your application maps to Azure.
+            <b
+              >Define your requirements, supported deployment models and guardrails once — the
+              platform translates them into the right Azure implementation for each customer.</b
+            >
+          </p>
+        </div>
+      </section>
+
+      <!-- ABSTRACTION -->
+      <section id="abstraction">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">What gets abstracted</p>
+            <h2>You define the product.<br />We handle the Azure underneath it.</h2>
+            <p class="sub">
+              Your team works in product terms. Each choice expands into the Azure resources, policy
+              and pipeline it implies — generated, not hand-written per customer.
+            </p>
+          </div>
+          <div class="map">
+            <div class="map-head">
+              <span>What you define</span><span></span
+              ><span>What the delivery layer produces in the customer's Azure</span>
+            </div>
+            <div class="map-row">
+              <div class="you"><b>Offering tier</b><code>Enterprise Private</code></div>
+              <i class="to" data-lucide="arrow-right"></i>
+              <div class="we">
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="folder-tree"></i></span>Subscription /
+                  resource group</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="landmark"></i></span>Application landing
+                  zone</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="list-tree"></i></span>Management group
+                  placement</span
+                >
+              </div>
+            </div>
+            <div class="map-row">
+              <div class="you"><b>Private deployment</b><code>network: private</code></div>
+              <i class="to" data-lucide="arrow-right"></i>
+              <div class="we">
+                <span class="pill"
+                  ><span class="tile t-net"><i data-lucide="network"></i></span>Spoke VNet &amp;
+                  subnets</span
+                >
+                <span class="pill"
+                  ><span class="tile t-net"><i data-lucide="waypoints"></i></span>Hub peering</span
+                >
+                <span class="pill"
+                  ><span class="tile t-net"><i data-lucide="cable"></i></span>Private
+                  endpoints</span
+                >
+                <span class="pill"
+                  ><span class="tile t-net"><i data-lucide="globe"></i></span>Private DNS
+                  records</span
+                >
+                <span class="pill"
+                  ><span class="tile t-net"><i data-lucide="brick-wall"></i></span>Egress via
+                  customer firewall</span
+                >
+              </div>
+            </div>
+            <div class="map-row">
+              <div class="you"><b>Database</b><code>postgres: highly available</code></div>
+              <i class="to" data-lucide="arrow-right"></i>
+              <div class="we">
+                <span class="pill"
+                  ><span class="tile t-data"><i data-lucide="database"></i></span>PostgreSQL
+                  Flexible Server</span
+                >
+                <span class="pill"
+                  ><span class="tile t-data"><i data-lucide="copy"></i></span>Zone-redundant
+                  HA</span
+                >
+                <span class="pill"
+                  ><span class="tile t-data"><i data-lucide="archive"></i></span>Backup policy</span
+                >
+                <span class="pill"
+                  ><span class="tile t-net"><i data-lucide="cable"></i></span>Private access
+                  only</span
+                >
+              </div>
+            </div>
+            <div class="map-row">
+              <div class="you"><b>Security profile</b><code>regulated</code></div>
+              <i class="to" data-lucide="arrow-right"></i>
+              <div class="we">
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="scroll-text"></i></span>Azure Policy
+                  assignments</span
+                >
+                <span class="pill"
+                  ><span class="tile t-sec"><i data-lucide="shield"></i></span>Defender for
+                  Cloud</span
+                >
+                <span class="pill"
+                  ><span class="tile t-sec"><i data-lucide="key-round"></i></span>Customer-managed
+                  keys</span
+                >
+                <span class="pill"
+                  ><span class="tile t-sec"><i data-lucide="fingerprint"></i></span>Managed identity
+                  &amp; RBAC</span
+                >
+                <span class="pill"
+                  ><span class="tile t-obs"><i data-lucide="activity"></i></span>Diagnostics to
+                  their SOC</span
+                >
+              </div>
+            </div>
+            <div class="map-row">
+              <div class="you"><b>Environment</b><code>production</code></div>
+              <i class="to" data-lucide="arrow-right"></i>
+              <div class="we">
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="file-code"></i></span>Bicep from Azure
+                  Verified Modules</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="git-branch"></i></span>GitHub Actions /
+                  Azure DevOps pipeline</span
+                >
+                <span class="pill"
+                  ><span class="tile t-sec"><i data-lucide="shield-check"></i></span>Approval
+                  gate</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="list-checks"></i></span>What-if
+                  plan</span
+                >
+              </div>
+            </div>
+            <div class="map-row">
+              <div class="you"><b>Release</b><code>v4.2 → v4.3</code></div>
+              <i class="to" data-lucide="arrow-right"></i>
+              <div class="we">
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="git-compare"></i></span>Upgrade plan per
+                  install</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="radar"></i></span>Drift detection</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="wrench"></i></span>Remediation</span
+                >
+                <span class="pill"
+                  ><span class="tile t-gov"><i data-lucide="rows-3"></i></span>Ring rollout</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ADAPT -->
+      <section id="adapt">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">Any Azure estate</p>
+            <h2>Existing landing zone? We integrate.<br />Need one? We provision it.</h2>
+            <p class="sub">
+              Standardize how your software lands on Azure — without standardizing every customer's
+              Azure estate. The customer's platform stays authoritative; your experience stays the
+              same.
+            </p>
+          </div>
+          <div class="paths">
+            <div class="path">
+              <p class="label">Customer already runs Azure</p>
+              <h3>Discover and integrate</h3>
+              <div class="has">
+                <span class="node dashed"
+                  ><span class="tile t-cust"><i data-lucide="network"></i></span>
+                  <div><b>Hub VNet</b><small>theirs</small></div></span
+                >
+                <span class="node dashed"
+                  ><span class="tile t-cust"><i data-lucide="brick-wall"></i></span>
+                  <div><b>Firewall</b><small>theirs</small></div></span
+                >
+                <span class="node dashed"
+                  ><span class="tile t-cust"><i data-lucide="globe"></i></span>
+                  <div><b>Private DNS</b><small>theirs</small></div></span
+                >
+                <span class="node dashed"
+                  ><span class="tile t-cust"><i data-lucide="activity"></i></span>
+                  <div><b>SOC workspace</b><small>theirs</small></div></span
+                >
+                <span class="node dashed"
+                  ><span class="tile t-cust"><i data-lucide="scroll-text"></i></span>
+                  <div><b>Azure Policy</b><small>theirs</small></div></span
+                >
+              </div>
+              <p class="verb">discovered through a customer install link</p>
+              <div class="result">
+                Your workload peers into their hub, registers in their DNS, logs to their SOC and is
+                checked against their policy before anything deploys. Nothing of theirs is replaced.
+              </div>
+            </div>
+            <div class="path">
+              <p class="label">Customer is new to Azure</p>
+              <h3>Provision the baseline</h3>
+              <div class="has">
+                <span class="node"
+                  ><span class="tile t-gov"><i data-lucide="folder-tree"></i></span>
+                  <div><b>Subscription</b><small>vended</small></div></span
+                >
+                <span class="node"
+                  ><span class="tile t-net"><i data-lucide="network"></i></span>
+                  <div><b>Network</b><small>dedicated</small></div></span
+                >
+                <span class="node"
+                  ><span class="tile t-gov"><i data-lucide="scroll-text"></i></span>
+                  <div><b>Policy</b><small>baseline</small></div></span
+                >
+                <span class="node"
+                  ><span class="tile t-obs"><i data-lucide="activity"></i></span>
+                  <div><b>Logging</b><small>baseline</small></div></span
+                >
+                <span class="node"
+                  ><span class="tile t-sec"><i data-lucide="shield"></i></span>
+                  <div><b>Defender</b><small>baseline</small></div></span
+                >
+              </div>
+              <p class="verb">only with the customer's explicit authorization</p>
+              <div class="result">
+                A governed baseline is created first, then the same product architecture lands on
+                top — same release, same pipeline, same operations.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LIFECYCLE -->
+      <section id="lifecycle">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">The whole lifecycle</p>
+            <h2>From customer intake to day two.</h2>
+            <p class="sub">
+              Not a Terraform generator with a GUI. One control plane from the first architecture
+              decision to the fiftieth upgrade.
+            </p>
+          </div>
+          <div class="life">
+            <div>
+              <span class="n">01</span>
+              <h3>Define</h3>
+              <p>Pick the Azure services your product needs on an architecture canvas.</p>
+              <span class="phase">Your team · once</span>
+            </div>
+            <div>
+              <span class="n">02</span>
+              <h3>Package</h3>
+              <p>Publish immutable offerings and releases with guardrails built in.</p>
+              <span class="phase">Your team · once</span>
+            </div>
+            <div>
+              <span class="n">03</span>
+              <h3>Connect</h3>
+              <p>The customer's admin approves scoped, revocable access — no secrets.</p>
+              <span class="phase">Customer · minutes</span>
+            </div>
+            <div>
+              <span class="n">04</span>
+              <h3>Discover</h3>
+              <p>Hub, DNS, firewall and SOC workspace are found and bound automatically.</p>
+              <span class="phase">Automatic</span>
+            </div>
+            <div>
+              <span class="n">05</span>
+              <h3>Validate</h3>
+              <p>RBAC, policy conflicts, quotas, CIDR and DNS checked before anything moves.</p>
+              <span class="phase">Automatic</span>
+            </div>
+            <div>
+              <span class="n">06</span>
+              <h3>Plan</h3>
+              <p>A what-if plan and cost estimate for exactly this customer.</p>
+              <span class="phase">Automatic</span>
+            </div>
+            <div>
+              <span class="n">07</span>
+              <h3>Approve</h3>
+              <p>Production gates for your approver and, where required, theirs.</p>
+              <span class="phase">People decide</span>
+            </div>
+            <div>
+              <span class="n">08</span>
+              <h3>Deploy</h3>
+              <p>The same pipeline for every install, in dependency waves.</p>
+              <span class="phase">Automatic</span>
+            </div>
+            <div>
+              <span class="n">09</span>
+              <h3>Operate</h3>
+              <p>Health, compliance evidence and drift, per install.</p>
+              <span class="phase">Continuous</span>
+            </div>
+            <div>
+              <span class="n">10</span>
+              <h3>Upgrade</h3>
+              <p>Roll new releases across the installed base in rings.</p>
+              <span class="phase">Your cadence</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ESTATE -->
+      <section id="estate">
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">The installed base</p>
+            <h2>Don't manage deployments.<br />Manage your customer estate.</h2>
+            <p class="sub">
+              Every customer install, its release, compliance, drift and customizations in one place
+              — and a controlled path to the next version.
+            </p>
+          </div>
+          <div class="estate">
+            <div class="stat-card">
+              <p class="sub" style="font-size: 13px">Production installs · Grid Analytics</p>
+              <p class="big" style="margin-top: 6px">24</p>
+              <div class="bar">
+                <span style="width: 75%; background: var(--success)"></span
+                ><span style="width: 17%; background: var(--warning)"></span
+                ><span style="width: 8%; background: var(--danger)"></span>
+              </div>
+              <div class="legend">
+                <div>
+                  <span
+                    ><i class="dot" style="background: var(--success)"></i>On preferred v4.2</span
+                  ><b class="mono">18</b>
+                </div>
+                <div>
+                  <span
+                    ><i class="dot" style="background: var(--warning)"></i>Upgrade available</span
+                  ><b class="mono">4</b>
+                </div>
+                <div>
+                  <span
+                    ><i class="dot" style="background: var(--danger)"></i>Deprecated release</span
+                  ><b class="mono">2</b>
+                </div>
+              </div>
+            </div>
+            <div class="grid-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Customer</th>
+                    <th>Offering</th>
+                    <th class="c">Dev</th>
+                    <th class="c">Test</th>
+                    <th class="c">Prod</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><b>Metro Energy</b></td>
+                    <td>Enterprise Private</td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td>
+                      <span class="health"
+                        ><i class="dot" style="background: var(--success)"></i>Healthy</span
+                      >
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><b>NorthGrid</b></td>
+                    <td>Enterprise Private</td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell up">4.1.0</span></td>
+                    <td>
+                      <span class="health"
+                        ><i class="dot" style="background: var(--warning)"></i>Upgrade awaiting
+                        approval</span
+                      >
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><b>Coastal Power</b></td>
+                    <td>Regulated</td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell old">3.9.0</span></td>
+                    <td>
+                      <span class="health"
+                        ><i class="dot" style="background: var(--danger)"></i>Drift · reviewed
+                        upgrade</span
+                      >
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><b>Cascade Utilities</b></td>
+                    <td>Enterprise Private</td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td>
+                      <span class="health"
+                        ><i class="dot" style="background: var(--success)"></i>Healthy</span
+                      >
+                    </td>
+                  </tr>
+                  <tr>
+                    <td><b>Prairie Electric</b></td>
+                    <td>Customer Hosted</td>
+                    <td class="c"><span class="cell ok">4.2.0</span></td>
+                    <td class="c"><span class="cell up">4.1.0</span></td>
+                    <td class="c"><span class="cell up">4.1.0</span></td>
+                    <td>
+                      <span class="health"
+                        ><i class="dot" style="background: var(--warning)"></i>In rollout ring
+                        1</span
+                      >
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- OUTCOMES -->
+      <section>
+        <div class="wrap">
+          <div class="section-head">
+            <p class="eyebrow">What changes for your team</p>
+            <h2>Turn one Azure architecture into every customer deployment.</h2>
+          </div>
+          <div class="outcomes">
+            <div>
+              <h3>Faster customer activation</h3>
+              <p>Weeks of per-customer cloud engineering become an intake form and an approval.</p>
+            </div>
+            <div>
+              <h3>Repeatable delivery</h3>
+              <p>One blueprint and one pipeline instead of a growing pile of bespoke repos.</p>
+            </div>
+            <div>
+              <h3>Enterprise-ready by default</h3>
+              <p>
+                Meet each customer's networking, security and governance rules without forking the
+                product.
+              </p>
+            </div>
+            <div>
+              <h3>Fleet-wide upgrades</h3>
+              <p>
+                Ship infrastructure and product changes to the whole installed base in controlled
+                rings.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CLOSE -->
+      <section class="close">
+        <div class="wrap">
+          <h2>Ship your product.<br />Not your cloud architecture — again.</h2>
+          <p class="sub">
+            The abstraction layer between your product and your customers' Azure environments.
+            Deploy it from the repo into your own Azure, bring your architecture, onboard your next
+            customer.
+          </p>
+          <div class="ctas">
+            <a class="btn btn-primary btn-lg" data-link="console" href="#"
+              >Open the console <i data-lucide="arrow-right"></i
+            ></a>
+            <a class="btn btn-ghost btn-lg" data-link="repo" href="#"
+              ><i data-lucide="github"></i>Deploy from GitHub</a
+            >
+          </div>
+          <div class="built">
+            <span><i data-lucide="server"></i>Runs on Azure Container Apps</span>
+            <span><i data-lucide="database"></i>Azure Database for PostgreSQL</span>
+            <span><i data-lucide="fingerprint"></i>Microsoft Entra &amp; managed identity</span>
+            <span><i data-lucide="file-code"></i>Bicep · Azure Verified Modules</span>
+            <span><i data-lucide="git-branch"></i>GitHub Actions or Azure DevOps</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span>Cloud Delivery · the ISV delivery layer for Azure</span>
+        <span>Demo data uses the fictional ISV GridWorks and fictional utilities.</span>
+      </div>
+    </footer>
+
+    <script src="https://unpkg.com/lucide@0.575.0/dist/umd/lucide.min.js"></script>
+    <script>
+      const cfg = window.CLOUD_DELIVERY || {};
+      document.querySelectorAll("[data-link]").forEach((a) => {
+        const url = a.dataset.link === "console" ? cfg.consoleUrl : cfg.repoUrl;
+        if (url) a.href = url;
+      });
+      if (window.lucide) window.lucide.createIcons();
+    </script>
+  </body>
+</html>
