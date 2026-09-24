@@ -32,33 +32,38 @@ type NavGroup = {
 
 const nav = [
   {
-    label: "Inventory",
-    items: [
-      { to: "/", label: "Overview", icon: LayoutDashboard },
-      { to: "/estate", label: "Estate Fleet", icon: Activity },
-      { to: "/customers", label: "Customers", icon: Building2 },
-      { to: "/deployments", label: "Deployments", icon: Rocket },
-    ],
+    label: "Factory",
+    items: [{ to: "/", label: "Home", icon: LayoutDashboard }],
   },
   {
-    label: "Catalog",
+    label: "1 · Define",
     items: [
+      { to: "/offerings", label: "Catalog & blueprints", icon: Layers },
       { to: "/products", label: "Products", icon: Boxes },
-      { to: "/offerings", label: "Offerings", icon: Layers },
     ],
   },
   {
-    label: "Governance",
+    label: "2 · Ship",
     items: [
       { to: "/upgrades", label: "Rollouts", icon: BadgeCheck },
-      { to: "/compliance", label: "Compliance", icon: ShieldCheck },
-      { to: "/costs", label: "Cost Management", icon: DollarSign },
-      { to: "/audit", label: "Audit Logs", icon: ScrollText },
+      { to: "/deployments", label: "Plans & deployments", icon: Rocket },
     ],
   },
   {
-    label: "System",
-    items: [{ to: "/settings", label: "Settings", icon: Cog }],
+    label: "3 · Operate",
+    items: [
+      { to: "/customers", label: "Customers", icon: Building2 },
+      { to: "/estate", label: "Fleet", icon: Activity },
+    ],
+  },
+  {
+    label: "Trust",
+    items: [
+      { to: "/compliance", label: "Compliance", icon: ShieldCheck },
+      { to: "/costs", label: "Costs", icon: DollarSign },
+      { to: "/audit", label: "Audit trail", icon: ScrollText },
+      { to: "/settings", label: "Settings", icon: Cog },
+    ],
   },
 ] as const satisfies readonly NavGroup[];
 
