@@ -4,7 +4,15 @@ import { type Stage, STAGES, semverCompare } from "@/lib/fleet";
 import { type FleetCustomer, type Install, TONE_STYLE } from "@/lib/use-fleet";
 import { cn } from "@/lib/utils";
 
-const ENV_ORDER = ["development", "test", "qa", "staging", "production", "disaster_recovery"];
+const ENV_ORDER = [
+  "development",
+  "test",
+  "qa",
+  "uat",
+  "staging",
+  "production",
+  "disaster_recovery",
+];
 const ENV_SHORT: Record<string, string> = {
   development: "Dev",
   test: "Test",

@@ -33,6 +33,7 @@ import {
 import { currency, dateTime, describe, relative, titleize } from "@/lib/format";
 import { auditQuery, customerQuery } from "@/lib/queries";
 import { useFleet } from "@/lib/use-fleet";
+import { CustomerDelivery } from "@/components/onboarding/CustomerDelivery";
 
 export const Route = createFileRoute("/customers/$customerId")({
   head: () => ({
@@ -97,7 +98,7 @@ type Env = {
   }[];
 };
 
-const ENV_ORDER = ["production", "staging", "qa", "test", "development"];
+const ENV_ORDER = ["production", "staging", "uat", "qa", "test", "development"];
 
 function CustomerDetail() {
   const { customerId } = Route.useParams();
@@ -300,6 +301,7 @@ function CustomerDetail() {
       <Tabs defaultValue="architecture">
         <TabsList className="flex-wrap">
           <TabsTrigger value="architecture">Architecture</TabsTrigger>
+          <TabsTrigger value="delivery">Delivery</TabsTrigger>
           <TabsTrigger value="runs">Runs · {runs.length}</TabsTrigger>
           <TabsTrigger value="drift">
             Drift & compliance{openDrift.length ? ` · ${openDrift.length}` : ""}
@@ -543,6 +545,15 @@ function CustomerDetail() {
               )}
             </ul>
           </Panel>
+        </TabsContent>
+
+        <TabsContent value="delivery" className="mt-4">
+          <CustomerDelivery
+            code={c.customer_code}
+            envs={envs}
+            subscriptionId={conn?.subscription_id ?? null}
+            hosted={c.azure_model === "isv_hosted"}
+          />
         </TabsContent>
 
         <TabsContent value="access" className="mt-4 grid gap-4 lg:grid-cols-2">

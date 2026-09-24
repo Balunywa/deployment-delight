@@ -4,6 +4,15 @@ import { z } from "zod";
 import { demoProvider, demoPipelineProvider } from "./engine/demo-provider.server";
 import { assertTransition, type DeploymentState, type ProviderContext } from "./engine/types";
 import type { Tables } from "./db-types";
+import { fromManifest, toManifest } from "./architecture";
+import {
+  DEFAULT_DELIVERY,
+  ENV_KEYS,
+  envName,
+  namesFor,
+  reviewOffering,
+  verdict,
+} from "./onboarding";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -818,7 +827,22 @@ export const publishOfferingVersion = createServerFn({ method: "POST" })
     const policyIssues = architecturePolicyCheck(
       (version.manifest_json ?? {}) as Record<string, unknown>,
     );
-    const blocking = policyIssues.filter((i) => i.level === "BLOCKING");
+    const offering = await db.one<Tables<"offerings">>(
+      "select * from public.offerings where id = $1",
+      [version.offering_id],
+    );
+    const hosting = await db.maybeOne<{ answers: unknown }>(
+      "select answers from public.foundations where organization_id = $1 and customer_id is null",
+      [ORG_ID],
+    );
+    const arch = fromManifest(offering, version.manifest_json);
+    const review = reviewOffering({ ...arch, hostingAnswers: hosting?.answers ?? {} });
+    const blocking = [
+      ...policyIssues.filter((i) => i.level === "BLOCKING"),
+      ...review
+        .filter((c) => c.level === "fail")
+        .map((c) => ({ message: `${c.title}. ${c.detail}` })),
+    ];
     if (!check.success || blocking.length) {
       throw new Error(
         `Cannot publish: ${[...(check.success ? [] : check.error.issues.map((i) => i.message)), ...blocking.map((b) => b.message)].join("; ")}`,
@@ -837,9 +861,102 @@ export const publishOfferingVersion = createServerFn({ method: "POST" })
       resource_type: "offering_version",
       resource_id: published.version,
       previous_value: { status: version.status },
-      new_value: { status: "published" },
+      new_value: { status: "published", architectureReview: verdict(review) },
     });
     return published;
+  });
+
+/** New offering: starts as a v1.0.0 draft copied from a template offering, then goes through review. */
+export const createOffering = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        name: z.string().min(3).max(80),
+        description: z.string().max(400).default(""),
+        templateOfferingId: z.string().uuid(),
+        landing: z.enum(["existing-customer-hub", "dedicated-spoke", "isv-hosted"]),
+        landingZone: z.enum(["corp", "online", "local", "sandbox"]),
+        regions: z.array(z.string().min(3).max(40)).min(1).max(60),
+        environments: z.array(z.enum(ENV_KEYS)).min(1),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const template = await db.one<Tables<"offerings">>(
+      "select * from public.offerings where id = $1",
+      [data.templateOfferingId],
+    );
+    const base = await db.maybeOne<{ manifest_json: Record<string, unknown> }>(
+      `select manifest_json from public.offering_versions where offering_id = $1
+       order by (status = 'published') desc, created_at desc limit 1`,
+      [template.id],
+    );
+    const profile =
+      data.landing === "existing-customer-hub"
+        ? "customer-hub"
+        : data.landing === "isv-hosted"
+          ? "isv-hosted"
+          : "dedicated-spoke";
+    const offering = await db
+      .insert<Tables<"offerings">>("offerings", {
+        product_id: template.product_id,
+        name: data.name,
+        description: data.description || null,
+        offering_type:
+          data.landing === "isv-hosted"
+            ? "saas_connected"
+            : data.landing === "existing-customer-hub"
+              ? "enterprise_private"
+              : "customer_hosted",
+        deployment_boundary: template.deployment_boundary,
+        network_profile: profile,
+        security_profile: template.security_profile,
+        supported_regions: data.regions,
+        estimated_monthly_cost_low: template.estimated_monthly_cost_low,
+        estimated_monthly_cost_high: template.estimated_monthly_cost_high,
+      })
+      .catch((e: Error) => {
+        throw new Error(e.message);
+      });
+    const arch = fromManifest(template, base?.manifest_json ?? {});
+    const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const manifest = toManifest(
+      slug,
+      "1.0.0",
+      {
+        selected: arch.selected,
+        topology: {
+          ...arch.topology,
+          landing: data.landing,
+          landingZone: data.landingZone,
+          regions: data.regions,
+          environments: data.environments,
+        },
+      },
+      {
+        repository: "github.com/gridworks/grid-analytics-infra",
+        path: `offerings/${slug}`,
+        iac: "bicep",
+        pipeline: "github-actions",
+      },
+    );
+    const version = await db.insert<Tables<"offering_versions">>("offering_versions", {
+      offering_id: offering.id,
+      version: "1.0.0",
+      status: "draft",
+      manifest_json: manifest,
+      release_notes: `New offering, started from ${template.name}.`,
+      ai_generated: false,
+      created_by: "Sarah Chen",
+    });
+    await audit(db, {
+      event_type: "offering.created",
+      resource_type: "offering",
+      resource_id: offering.name,
+      new_value: { template: template.name, regions: data.regions, landingZone: data.landingZone },
+    });
+    return { offeringId: offering.id, versionId: version.id };
   });
 
 /* --------------------------------------------------------------- onboarding */
@@ -874,9 +991,36 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         offeringId: z.string().uuid(),
         region: z.string().min(3).max(40),
         secondaryRegion: z.string().max(40).optional(),
-        environments: z
-          .array(z.enum(["development", "test", "qa", "staging", "production"]))
-          .min(1),
+        environments: z.array(z.enum(ENV_KEYS)).min(1),
+        plans: z
+          .array(
+            z.object({
+              env: z.enum(ENV_KEYS),
+              region: z.string().min(3).max(40),
+              target: z.enum([
+                "new_subscription",
+                "existing_subscription",
+                "existing_resource_group",
+              ]),
+              subscriptionId: z.string().max(80).default(""),
+              resourceGroup: z.string().max(90).default(""),
+            }),
+          )
+          .default([]),
+        delivery: z
+          .object({
+            tool: z.enum(["github-actions", "azure-devops"]),
+            repo: z.string().min(3).max(140),
+            autoDeployNonProd: z.boolean(),
+            prodApprovers: z.string().max(120),
+            prodWaitMinutes: z.number().int().min(0).max(43200),
+            driftSchedule: z.boolean(),
+          })
+          .optional(),
+        placement: z
+          .array(z.object({ id: z.string().max(90), name: z.string().max(120) }))
+          .max(8)
+          .default([]),
         network: z.object({
           mode: z.enum(["existing-customer-hub", "dedicated-spoke", "isv-hosted"]),
           vnetId: z.string().max(300).optional(),
@@ -942,28 +1086,50 @@ export const onboardCustomer = createServerFn({ method: "POST" })
     });
 
     const costPerEnv = Number(offering.estimated_monthly_cost_low ?? 0);
+    const delivery = data.delivery ?? DEFAULT_DELIVERY;
     const environments = await db.insertMany<Tables<"environments">>(
       "environments",
-      data.environments.map((type) => ({
-        customer_id: customer.id,
-        offering_id: offering.id,
-        desired_offering_version_id: published.id,
-        actual_offering_version_id: null,
-        name: type === "production" ? "PROD" : type.slice(0, 4).toUpperCase(),
-        environment_type: type,
-        region: data.region,
-        secondary_region: data.secondaryRegion ?? null,
-        deployment_boundary: offering.deployment_boundary,
-        status: "pending_deployment",
-        compliance_score: 0,
-        monthly_cost_estimate: type === "production" ? costPerEnv : Math.round(costPerEnv * 0.25),
-        configuration_json: {
-          network: data.network,
-          observability: data.observability,
-          inputs: data.inputs,
-          overrides: data.overrides,
-        },
-      })),
+      data.environments.map((type) => {
+        const plan = data.plans.find((p) => p.env === type) ?? {
+          env: type,
+          region: data.region,
+          target: "new_subscription" as const,
+          subscriptionId: data.subscriptionId ?? "",
+          resourceGroup: "",
+        };
+        const names = namesFor(data.customerCode, plan, delivery);
+        return {
+          customer_id: customer.id,
+          offering_id: offering.id,
+          desired_offering_version_id: published.id,
+          actual_offering_version_id: null,
+          name: envName(type),
+          environment_type: type,
+          region: plan.region,
+          secondary_region: data.secondaryRegion ?? null,
+          deployment_boundary: offering.deployment_boundary,
+          status: "pending_deployment",
+          compliance_score: 0,
+          monthly_cost_estimate: type === "production" ? costPerEnv : Math.round(costPerEnv * 0.25),
+          configuration_json: {
+            network: data.network,
+            observability: data.observability,
+            inputs: {
+              ...data.inputs,
+              ...(plan.target !== "new_subscription" && plan.subscriptionId
+                ? { subscriptionId: plan.subscriptionId }
+                : {}),
+            },
+            overrides: data.overrides,
+            target: { ...plan, ...names, managementGroup: data.placement.at(-1)?.id ?? null },
+            delivery: {
+              ...delivery,
+              environment: names.environment,
+              oidcSubject: names.oidcSubject,
+            },
+          },
+        };
+      }),
     );
 
     await audit(db, {
@@ -977,6 +1143,9 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         environments: data.environments,
         azureModel: data.azureModel,
         accessMethod: data.accessMethod,
+        delivery: delivery.tool,
+        repo: delivery.repo,
+        installFile: `installs/${data.customerCode}.yaml`,
         overrides: Object.keys(data.overrides),
       },
     });

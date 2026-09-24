@@ -945,7 +945,7 @@ export type Database = {
         | "drift_remediation"
         | "decommission";
       environment_type:
-        "development" | "test" | "qa" | "staging" | "production" | "disaster_recovery";
+        "development" | "test" | "qa" | "uat" | "staging" | "production" | "disaster_recovery";
       offering_type:
         | "saas_connected"
         | "customer_hosted"
@@ -1110,7 +1110,15 @@ export const Constants = {
         "drift_remediation",
         "decommission",
       ],
-      environment_type: ["development", "test", "qa", "staging", "production", "disaster_recovery"],
+      environment_type: [
+        "development",
+        "test",
+        "qa",
+        "uat",
+        "staging",
+        "production",
+        "disaster_recovery",
+      ],
       offering_type: [
         "saas_connected",
         "customer_hosted",

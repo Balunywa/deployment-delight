@@ -26,11 +26,22 @@ Either way, it's the same product setup, the same deployment process and the sam
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.
-2. **Bring on a customer.** Hosted by you: enter their name and sign-in domain. In their Azure: send
-   their admin a link to approve access — their settings are found automatically.
-3. **Check, approve, deploy.** Cloud Delivery checks everything first, shows what it will create and
-   what it will cost, waits for approval, then deploys.
-4. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
+2. **Review before you offer it.** Every new offering or version goes through architecture review before
+   it can be published: every offered region runs every service (from Azure's resource provider region
+   lists, all 49 public regions), the landing zone group exists in your landing zone design and its
+   policies allow the architecture (for example, Corp denies public endpoints), and the guardrails are on.
+3. **Bring on a customer.** Pick a published offering, then choose each environment — dev, test, QA, UAT,
+   staging, prod — with its region and target: a new subscription, an existing subscription or an
+   existing resource group. Placement in the management group hierarchy comes from the landing zone design,
+   one subscription per environment in the same group, as the Cloud Adoption Framework recommends. Hosted
+   by you: nothing is needed from the customer. In their Azure: send their admin a link to approve access.
+4. **Onboarding is a pull request.** Launching adds one file, `installs/<customer>.yaml`, to your delivery
+   repository. The same workflow (GitHub Actions by default, or Azure Pipelines) validates and plans every
+   environment on the pull request; merging deploys ring by ring, and production waits for its required
+   reviewers. Each environment is a GitHub environment with its own OIDC federated credential — no
+   secrets. The same workflow runs on new offering releases (upgrades), nightly (drift) and by hand.
+   _The demo engine simulates the GitHub calls and Azure deployments._
+5. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
    versions in stages instead of all at once.
 
 ## Platform landing zones

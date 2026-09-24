@@ -1,0 +1,81 @@
+/*
+ * Azure region availability, generated from `az account list-locations` (physical regions open to
+ * customers) and `az provider show` (the regions each resource provider accepts) on 2026-09-24.
+ * Regenerate when Microsoft adds regions. Resource types not listed are available in every region.
+ */
+
+export type Region = { name: string; display: string; geo: string };
+
+export const AZURE_REGIONS: Region[] = [
+  { name: "southafricanorth", display: "South Africa North", geo: "Africa" },
+  { name: "australiacentral", display: "Australia Central", geo: "Asia Pacific" },
+  { name: "australiaeast", display: "Australia East", geo: "Asia Pacific" },
+  { name: "australiasoutheast", display: "Australia Southeast", geo: "Asia Pacific" },
+  { name: "centralindia", display: "Central India", geo: "Asia Pacific" },
+  { name: "eastasia", display: "East Asia", geo: "Asia Pacific" },
+  { name: "indiasouthcentral", display: "India South Central", geo: "Asia Pacific" },
+  { name: "indonesiacentral", display: "Indonesia Central", geo: "Asia Pacific" },
+  { name: "japaneast", display: "Japan East", geo: "Asia Pacific" },
+  { name: "japanwest", display: "Japan West", geo: "Asia Pacific" },
+  { name: "koreacentral", display: "Korea Central", geo: "Asia Pacific" },
+  { name: "koreasouth", display: "Korea South", geo: "Asia Pacific" },
+  { name: "malaysiawest", display: "Malaysia West", geo: "Asia Pacific" },
+  { name: "newzealandnorth", display: "New Zealand North", geo: "Asia Pacific" },
+  { name: "southindia", display: "South India", geo: "Asia Pacific" },
+  { name: "southeastasia", display: "Southeast Asia", geo: "Asia Pacific" },
+  { name: "westindia", display: "West India", geo: "Asia Pacific" },
+  { name: "canadacentral", display: "Canada Central", geo: "Canada" },
+  { name: "canadaeast", display: "Canada East", geo: "Canada" },
+  { name: "austriaeast", display: "Austria East", geo: "Europe" },
+  { name: "belgiumcentral", display: "Belgium Central", geo: "Europe" },
+  { name: "denmarkeast", display: "Denmark East", geo: "Europe" },
+  { name: "francecentral", display: "France Central", geo: "Europe" },
+  { name: "germanywestcentral", display: "Germany West Central", geo: "Europe" },
+  { name: "italynorth", display: "Italy North", geo: "Europe" },
+  { name: "northeurope", display: "North Europe", geo: "Europe" },
+  { name: "norwayeast", display: "Norway East", geo: "Europe" },
+  { name: "polandcentral", display: "Poland Central", geo: "Europe" },
+  { name: "spaincentral", display: "Spain Central", geo: "Europe" },
+  { name: "swedencentral", display: "Sweden Central", geo: "Europe" },
+  { name: "switzerlandnorth", display: "Switzerland North", geo: "Europe" },
+  { name: "westeurope", display: "West Europe", geo: "Europe" },
+  { name: "mexicocentral", display: "Mexico Central", geo: "Mexico" },
+  { name: "israelcentral", display: "Israel Central", geo: "Middle East" },
+  { name: "qatarcentral", display: "Qatar Central", geo: "Middle East" },
+  { name: "uaenorth", display: "UAE North", geo: "Middle East" },
+  { name: "brazilsouth", display: "Brazil South", geo: "South America" },
+  { name: "chilecentral", display: "Chile Central", geo: "South America" },
+  { name: "uksouth", display: "UK South", geo: "UK" },
+  { name: "ukwest", display: "UK West", geo: "UK" },
+  { name: "centralus", display: "Central US", geo: "US" },
+  { name: "eastus", display: "East US", geo: "US" },
+  { name: "eastus2", display: "East US 2", geo: "US" },
+  { name: "northcentralus", display: "North Central US", geo: "US" },
+  { name: "southcentralus", display: "South Central US", geo: "US" },
+  { name: "westcentralus", display: "West Central US", geo: "US" },
+  { name: "westus", display: "West US", geo: "US" },
+  { name: "westus2", display: "West US 2", geo: "US" },
+  { name: "westus3", display: "West US 3", geo: "US" },
+];
+
+/** Resource type → regions where the provider does not accept it. */
+export const UNAVAILABLE: Record<string, string[]> = {
+  "Microsoft.App/managedEnvironments": [
+    "australiacentral",
+    "denmarkeast",
+    "indiasouthcentral",
+    "israelcentral",
+    "qatarcentral",
+    "westindia",
+  ],
+  "Microsoft.Cache/redis": ["indiasouthcentral"],
+  "Microsoft.ContainerService/managedClusters": ["westindia"],
+  "Microsoft.DBforPostgreSQL/flexibleServers": ["westindia"],
+  "Microsoft.Insights/components": [
+    "belgiumcentral",
+    "denmarkeast",
+    "indiasouthcentral",
+    "westcentralus",
+    "westindia",
+  ],
+};

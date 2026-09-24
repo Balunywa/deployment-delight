@@ -58,15 +58,24 @@ import {
 import { semverCompare } from "@/lib/fleet";
 import { currency, shortDate } from "@/lib/format";
 import { bicepFor, pipelineFor, workflowFor } from "@/lib/pipeline";
-import { offeringsQuery } from "@/lib/queries";
+import { verdict, reviewOffering, ENV_KEYS, ENV_META, type EnvKey } from "@/lib/onboarding";
+import { foundationsQuery, offeringsQuery } from "@/lib/queries";
+import {
+  NewOfferingDialog,
+  RegionPicker,
+  ReviewPanel,
+} from "@/components/onboarding/OfferingReview";
 import { cn } from "@/lib/utils";
 
-type View = "architecture" | "pipeline" | "iac" | "inputs" | "releases";
+type View = "architecture" | "review" | "pipeline" | "iac" | "inputs" | "releases";
 
 export const Route = createFileRoute("/offerings")({
-  validateSearch: (s: Record<string, unknown>): { offering?: string; view?: View } => ({
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { offering?: string; view?: View; new?: boolean } => ({
     ...(typeof s["offering"] === "string" ? { offering: s["offering"] } : {}),
     ...(typeof s["view"] === "string" ? { view: s["view"] as View } : {}),
+    ...(s["new"] === true || s["new"] === "true" ? { new: true } : {}),
   }),
   head: () => ({
     meta: [
@@ -96,13 +105,12 @@ type Version = {
   ai_generated: boolean;
 };
 
-const REGIONS = ["eastus2", "centralus", "westus3", "westeurope", "northeurope"];
-const ENVS = ["development", "test", "staging", "production"];
-
 function Designer() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/offerings" });
   const offerings = useQuery(offeringsQuery);
+  const foundations = useQuery(foundationsQuery);
+  const hostingAnswers = (foundations.data ?? []).find((f) => !f.customer_id)?.answers ?? {};
   const list = offerings.data ?? [];
   const offering =
     list.find((o) => o.id === search.offering) ??
@@ -179,6 +187,14 @@ function Designer() {
   const monthly = monthlyEstimate(selected);
   const privateCount = selected.filter((s) => SERVICE_BY_ID.get(s.id)?.privateLink).length;
   const maxVersion = versions[0]?.version ?? "1.0.0";
+  const review = reviewOffering({ selected, topology, hostingAnswers });
+  const reviewState = verdict(review);
+  const templates = list.flatMap((o) => {
+    const v = ((o.offering_versions ?? []) as unknown as Version[])
+      .filter((x) => x.status === "published")
+      .sort((a, b) => semverCompare(b.version, a.version))[0];
+    return v ? [{ id: o.id, name: o.name, arch: fromManifest(o, v.manifest_json) }] : [];
+  });
 
   return (
     <div className="-mx-4 -my-6 flex min-h-[calc(100vh-49px)] flex-col lg:-mx-8">
@@ -220,6 +236,13 @@ function Designer() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate({ search: (s) => ({ ...s, new: true }) })}
+            >
+              <Plus className="size-3.5" /> New offering
+            </Button>
             <Button size="sm" variant="outline" onClick={() => setIntakeOpen(true)}>
               <Sparkles className="size-3.5" /> Describe architecture
             </Button>
@@ -237,7 +260,14 @@ function Designer() {
             {editable && (
               <Button
                 size="sm"
-                disabled={dirty || publish.isPending}
+                disabled={dirty || publish.isPending || reviewState === "fail"}
+                title={
+                  reviewState === "fail"
+                    ? "Architecture review has failing checks"
+                    : dirty
+                      ? "Save the draft first"
+                      : undefined
+                }
                 onClick={() => publish.mutate({ data: { versionId: base.id } })}
               >
                 Publish v{base.version}
@@ -251,6 +281,14 @@ function Designer() {
             {(
               [
                 ["architecture", "Architecture"],
+                [
+                  "review",
+                  reviewState === "pass"
+                    ? "Review ✓"
+                    : reviewState === "warn"
+                      ? "Review · warnings"
+                      : `Review · ${review.filter((c) => c.level === "fail").length} failing`,
+                ],
                 ["pipeline", "Pipeline"],
                 ["iac", "Infrastructure as code"],
                 ["inputs", `Customer inputs · ${inputs.length}`],
@@ -416,6 +454,28 @@ function Designer() {
           </aside>
         </div>
       )}
+
+      {view === "review" && (
+        <ReviewPanel
+          arch={arch}
+          hostingAnswers={hostingAnswers}
+          version={base.version}
+          status={base.status}
+        />
+      )}
+
+      <NewOfferingDialog
+        open={!!search.new}
+        onOpenChange={(v) =>
+          !v &&
+          navigate({
+            search: ({ new: _n, ...rest }) => rest,
+          })
+        }
+        templates={templates}
+        hostingAnswers={hostingAnswers}
+        onCreated={(id) => navigate({ search: { offering: id, view: "review" } })}
+      />
 
       {view === "pipeline" && (
         <div className="space-y-4 p-4 lg:p-6">
@@ -739,15 +799,18 @@ function Inspector({
         </p>
       </div>
 
-      <ChipGroup
-        label="Supported regions"
-        values={REGIONS}
-        selected={topology.regions}
-        onChange={(regions) => regions.length && onChange({ topology: { ...topology, regions } })}
-      />
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-muted-foreground">Supported regions</p>
+        <RegionPicker
+          selected={selected}
+          value={topology.regions}
+          onChange={(regions) => regions.length && onChange({ topology: { ...topology, regions } })}
+        />
+      </div>
       <ChipGroup
         label="Environments per customer"
-        values={ENVS}
+        values={[...ENV_KEYS]}
+        labels={Object.fromEntries(ENV_KEYS.map((e) => [e, ENV_META[e as EnvKey].label]))}
         selected={topology.environments}
         onChange={(environments) =>
           environments.length && onChange({ topology: { ...topology, environments } })
@@ -798,11 +861,13 @@ function ToggleRow({
 function ChipGroup({
   label,
   values,
+  labels,
   selected,
   onChange,
 }: {
   label: string;
   values: string[];
+  labels?: Record<string, string>;
   selected: string[];
   onChange: (v: string[]) => void;
 }) {
@@ -823,7 +888,7 @@ function ChipGroup({
                   : "border-border text-muted-foreground hover:text-foreground",
               )}
             >
-              {v}
+              {labels?.[v] ?? v}
             </button>
           );
         })}
