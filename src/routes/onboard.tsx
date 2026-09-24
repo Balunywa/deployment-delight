@@ -14,6 +14,7 @@ import {
   Loader2,
   Lock,
   Mail,
+  ShieldCheck,
   UserCog,
   Workflow,
 } from "lucide-react";
@@ -47,6 +48,7 @@ import { SERVICE_BY_ID, inputsFor, monthlyEstimate } from "@/lib/catalog";
 import { discoverPlatform } from "@/lib/discovery";
 import { getDeployment } from "@/lib/data.functions";
 import {
+  completeCustomerLink,
   createDeployment,
   decideApproval,
   executeDeployment,
@@ -77,7 +79,7 @@ import {
   unsupportedIn,
   verdict,
 } from "@/lib/onboarding";
-import { foundationsQuery, offeringsQuery } from "@/lib/queries";
+import { customersQuery, foundationsQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/onboard")({
@@ -115,16 +117,28 @@ type Launch = {
   graph: Record<string, RunState>;
   done: boolean;
   merged: boolean;
+  error: string | null;
+  environments: { id: string; environment_type: string }[];
 };
 
 function Onboard() {
   const offerings = useQuery(offeringsQuery);
   const foundations = useQuery(foundationsQuery);
+  const customers = useQuery(customersQuery);
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [customer, setCustomer] = useState({ name: "Metro Energy", industry: "Electric utility" });
   const [code, setCode] = useState<string | null>(null);
-  const customerCode = code ?? slug(customer.name);
+  const taken = new Set((customers.data ?? []).map((c) => c.customer_code));
+  // Suggested codes skip ones already in use, so a demo can onboard "Metro Energy" again.
+  const suggested = (() => {
+    const base = slug(customer.name) || "customer";
+    if (!taken.has(base)) return base;
+    let i = 2;
+    while (taken.has(`${base}-${i}`)) i++;
+    return `${base}-${i}`;
+  })();
+  const customerCode = code ?? suggested;
   const [offeringId, setOfferingId] = useState<string>("");
   const [access, setAccess] = useState<"customer_link" | "engineer">("customer_link");
   const [connection, setConnection] = useState("federated_identity");
@@ -210,6 +224,7 @@ function Onboard() {
   const fetchRun = useServerFn(getDeployment);
   const approve = useServerFn(decideApproval);
   const execute = useServerFn(executeDeployment);
+  const completeLink = useServerFn(completeCustomerLink);
   const [merging, setMerging] = useState(false);
 
   if (!pick || !arch) return <p className="text-sm text-muted-foreground">Loading offerings…</p>;
@@ -254,7 +269,8 @@ function Onboard() {
   const triggers = triggersFor(delivery, customerCode);
   const monthly = monthlyEstimate(arch.selected);
   const quote = envPlans.reduce((s, p) => s + (ENV_META[p.env].prod ? monthly : monthly * 0.3), 0);
-  const codeOk = /^[a-z0-9-]{2,40}$/.test(customerCode);
+  const codeTaken = taken.has(customerCode);
+  const codeOk = /^[a-z0-9-]{2,40}$/.test(customerCode) && !codeTaken;
   const canContinue = [
     customer.name.trim().length >= 2 && codeOk,
     true,
@@ -301,6 +317,8 @@ function Onboard() {
   });
 
   const start = async () => {
+    // Pin the code: once the customer exists, the suggestion would move on to the next free one.
+    setCode(customerCode);
     const primary = submitPlans[0]!;
     const steps: Launch["steps"] = [
       {
@@ -368,6 +386,8 @@ function Onboard() {
       graph: { pr: "running" },
       done: false,
       merged: false,
+      error: null,
+      environments: [],
     };
     const push = () => setLaunch({ ...state, steps: state.steps.map((s) => ({ ...s })) });
     const mark = (id: string, s: RunState) => {
@@ -416,6 +436,7 @@ function Onboard() {
         },
       })) as { customerId: string; environments: { id: string; environment_type: string }[] };
       state.customerId = r.customerId;
+      state.environments = r.environments;
       void queryClient.invalidateQueries({ queryKey: ["customers"] });
       void queryClient.invalidateQueries({ queryKey: ["estate"] });
       mark("record", "success");
@@ -426,60 +447,134 @@ function Onboard() {
         mark(id, "success");
       }
       state.graph = { pr: "success" };
-      if (viaLink) {
-        mark("wait", "waiting");
-      } else {
-        mark("runs", "running");
-        state.graph = { pr: "success", validate: "running" };
-        push();
-        for (const env of r.environments) {
-          const d = (await plan.mutateAsync({
-            data: { environmentId: env.id, deploymentType: "initial", requestedBy: "Sarah Chen" },
-          })) as { deploymentId: string; status: string };
-          state.runs.push({
-            env: env.environment_type as EnvKey,
-            id: d.deploymentId,
-            status: d.status,
-          });
-          push();
-        }
-        const failed = state.runs.some((x) => x.status === "VALIDATION_FAILED");
-        mark("runs", failed ? "failed" : "success");
-        const first = rings[0];
-        state.graph = {
-          pr: "success",
-          validate: failed ? "failed" : "success",
-          plan: failed ? "failed" : "success",
-          ...(first?.gate ? { [`gate-${first.id}`]: "waiting" as RunState } : {}),
-        };
-        void queryClient.invalidateQueries({ queryKey: ["deployments"] });
-      }
+      if (viaLink) mark("wait", "waiting");
+      else await planAll(state, push, mark);
       state.done = true;
       push();
     } catch (e) {
-      const running = state.steps.find((s) => s.state === "running");
-      if (running) running.state = "failed";
+      fail(state, push, e);
+    }
+  };
+
+  const fail = (state: Launch, push: () => void, e: unknown) => {
+    const running = state.steps.find((s) => s.state === "running");
+    if (running) running.state = "failed";
+    for (const k of Object.keys(state.graph))
+      if (state.graph[k] === "running") state.graph[k] = "failed";
+    state.error = (e as Error).message || "Something went wrong";
+    state.done = true;
+    push();
+  };
+
+  // Validate and plan every environment — the checks the pull request runs.
+  const planAll = async (
+    state: Launch,
+    push: () => void,
+    mark: (id: string, s: RunState) => void,
+  ) => {
+    mark("runs", "running");
+    state.graph = { pr: "success", validate: "running" };
+    push();
+    for (const env of state.environments) {
+      const d = (await plan.mutateAsync({
+        data: { environmentId: env.id, deploymentType: "initial", requestedBy: "Sarah Chen" },
+      })) as { deploymentId: string; status: string };
+      state.runs.push({
+        env: env.environment_type as EnvKey,
+        id: d.deploymentId,
+        status: d.status,
+      });
+      state.graph = { pr: "success", validate: "success", plan: "running" };
+      push();
+    }
+    const failed = state.runs.some((x) => x.status === "VALIDATION_FAILED");
+    mark("runs", failed ? "failed" : "success");
+    state.graph = {
+      pr: "success",
+      validate: failed ? "failed" : "success",
+      plan: failed ? "failed" : "success",
+    };
+    void queryClient.invalidateQueries({ queryKey: ["deployments"] });
+  };
+
+  // Demo path for the install link: the customer's admin approves access, then the run starts.
+  const simulateApproval = async () => {
+    if (!launch) return;
+    const state: Launch = {
+      ...launch,
+      steps: launch.steps.map((s) => ({ ...s })),
+      runs: [...launch.runs],
+      graph: { ...launch.graph },
+      done: false,
+      error: null,
+    };
+    const push = () =>
+      setLaunch({ ...state, steps: state.steps.map((s) => ({ ...s })), runs: [...state.runs] });
+    const mark = (id: string, st: RunState) => {
+      const x = state.steps.find((y) => y.id === id);
+      if (x) x.state = st;
+      push();
+    };
+    try {
+      mark("wait", "running");
+      await completeLink({
+        data: {
+          customerId: state.customerId,
+          tenantId,
+          subscriptionId: sampleSub(0),
+          inputs: Object.fromEntries(
+            required
+              .map((i) => [i.key, discovered[i.key]?.[0] ?? value(i.key)] as const)
+              .filter(([, v]) => !!v),
+          ),
+          grantedBy: `${customer.name} Azure administrator (demo)`,
+        },
+      });
+      const w = state.steps.find((x) => x.id === "wait");
+      if (w) {
+        w.label = `${customer.name}'s Azure admin approved access`;
+        w.detail = "Subscriptions picked; hub, DNS and workspace discovered";
+      }
+      mark("wait", "success");
+      state.steps.push({
+        id: "runs",
+        label: "Validate & plan",
+        detail: `${envPlans.length} what-if run${envPlans.length === 1 ? "" : "s"} on the pull request`,
+        state: "queued",
+      });
+      await planAll(state, push, mark);
       state.done = true;
       push();
-      toast.error((e as Error).message);
+    } catch (e) {
+      fail(state, push, e);
     }
   };
 
   // Merging the onboarding pull request: non-production rings deploy in order, production waits for reviewers.
-  const merge = async () => {
+  // Merging deploys the non-production rings in order; production waits until its reviewers approve.
+  const advance = async (approveProduction: boolean) => {
     if (!launch) return;
     setMerging(true);
-    const next: Launch = { ...launch, merged: true, graph: { ...launch.graph } };
+    const next: Launch = {
+      ...launch,
+      merged: true,
+      graph: { ...launch.graph },
+      runs: launch.runs.map((r) => ({ ...r })),
+    };
     const show = () => setLaunch({ ...next, graph: { ...next.graph }, runs: [...next.runs] });
+    const gh = delivery.tool === "github-actions";
     try {
+      let stopped = false;
       for (const r of rings) {
         const run = next.runs.find((x) => x.env === r.id);
-        if (!run) continue;
-        if (r.gate) {
+        if (!run || run.status === "SUCCEEDED") continue;
+        if (r.gate && !approveProduction) {
           next.graph[`gate-${r.id}`] = "waiting";
           show();
+          stopped = true;
           break;
         }
+        delete next.graph[`gate-${r.id}`];
         next.graph[`deploy-${r.id}`] = "running";
         show();
         const d = (await fetchRun({ data: { deploymentId: run.id } })) as {
@@ -491,22 +586,32 @@ function Onboard() {
             data: {
               approvalId: pending.id,
               decision: "approved",
-              decidedBy:
-                delivery.tool === "github-actions"
-                  ? "GitHub Actions (auto-deploy)"
-                  : "Azure Pipelines (auto-deploy)",
-              comments:
-                "Plan clean on the onboarding pull request; non-production deploys on merge.",
+              decidedBy: r.gate
+                ? `${delivery.prodApprovers || "Reviewer"} (demo)`
+                : delivery.autoDeployNonProd
+                  ? `${gh ? "GitHub Actions" : "Azure Pipelines"} (auto-deploy)`
+                  : "Platform engineer",
+              comments: r.gate
+                ? "Production reviewed after dev and test succeeded."
+                : "Plan clean on the onboarding pull request; deployed on merge.",
             },
           });
         const out = (await execute({ data: { deploymentId: run.id } })) as { status: string };
         run.status = out.status;
         next.graph[`deploy-${r.id}`] = out.status === "SUCCEEDED" ? "success" : "failed";
         show();
-        if (out.status !== "SUCCEEDED") break;
+        if (out.status !== "SUCCEEDED") {
+          stopped = true;
+          break;
+        }
+      }
+      if (!stopped) {
+        next.graph["verify"] = "success";
+        show();
       }
       void queryClient.invalidateQueries({ queryKey: ["deployments"] });
       void queryClient.invalidateQueries({ queryKey: ["estate"] });
+      void queryClient.invalidateQueries({ queryKey: ["customers"] });
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -574,16 +679,24 @@ function Onboard() {
           viaLink={viaLink}
           delivery={delivery}
           rings={rings}
+          onSimulate={() => void simulateApproval()}
+          onBack={() => {
+            setLaunch(null);
+            setStep(0);
+          }}
           canMerge={
-            !viaLink &&
             launch.done &&
             !launch.merged &&
-            delivery.autoDeployNonProd &&
             launch.runs.length > 0 &&
             !launch.runs.some((r) => r.status === "VALIDATION_FAILED")
           }
+          canApprove={
+            launch.merged &&
+            Object.entries(launch.graph).some(([k, v]) => k.startsWith("gate-") && v === "waiting")
+          }
           merging={merging}
-          onMerge={() => void merge()}
+          onMerge={() => void advance(false)}
+          onApprove={() => void advance(true)}
         />
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
@@ -602,9 +715,13 @@ function Onboard() {
                       value={customerCode}
                       onChange={(v) => setCode(v)}
                       hint={
-                        codeOk
-                          ? "Used in every resource, environment and file name"
-                          : "Lowercase letters, numbers and hyphens"
+                        codeTaken
+                          ? `${customerCode} is already a customer`
+                          : !codeOk
+                            ? "Lowercase letters, numbers and hyphens"
+                            : code === null && suggested !== slug(customer.name)
+                              ? `${slug(customer.name)} is taken — using ${suggested}`
+                              : "Used in every resource, environment and file name"
                       }
                       mono
                       invalid={!codeOk}
@@ -1324,7 +1441,15 @@ function LaunchView({
   canMerge,
   merging,
   onMerge,
+  onSimulate,
+  onBack,
+  canApprove,
+  onApprove,
 }: {
+  canApprove: boolean;
+  onApprove: () => void;
+  onSimulate: () => void;
+  onBack: () => void;
   canMerge: boolean;
   merging: boolean;
   onMerge: () => void;
@@ -1336,7 +1461,8 @@ function LaunchView({
   delivery: Delivery;
   rings: ReturnType<typeof ringsFor>;
 }) {
-  const failed = launch.steps.some((s) => s.state === "failed");
+  const failed = launch.steps.some((s) => s.state === "failed") || !!launch.error;
+  const waitingForAdmin = launch.steps.some((s) => s.id === "wait" && s.state === "waiting");
   return (
     <div className="max-w-4xl space-y-4">
       <div className="rounded-md border border-border bg-card p-5">
@@ -1352,17 +1478,19 @@ function LaunchView({
             ? `Onboarding ${name}…`
             : failed
               ? `Onboarding ${name} stopped`
-              : viaLink
+              : waitingForAdmin
                 ? `${name} is ready — waiting for their admin`
                 : launch.merged
-                  ? launch.runs.some((r) => r.status === "SUCCEEDED")
-                    ? `${name} is live in ${launch.runs
-                        .filter((r) => r.status === "SUCCEEDED")
-                        .map((r) => ENV_META[r.env]?.short)
-                        .join(
-                          " and ",
-                        )}${rings.some((r) => r.gate) ? ` — production is waiting for ${delivery.prodApprovers || "approval"}` : ""}`
-                    : `Deploying ${name}…`
+                  ? launch.runs.every((r) => r.status === "SUCCEEDED")
+                    ? `${name} is live in every environment`
+                    : launch.runs.some((r) => r.status === "SUCCEEDED")
+                      ? `${name} is live in ${launch.runs
+                          .filter((r) => r.status === "SUCCEEDED")
+                          .map((r) => ENV_META[r.env]?.short)
+                          .join(
+                            " and ",
+                          )}${rings.some((r) => r.gate) ? ` — production is waiting for ${delivery.prodApprovers || "approval"}` : ""}`
+                      : `Deploying ${name}…`
                   : `${name} is onboarded — the pull request is ready to merge`}
         </p>
         <ol className="mt-4 space-y-2.5">
@@ -1395,6 +1523,24 @@ function LaunchView({
             </li>
           ))}
         </ol>
+        {launch.error && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/40 bg-danger/5 px-3 py-2">
+            <p className="text-[13px] text-danger">{launch.error}</p>
+            <Button size="sm" variant="outline" onClick={onBack}>
+              Back to fix it
+            </Button>
+          </div>
+        )}
+        {launch.done && waitingForAdmin && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/5 px-3 py-2">
+            <p className="text-xs text-muted-foreground">
+              Demo: play the customer's Azure admin approving access on the install link.
+            </p>
+            <Button size="sm" onClick={onSimulate}>
+              Simulate admin approval
+            </Button>
+          </div>
+        )}
         <p className="mt-4 border-t border-border pt-3 text-[11px] text-muted-foreground">
           Demo engine: the pull request, environments and credentials are simulated here. Connected
           to a repository, these are the{" "}
@@ -1405,10 +1551,32 @@ function LaunchView({
 
       <PipelineGraph code={code} rings={rings} delivery={delivery} states={launch.graph} />
 
-      {(canMerge || merging) && (
+      {canApprove && !merging && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/5 px-4 py-3">
+          <div>
+            <p className="flex items-center gap-1.5 text-[13px] font-semibold">
+              <Lock className="size-3.5 text-warning" /> Production is waiting for{" "}
+              {delivery.prodApprovers || "a reviewer"}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {delivery.tool === "github-actions"
+                ? "GitHub environment protection rule — a required reviewer approves the deployment."
+                : "Azure Pipelines environment check — an approver approves the stage."}{" "}
+              Dev and test are live.
+            </p>
+          </div>
+          <Button onClick={onApprove}>
+            <ShieldCheck className="size-3.5" /> Approve & deploy production
+          </Button>
+        </div>
+      )}
+
+      {(canMerge || (merging && !canApprove)) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-success/40 bg-success/5 px-4 py-3">
           <div>
-            <p className="text-[13px] font-semibold">Checks passed on the pull request</p>
+            <p className="text-[13px] font-semibold">
+              {launch.merged ? "Deploying ring by ring…" : "Checks passed on the pull request"}
+            </p>
             <p className="text-xs text-muted-foreground">
               Merging deploys{" "}
               {rings
@@ -1475,7 +1643,7 @@ function LaunchView({
         </div>
       )}
 
-      {launch.done && viaLink && link && (
+      {launch.done && waitingForAdmin && link && (
         <div className="rounded-md border border-border bg-card p-4">
           <p className="text-[13px] font-semibold">Install link for {name}'s Azure admin</p>
           <p className="mt-1 text-xs text-muted-foreground">
