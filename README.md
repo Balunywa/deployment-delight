@@ -1958,14 +1958,38 @@ Build the initial working product now.
 
 ## Development
 
-You need Node.js (or Bun) and a Supabase project. Copy the connection values into `.env`
-(`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and the `VITE_`-prefixed
-public variants). Optional AI architecture drafting uses any OpenAI-compatible endpoint, e.g. Azure OpenAI:
-`AI_CHAT_COMPLETIONS_URL`, `AI_API_KEY`, `AI_MODEL`.
+The control plane runs on **Azure Database for PostgreSQL Flexible Server**. Locally, any PostgreSQL 14+ works.
 
 ```sh
-git clone <this-repository-url>
-cd <repository-name>
-npm i
+cp .env.example .env          # DATABASE_URL, PGSSLMODE=disable for local
+docker compose up -d          # local PostgreSQL 16 (optional if you already have one)
+npm install
+npm run db:seed               # applies db/migrations, then loads the GridWorks demo data into an empty database
 npm run dev
 ```
+
+- `db/migrations/*.sql` — schema, applied once each and in order by `npm run db:migrate` (tracked in `schema_migrations`).
+- `db/seed/*.sql` — demo dataset, only applied when the database is empty.
+- All reads and writes run server-side through `src/lib/db.server.ts`; the browser never connects to the database.
+
+### Azure Database for PostgreSQL
+
+Use Microsoft Entra authentication (managed identity on Azure Container Apps / App Service, or `az login` locally):
+
+```sh
+DATABASE_URL=postgres://<entra-principal>@<server>.postgres.database.azure.com:5432/cloud_delivery
+AZURE_POSTGRES_ENTRA_AUTH=true
+```
+
+Tokens come from `DefaultAzureCredential` and TLS is enforced for `*.postgres.database.azure.com`. Password authentication also works
+by putting the password in `DATABASE_URL` and leaving `AZURE_POSTGRES_ENTRA_AUTH` unset.
+
+### Build and run
+
+```sh
+npm run build                 # Node server output in .output/ (set NITRO_PRESET to target another platform)
+npm start
+```
+
+Optional AI architecture drafting uses any OpenAI-compatible endpoint, e.g. Azure OpenAI:
+`AI_CHAT_COMPLETIONS_URL`, `AI_API_KEY`, `AI_MODEL`.

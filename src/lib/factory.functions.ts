@@ -3,12 +3,13 @@ import { z } from "zod";
 
 import { demoProvider, demoPipelineProvider } from "./engine/demo-provider.server";
 import { assertTransition, type DeploymentState, type ProviderContext } from "./engine/types";
+import type { Tables } from "./db-types";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
+// Server-only Postgres access (Azure Database for PostgreSQL); imported lazily so it never reaches the client bundle.
 async function admin() {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-  return supabaseAdmin;
+  return import("./db.server");
 }
 
 type Db = Awaited<ReturnType<typeof admin>>;
@@ -29,7 +30,7 @@ async function audit(
     metadata_json?: Record<string, unknown>;
   },
 ) {
-  await db.from("audit_events").insert({
+  await db.insert("audit_events", {
     organization_id: ORG_ID,
     actor_name: event.actor_name ?? "Sarah Chen",
     event_type: event.event_type,
@@ -46,26 +47,23 @@ async function audit(
 }
 
 async function loadContext(db: Db, environmentId: string, deploymentType = "initial") {
-  const { data: environment, error } = await db
-    .from("environments")
-    .select("*, customers(*), offerings(*), desired:desired_offering_version_id(*)")
-    .eq("id", environmentId)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
+  const environment = await db.maybeOne<Tables<"environments">>(
+    "select * from public.environments where id = $1",
+    [environmentId],
+  );
   if (!environment) throw new Error("Environment not found");
 
-  const { data: connection } = await db
-    .from("customer_connections")
-    .select("*")
-    .eq("customer_id", environment.customer_id)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const connection = await db.maybeOne<Tables<"customer_connections">>(
+    "select * from public.customer_connections where customer_id = $1 order by created_at desc limit 1",
+    [environment.customer_id],
+  );
 
-  const version = environment.desired as {
-    manifest_json?: Record<string, unknown>;
-    version?: string;
-  } | null;
+  const version = environment.desired_offering_version_id
+    ? await db.maybeOne<{ manifest_json: Record<string, unknown>; version: string }>(
+        "select manifest_json, version from public.offering_versions where id = $1",
+        [environment.desired_offering_version_id],
+      )
+    : null;
 
   const ctx: ProviderContext = {
     environment: {
@@ -120,13 +118,12 @@ export const validateConnection = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: updated, error } = await db
-      .from("customer_connections")
-      .update({ status: "validated", last_validated_at: new Date().toISOString() })
-      .eq("id", data.connectionId)
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
+    const [updated] = await db.update<Tables<"customer_connections">>(
+      "customer_connections",
+      { status: "validated", last_validated_at: new Date().toISOString() },
+      { id: data.connectionId },
+    );
+    if (!updated) throw new Error("Connection not found");
     await audit(db, {
       event_type: "customer_connection.validated",
       customer_id: updated.customer_id,
@@ -199,32 +196,28 @@ export const createDeployment = createServerFn({ method: "POST" })
           : "AWAITING_PLAN_APPROVAL";
     }
 
-    const { data: actualVersion } = await db
-      .from("offering_versions")
-      .select("version")
-      .eq("id", environment.actual_offering_version_id ?? "")
-      .maybeSingle();
+    const actualVersion = environment.actual_offering_version_id
+      ? await db.maybeOne<{ version: string }>(
+          "select version from public.offering_versions where id = $1",
+          [environment.actual_offering_version_id],
+        )
+      : null;
 
-    const { data: deployment, error } = await db
-      .from("deployments")
-      .insert({
-        environment_id: environment.id,
-        deployment_type: data.deploymentType,
-        desired_version: version?.version ?? null,
-        previous_version: actualVersion?.version ?? null,
-        status: state,
-        mode: "demo",
-        requested_by: data.requestedBy,
-        correlation_id: plan?.correlationId ?? crypto.randomUUID(),
-        plan_json: (plan ?? {}) as never,
-        preflight_json: preflight as never,
-      })
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
+    const deployment = await db.insert<Tables<"deployments">>("deployments", {
+      environment_id: environment.id,
+      deployment_type: data.deploymentType,
+      desired_version: version?.version ?? null,
+      previous_version: actualVersion?.version ?? null,
+      status: state,
+      mode: "demo",
+      requested_by: data.requestedBy,
+      correlation_id: plan?.correlationId ?? crypto.randomUUID(),
+      plan_json: plan ?? {},
+      preflight_json: preflight,
+    });
 
     if (state === "AWAITING_APPROVAL" || state === "AWAITING_PLAN_APPROVAL") {
-      await db.from("approvals").insert({
+      await db.insert("approvals", {
         deployment_id: deployment.id,
         approval_type:
           environment.environment_type === "production" ? "production_deployment" : "plan_approval",
@@ -267,34 +260,35 @@ export const decideApproval = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: approval, error } = await db
-      .from("approvals")
-      .select("*, deployments(*, environments(*))")
-      .eq("id", data.approvalId)
-      .single();
-    if (error) throw new Error(error.message);
+    const approval = await db.one<Tables<"approvals">>(
+      "select * from public.approvals where id = $1",
+      [data.approvalId],
+    );
     if (approval.status !== "pending") throw new Error("This approval has already been decided.");
 
-    const deployment = approval.deployments as {
+    const deployment = await db.one<{
       id: string;
       status: DeploymentState;
       correlation_id: string;
       environment_id: string;
-    };
+    }>("select id, status, correlation_id, environment_id from public.deployments where id = $1", [
+      approval.deployment_id,
+    ]);
 
-    await db
-      .from("approvals")
-      .update({
+    await db.update(
+      "approvals",
+      {
         status: data.decision,
         comments: data.comments ?? null,
         decided_by: data.decidedBy,
         decided_at: new Date().toISOString(),
-      })
-      .eq("id", approval.id);
+      },
+      { id: approval.id },
+    );
 
     const next: DeploymentState = data.decision === "approved" ? "QUEUED" : "CANCELLED";
     assertTransition(deployment.status, next);
-    await db.from("deployments").update({ status: next }).eq("id", deployment.id);
+    await db.update("deployments", { status: next }, { id: deployment.id });
 
     await audit(db, {
       event_type: data.decision === "approved" ? "deployment.approved" : "deployment.rejected",
@@ -316,12 +310,10 @@ export const executeDeployment = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: deployment, error } = await db
-      .from("deployments")
-      .select("*, environments(*)")
-      .eq("id", data.deploymentId)
-      .single();
-    if (error) throw new Error(error.message);
+    const deployment = await db.one<Tables<"deployments">>(
+      "select * from public.deployments where id = $1",
+      [data.deploymentId],
+    );
 
     const status = deployment.status as DeploymentState;
     if (status !== "QUEUED") {
@@ -335,10 +327,11 @@ export const executeDeployment = createServerFn({ method: "POST" })
     );
     assertTransition("QUEUED", "DEPLOYING");
     const startedAt = new Date().toISOString();
-    await db
-      .from("deployments")
-      .update({ status: "DEPLOYING", started_at: startedAt })
-      .eq("id", deployment.id);
+    await db.update(
+      "deployments",
+      { status: "DEPLOYING", started_at: startedAt },
+      { id: deployment.id },
+    );
 
     const run = await demoPipelineProvider.dispatch({
       correlationId: deployment.correlation_id,
@@ -346,8 +339,9 @@ export const executeDeployment = createServerFn({ method: "POST" })
     });
 
     const steps = await demoProvider.apply({ ...ctx, plan: deployment.plan_json as never });
-    await db.from("deployment_steps").delete().eq("deployment_id", deployment.id);
-    await db.from("deployment_steps").insert(
+    await db.query("delete from public.deployment_steps where deployment_id = $1", [deployment.id]);
+    await db.insertMany(
+      "deployment_steps",
       steps.map((s) => ({
         deployment_id: deployment.id,
         sequence: s.sequence,
@@ -365,9 +359,9 @@ export const executeDeployment = createServerFn({ method: "POST" })
     assertTransition("DEPLOYING", finalState);
 
     const outputs = await demoProvider.getOutputs(ctx);
-    await db
-      .from("deployments")
-      .update({
+    await db.update(
+      "deployments",
+      {
         status: finalState,
         completed_at: new Date().toISOString(),
         result_json: {
@@ -375,19 +369,21 @@ export const executeDeployment = createServerFn({ method: "POST" })
           outputs,
           pipelineRun: run.runUrl,
           mode: "demo",
-        } as never,
-      })
-      .eq("id", deployment.id);
+        },
+      },
+      { id: deployment.id },
+    );
 
     if (!failed) {
-      await db
-        .from("environments")
-        .update({
+      await db.update(
+        "environments",
+        {
           actual_offering_version_id: environment.desired_offering_version_id,
           status: "healthy",
           compliance_score: 100,
-        })
-        .eq("id", environment.id);
+        },
+        { id: environment.id },
+      );
     }
 
     await audit(db, {
@@ -417,15 +413,12 @@ export const detectDrift = createServerFn({ method: "POST" })
     const findings = await demoProvider.detectDrift(ctx);
     let inserted = 0;
     for (const f of findings) {
-      const { data: existing } = await db
-        .from("drift_findings")
-        .select("id")
-        .eq("environment_id", environment.id)
-        .eq("resource_id", f.resourceId)
-        .eq("status", "open")
-        .maybeSingle();
+      const existing = await db.maybeOne(
+        "select id from public.drift_findings where environment_id = $1 and resource_id = $2 and status = 'open' limit 1",
+        [environment.id, f.resourceId],
+      );
       if (existing) continue;
-      await db.from("drift_findings").insert({
+      await db.insert("drift_findings", {
         environment_id: environment.id,
         resource_id: f.resourceId,
         category: f.category,
@@ -462,12 +455,10 @@ export const resolveDrift = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: finding, error } = await db
-      .from("drift_findings")
-      .select("*, environments(id, customer_id, name)")
-      .eq("id", data.findingId)
-      .single();
-    if (error) throw new Error(error.message);
+    const finding = await db.one<Tables<"drift_findings">>(
+      "select * from public.drift_findings where id = $1",
+      [data.findingId],
+    );
 
     const statusMap = {
       accept: "accepted_into_desired_state",
@@ -476,31 +467,31 @@ export const resolveDrift = createServerFn({ method: "POST" })
       escalate: "escalated",
     } as const;
 
-    await db
-      .from("drift_findings")
-      .update({
+    await db.update(
+      "drift_findings",
+      {
         status: statusMap[data.action],
         resolved_at: data.action === "escalate" ? null : new Date().toISOString(),
-      })
-      .eq("id", finding.id);
+      },
+      { id: finding.id },
+    );
 
-    const env = finding.environments as { id: string; customer_id: string; name: string };
+    const env = await db.one<{ id: string; customer_id: string; name: string }>(
+      "select id, customer_id, name from public.environments where id = $1",
+      [finding.environment_id],
+    );
     let deploymentId: string | null = null;
 
     if (data.action === "remediate") {
-      const created = await db
-        .from("deployments")
-        .insert({
-          environment_id: env.id,
-          deployment_type: "drift_remediation",
-          status: "QUEUED",
-          mode: "demo",
-          requested_by: data.actor,
-          plan_json: { remediates: finding.resource_id, module: finding.category } as never,
-        })
-        .select("id")
-        .single();
-      deploymentId = created.data?.id ?? null;
+      const created = await db.insert<{ id: string }>("deployments", {
+        environment_id: env.id,
+        deployment_type: "drift_remediation",
+        status: "QUEUED",
+        mode: "demo",
+        requested_by: data.actor,
+        plan_json: { remediates: finding.resource_id, module: finding.category },
+      });
+      deploymentId = created.id;
     }
 
     await audit(db, {
@@ -589,9 +580,9 @@ export const draftBlueprintFromDescription = createServerFn({ method: "POST" })
         "AI drafting is not configured. Set AI_CHAT_COMPLETIONS_URL and AI_API_KEY (any OpenAI-compatible endpoint, e.g. Azure OpenAI).",
       );
     const db = await admin();
-    const { data: modules } = await db
-      .from("infrastructure_modules")
-      .select("name, version, module_type");
+    const modules = await db.query<{ name: string; version: string; module_type: string }>(
+      "select name, version, module_type from public.infrastructure_modules",
+    );
 
     const system = `You convert an ISV's Azure architecture description into a DRAFT deployment blueprint manifest.
 Return ONLY JSON matching this shape:
@@ -741,20 +732,23 @@ export const createOfferingVersion = createServerFn({ method: "POST" })
         "Blueprint failed schema validation; fix the issues before saving a version.",
       );
     const db = await admin();
-    const { data: version, error } = await db
-      .from("offering_versions")
-      .insert({
+    const version = await db
+      .insert<Tables<"offering_versions">>("offering_versions", {
         offering_id: data.offeringId,
         version: parsed.data.version,
         status: "draft",
-        manifest_json: parsed.data as never,
+        manifest_json: parsed.data,
         release_notes: data.releaseNotes ?? null,
         ai_generated: data.aiGenerated,
         created_by: "Sarah Chen",
       })
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
+      .catch((e: Error) => {
+        throw new Error(
+          e.message.includes("duplicate")
+            ? `Version ${parsed.data.version} already exists.`
+            : e.message,
+        );
+      });
     await audit(db, {
       event_type: "offering_version.created",
       resource_type: "offering_version",
@@ -781,24 +775,21 @@ export const updateDraftVersion = createServerFn({ method: "POST" })
         `Blueprint failed schema validation: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
       );
     const db = await admin();
-    const { data: current, error } = await db
-      .from("offering_versions")
-      .select("*")
-      .eq("id", data.versionId)
-      .single();
-    if (error) throw new Error(error.message);
+    const current = await db.one<Tables<"offering_versions">>(
+      "select * from public.offering_versions where id = $1",
+      [data.versionId],
+    );
     if (current.status !== "draft")
       throw new Error("Only draft versions can be edited. Published versions are immutable.");
-    const { data: updated, error: upError } = await db
-      .from("offering_versions")
-      .update({
-        manifest_json: { ...parsed.data, version: current.version } as never,
+    const [updated] = await db.update<Tables<"offering_versions">>(
+      "offering_versions",
+      {
+        manifest_json: { ...parsed.data, version: current.version },
         ...(data.releaseNotes !== undefined ? { release_notes: data.releaseNotes } : {}),
-      })
-      .eq("id", data.versionId)
-      .select("*")
-      .single();
-    if (upError) throw new Error(upError.message);
+      },
+      { id: data.versionId },
+    );
+    if (!updated) throw new Error("Version not found");
     await audit(db, {
       event_type: "offering_version.draft_updated",
       resource_type: "offering_version",
@@ -815,12 +806,10 @@ export const publishOfferingVersion = createServerFn({ method: "POST" })
   .inputValidator((d: { versionId: string }) => z.object({ versionId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: version, error } = await db
-      .from("offering_versions")
-      .select("*")
-      .eq("id", data.versionId)
-      .single();
-    if (error) throw new Error(error.message);
+    const version = await db.one<Tables<"offering_versions">>(
+      "select * from public.offering_versions where id = $1",
+      [data.versionId],
+    );
     if (version.status === "published")
       throw new Error("Published versions are immutable. Create a new version instead.");
 
@@ -835,13 +824,12 @@ export const publishOfferingVersion = createServerFn({ method: "POST" })
       );
     }
 
-    const { data: published, error: pubError } = await db
-      .from("offering_versions")
-      .update({ status: "published", published_at: new Date().toISOString() })
-      .eq("id", data.versionId)
-      .select("*")
-      .single();
-    if (pubError) throw new Error(pubError.message);
+    const [published] = await db.update<Tables<"offering_versions">>(
+      "offering_versions",
+      { status: "published", published_at: new Date().toISOString() },
+      { id: data.versionId },
+    );
+    if (!published) throw new Error("Version not found");
 
     await audit(db, {
       event_type: "offering_version.published",
@@ -904,24 +892,23 @@ export const onboardCustomer = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const db = await admin();
 
-    const { data: offering, error: offeringError } = await db
-      .from("offerings")
-      .select("*, offering_versions(id, version, status, published_at)")
-      .eq("id", data.offeringId)
-      .single();
-    if (offeringError) throw new Error(offeringError.message);
+    const offering = await db.one<Tables<"offerings">>(
+      "select * from public.offerings where id = $1",
+      [data.offeringId],
+    );
+    const offeringVersions = await db.query<{ id: string; version: string; status: string }>(
+      "select id, version, status from public.offering_versions where offering_id = $1",
+      [offering.id],
+    );
 
-    const published = (
-      offering.offering_versions as { id: string; version: string; status: string }[]
-    )
+    const published = offeringVersions
       .filter((v) => v.status === "published")
       .sort((a, b) => b.version.localeCompare(a.version))[0];
     if (!published) throw new Error("This offering has no published version to deploy.");
 
     const viaLink = data.accessMethod === "customer_link";
-    const { data: customer, error } = await db
-      .from("customers")
-      .insert({
+    const customer = await db
+      .insert<Tables<"customers">>("customers", {
         organization_id: ORG_ID,
         name: data.name,
         customer_code: data.customerCode,
@@ -930,62 +917,53 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         azure_model: data.azureModel,
         status: viaLink ? "onboarding" : "active",
       })
-      .select("*")
-      .single();
-    if (error)
-      throw new Error(
-        error.message.includes("duplicate")
-          ? "That customer code is already in use."
-          : error.message,
-      );
+      .catch((e: Error) => {
+        throw new Error(
+          e.message.includes("duplicate") ? "That customer code is already in use." : e.message,
+        );
+      });
 
-    const { data: connection } = await db
-      .from("customer_connections")
-      .insert({
-        customer_id: customer.id,
-        connection_type: data.connectionType,
-        tenant_id: data.tenantId || null,
-        subscription_id: data.subscriptionId || null,
-        resource_group_id: data.resourceGroupId ?? null,
-        management_group_id: data.managementGroupId ?? null,
-        credential_reference: `kv://gridworks-platform-kv/secrets/oidc-${data.customerCode}`,
-        status: viaLink ? "awaiting_customer" : "validated",
-        last_validated_at: viaLink ? null : new Date().toISOString(),
-        metadata_json: {
-          federatedIdentity: true,
-          mode: "demo",
-          accessMethod: data.accessMethod,
-        } as never,
-      })
-      .select("*")
-      .single();
+    const connection = await db.insert<Tables<"customer_connections">>("customer_connections", {
+      customer_id: customer.id,
+      connection_type: data.connectionType,
+      tenant_id: data.tenantId || null,
+      subscription_id: data.subscriptionId || null,
+      resource_group_id: data.resourceGroupId ?? null,
+      management_group_id: data.managementGroupId ?? null,
+      credential_reference: `kv://gridworks-platform-kv/secrets/oidc-${data.customerCode}`,
+      status: viaLink ? "awaiting_customer" : "validated",
+      last_validated_at: viaLink ? null : new Date().toISOString(),
+      metadata_json: {
+        federatedIdentity: true,
+        mode: "demo",
+        accessMethod: data.accessMethod,
+      },
+    });
 
     const costPerEnv = Number(offering.estimated_monthly_cost_low ?? 0);
-    const { data: environments } = await db
-      .from("environments")
-      .insert(
-        data.environments.map((type) => ({
-          customer_id: customer.id,
-          offering_id: offering.id,
-          desired_offering_version_id: published.id,
-          actual_offering_version_id: null,
-          name: type === "production" ? "PROD" : type.slice(0, 4).toUpperCase(),
-          environment_type: type,
-          region: data.region,
-          secondary_region: data.secondaryRegion ?? null,
-          deployment_boundary: offering.deployment_boundary,
-          status: "pending_deployment",
-          compliance_score: 0,
-          monthly_cost_estimate: type === "production" ? costPerEnv : Math.round(costPerEnv * 0.25),
-          configuration_json: {
-            network: data.network,
-            observability: data.observability,
-            inputs: data.inputs,
-            overrides: data.overrides,
-          } as never,
-        })),
-      )
-      .select("*");
+    const environments = await db.insertMany<Tables<"environments">>(
+      "environments",
+      data.environments.map((type) => ({
+        customer_id: customer.id,
+        offering_id: offering.id,
+        desired_offering_version_id: published.id,
+        actual_offering_version_id: null,
+        name: type === "production" ? "PROD" : type.slice(0, 4).toUpperCase(),
+        environment_type: type,
+        region: data.region,
+        secondary_region: data.secondaryRegion ?? null,
+        deployment_boundary: offering.deployment_boundary,
+        status: "pending_deployment",
+        compliance_score: 0,
+        monthly_cost_estimate: type === "production" ? costPerEnv : Math.round(costPerEnv * 0.25),
+        configuration_json: {
+          network: data.network,
+          observability: data.observability,
+          inputs: data.inputs,
+          overrides: data.overrides,
+        },
+      })),
+    );
 
     await audit(db, {
       event_type: "customer.onboarded",
@@ -1028,31 +1006,31 @@ export const completeCustomerLink = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: customer, error } = await db
-      .from("customers")
-      .select("*")
-      .eq("id", data.customerId)
-      .single();
-    if (error) throw new Error(error.message);
+    const customer = await db.one<Tables<"customers">>(
+      "select * from public.customers where id = $1",
+      [data.customerId],
+    );
 
-    await db
-      .from("customers")
-      .update({ tenant_id: data.tenantId, status: "active" })
-      .eq("id", customer.id);
-    await db
-      .from("customer_connections")
-      .update({
+    await db.update(
+      "customers",
+      { tenant_id: data.tenantId, status: "active" },
+      { id: customer.id },
+    );
+    await db.update(
+      "customer_connections",
+      {
         tenant_id: data.tenantId,
         subscription_id: data.subscriptionId,
         status: "validated",
         last_validated_at: new Date().toISOString(),
-      })
-      .eq("customer_id", customer.id);
+      },
+      { customer_id: customer.id },
+    );
 
-    const { data: envs } = await db
-      .from("environments")
-      .select("id, configuration_json")
-      .eq("customer_id", customer.id);
+    const envs = await db.query<{ id: string; configuration_json: unknown }>(
+      "select id, configuration_json from public.environments where customer_id = $1",
+      [customer.id],
+    );
     for (const env of envs ?? []) {
       const cfg = (env.configuration_json ?? {}) as Record<string, Record<string, unknown>>;
       const inputs = {
@@ -1060,9 +1038,9 @@ export const completeCustomerLink = createServerFn({ method: "POST" })
         ...data.inputs,
         subscriptionId: data.subscriptionId,
       };
-      await db
-        .from("environments")
-        .update({
+      await db.update(
+        "environments",
+        {
           configuration_json: {
             ...cfg,
             inputs,
@@ -1076,9 +1054,10 @@ export const completeCustomerLink = createServerFn({ method: "POST" })
                 data.inputs["logAnalyticsWorkspaceId"] ??
                 cfg["observability"]?.["logAnalyticsWorkspaceId"],
             },
-          } as never,
-        })
-        .eq("id", env.id);
+          },
+        },
+        { id: env.id },
+      );
     }
 
     await audit(db, {
@@ -1100,19 +1079,28 @@ export const planUpgrades = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: target, error } = await db
-      .from("offering_versions")
-      .select("*, offerings(id, name)")
-      .eq("id", data.offeringVersionId)
-      .single();
-    if (error) throw new Error(error.message);
+    const target = await db.one<
+      Tables<"offering_versions"> & { offerings: { id: string; name: string } }
+    >(
+      `select v.*, jsonb_build_object('id', o.id, 'name', o.name) as offerings
+       from public.offering_versions v join public.offerings o on o.id = v.offering_id where v.id = $1`,
+      [data.offeringVersionId],
+    );
 
-    const { data: environments } = await db
-      .from("environments")
-      .select(
-        "id, name, environment_type, compliance_score, customers(name), actual:actual_offering_version_id(version)",
-      )
-      .eq("offering_id", (target.offerings as { id: string }).id);
+    const environments = await db.query<{
+      id: string;
+      name: string;
+      environment_type: string;
+      compliance_score: number;
+      customers: { name: string } | null;
+      actual: { version: string } | null;
+    }>(
+      `select e.id, e.name, e.environment_type, e.compliance_score,
+         (select jsonb_build_object('name', c.name) from public.customers c where c.id = e.customer_id) as customers,
+         (select jsonb_build_object('version', v.version) from public.offering_versions v where v.id = e.actual_offering_version_id) as actual
+       from public.environments e where e.offering_id = $1`,
+      [target.offerings.id],
+    );
 
     const current: string[] = [];
     const compatible: string[] = [];
@@ -1165,20 +1153,17 @@ export const createRollout = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: waves, error } = await db
-      .from("upgrade_waves")
-      .insert(
-        data.waves.map((w, index) => ({
-          organization_id: ORG_ID,
-          offering_version_id: data.offeringVersionId,
-          name: w.name,
-          sequence: index + 1,
-          status: "planned",
-          environment_ids: w.environmentIds,
-        })),
-      )
-      .select("*");
-    if (error) throw new Error(error.message);
+    const waves = await db.insertMany<Tables<"upgrade_waves">>(
+      "upgrade_waves",
+      data.waves.map((w, index) => ({
+        organization_id: ORG_ID,
+        offering_version_id: data.offeringVersionId,
+        name: w.name,
+        sequence: index + 1,
+        status: "planned",
+        environment_ids: w.environmentIds,
+      })),
+    );
 
     await audit(db, {
       event_type: "upgrade_rollout.created",
@@ -1195,47 +1180,43 @@ export const startWave = createServerFn({ method: "POST" })
   .inputValidator((d: { waveId: string }) => z.object({ waveId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: wave, error } = await db
-      .from("upgrade_waves")
-      .select("*")
-      .eq("id", data.waveId)
-      .single();
-    if (error) throw new Error(error.message);
+    const wave = await db.one<Tables<"upgrade_waves">>(
+      "select * from public.upgrade_waves where id = $1",
+      [data.waveId],
+    );
     if (wave.status !== "planned") throw new Error("This wave has already been started.");
 
     let created = 0;
     for (const environmentId of wave.environment_ids) {
       // The wave's release becomes the install's desired state before it is planned.
-      await db
-        .from("environments")
-        .update({ desired_offering_version_id: wave.offering_version_id })
-        .eq("id", environmentId);
+      await db.update(
+        "environments",
+        { desired_offering_version_id: wave.offering_version_id },
+        { id: environmentId },
+      );
       const { environment, ctx, version } = await loadContext(db, environmentId, "upgrade");
-      const { data: actualVersion } = await db
-        .from("offering_versions")
-        .select("version")
-        .eq("id", environment.actual_offering_version_id ?? "")
-        .maybeSingle();
+      const actualVersion = environment.actual_offering_version_id
+        ? await db.maybeOne<{ version: string }>(
+            "select version from public.offering_versions where id = $1",
+            [environment.actual_offering_version_id],
+          )
+        : null;
       const preflight = await demoProvider.validate(ctx);
       const plan = preflight.deployable ? await demoProvider.plan(ctx) : null;
-      const { data: deployment } = await db
-        .from("deployments")
-        .insert({
-          environment_id: environmentId,
-          deployment_type: "upgrade",
-          desired_version: version?.version ?? null,
-          previous_version: actualVersion?.version ?? null,
-          status: preflight.deployable ? "AWAITING_APPROVAL" : "VALIDATION_FAILED",
-          mode: "demo",
-          requested_by: "Rollout automation",
-          plan_json: (plan ?? {}) as never,
-          preflight_json: preflight as never,
-          correlation_id: plan?.correlationId ?? crypto.randomUUID(),
-        })
-        .select("id")
-        .single();
-      if (deployment && preflight.deployable) {
-        await db.from("approvals").insert({
+      const deployment = await db.insert<{ id: string }>("deployments", {
+        environment_id: environmentId,
+        deployment_type: "upgrade",
+        desired_version: version?.version ?? null,
+        previous_version: actualVersion?.version ?? null,
+        status: preflight.deployable ? "AWAITING_APPROVAL" : "VALIDATION_FAILED",
+        mode: "demo",
+        requested_by: "Rollout automation",
+        plan_json: plan ?? {},
+        preflight_json: preflight,
+        correlation_id: plan?.correlationId ?? crypto.randomUUID(),
+      });
+      if (preflight.deployable) {
+        await db.insert("approvals", {
           deployment_id: deployment.id,
           approval_type:
             environment.environment_type === "production"
@@ -1259,7 +1240,7 @@ export const startWave = createServerFn({ method: "POST" })
       });
     }
 
-    await db.from("upgrade_waves").update({ status: "in_progress" }).eq("id", wave.id);
+    await db.update("upgrade_waves", { status: "in_progress" }, { id: wave.id });
     return { created };
   });
 
@@ -1278,20 +1259,22 @@ export const updateBranding = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: previous } = await db.from("organizations").select("*").eq("id", ORG_ID).single();
-    const { data: updated, error } = await db
-      .from("organizations")
-      .update({
+    const previous = await db.maybeOne<Tables<"organizations">>(
+      "select * from public.organizations where id = $1",
+      [ORG_ID],
+    );
+    const [updated] = await db.update<Tables<"organizations">>(
+      "organizations",
+      {
         name: data.name,
         portal_title: data.portalTitle,
         support_url: data.supportUrl || null,
         primary_color: data.primaryColor,
         updated_at: new Date().toISOString(),
-      })
-      .eq("id", ORG_ID)
-      .select("*")
-      .single();
-    if (error) throw new Error(error.message);
+      },
+      { id: ORG_ID },
+    );
+    if (!updated) throw new Error("Organization not found");
     await audit(db, {
       event_type: "organization.branding_updated",
       resource_type: "organization",

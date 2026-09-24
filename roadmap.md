@@ -1,7 +1,7 @@
 # Azure ISV Deployment Factory — build roadmap
 
 ## Done
-- Control-plane schema (organizations, memberships, products, offerings, offering_versions, infrastructure_modules, customers, customer_connections, environments, deployments, deployment_steps, approvals, policy_packs, drift_findings, compliance_checks, upgrade_waves, audit_events) with RLS, grants and an append-only audit table.
+- Control-plane schema (organizations, memberships, products, offerings, offering_versions, infrastructure_modules, customers, customer_connections, environments, deployments, deployment_steps, approvals, policy_packs, drift_findings, compliance_checks, upgrade_waves, audit_events) with an append-only audit table (trigger-enforced).
 - GridWorks demo dataset: 3 products, 5 offerings, versions 3.9.0/4.1.0/4.2.0 (+4.3.0 draft), 12 modules, 4 policy packs, 24 utility customers, 40 environments, deployment history incl. 1 failure, 1 pending production approval, 2 drift findings, compliance gaps.
 - Provider abstractions (`InfrastructureProvider`, `PipelineProvider`) + demo adapter (validate / plan / apply / outputs / drift / destroy), zero Azure calls, everything tagged `mode: demo`.
 - Deployment state machine with enforced transitions, correlation IDs, step logs, no pretend rollback.
@@ -15,6 +15,8 @@
   - Pipeline run view (`/deployments/$deploymentId`): stage → job graph, per-resource status on the architecture, job logs and a what-if style plan.
   - Home, customer page, releases (rings, Preferred/Supported/Deprecated), installed-base grid, ⌘K palette, collapsible nav rail; costs are modelled from each install's architecture.
   - Fixed: rollout waves now set the install's desired release and create the approval gate.
+- Standalone, ISV-owned deployment: no Lovable tooling or services; control-plane database moved to Azure Database for PostgreSQL
+  (plain SQL migrations + seed in `db/`, server-side `pg` access, Microsoft Entra token auth).
 
 ## Open (needs owner decision or external access)
 - Real Azure execution mode: Container Apps Job running Bicep/Terraform, per-customer federated identity, GitHub/ADO reusable workflow dispatch. Blocked on an Azure tenant + pipeline credentials; the provider interfaces are already in place.

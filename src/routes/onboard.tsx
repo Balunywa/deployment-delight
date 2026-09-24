@@ -65,6 +65,7 @@ function Onboard() {
   const [access, setAccess] = useState<"customer_link" | "engineer">("engineer");
   const [connection, setConnection] = useState("federated_identity");
   const [tenantId, setTenantId] = useState("8f1c2b64-9a71-4c2e-9d55-7c3e1a0b4d21");
+  const [managementGroupId, setManagementGroupId] = useState("mg-metro-landingzones-corp");
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [created, setCreated] = useState<{
     customerId: string;
@@ -131,7 +132,13 @@ function Onboard() {
         customerCode: customer.code,
         industry: customer.industry,
         accessMethod: access,
-        ...(access === "engineer" ? { tenantId, subscriptionId: value("subscriptionId") } : {}),
+        ...(access === "engineer"
+          ? {
+              tenantId,
+              subscriptionId: value("subscriptionId"),
+              ...(managementGroupId ? { managementGroupId } : {}),
+            }
+          : {}),
         azureModel: hub ? "existing_enterprise_alz" : "greenfield",
         connectionType: connection as "federated_identity",
         offeringId: pick.offering.id,
@@ -395,7 +402,21 @@ function Onboard() {
                 >
                   <div className="space-y-2.5">
                     {access === "engineer" && (
-                      <Field label="Entra tenant ID" value={tenantId} onChange={setTenantId} mono />
+                      <>
+                        <Field
+                          label="Entra tenant ID"
+                          value={tenantId}
+                          onChange={setTenantId}
+                          mono
+                        />
+                        <Field
+                          label="Management group (optional)"
+                          value={managementGroupId}
+                          onChange={setManagementGroupId}
+                          hint="Only if the customer granted management-group scope; tenant-level steps are skipped otherwise."
+                          mono
+                        />
+                      </>
                     )}
                     {required.map((i) =>
                       access === "engineer" ? (
