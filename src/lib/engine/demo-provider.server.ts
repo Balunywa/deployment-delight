@@ -90,7 +90,15 @@ export const demoProvider: InfrastructureProvider = {
             ? "Customer-supplied spoke range overlaps a reserved range by 1 subnet; confirm with the network approver."
             : "Dedicated spoke range is free.",
       },
-      { key: "dns", name: "Private DNS requirements", level: "PASS", detail: "Private DNS zones resolvable via customer resolver." },
+      {
+        key: "dns",
+        name: "Private DNS requirements",
+        level: network["mode"] === "existing-customer-hub" ? "WARNING" : "PASS",
+        detail:
+          network["mode"] === "existing-customer-hub"
+            ? "Private DNS zones are managed by the customer; zone links must be approved by their network owner."
+            : "Private DNS zones resolvable via the deployed resolver.",
+      },
       {
         key: "private_endpoints",
         name: "Private endpoint requirements",
