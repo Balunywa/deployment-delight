@@ -9,20 +9,30 @@ import type {
   ValidationCheck,
 } from "./types";
 
-const MODULE_STEPS = [
-  { name: "Resource Group", module: "resource-group" },
-  { name: "Network integration", module: "network-spoke" },
-  { name: "Key Vault", module: "key-vault" },
-  { name: "PostgreSQL", module: "postgres" },
-  { name: "AKS", module: "aks" },
-  { name: "Event Hubs", module: "event-hubs" },
-  { name: "Monitoring", module: "monitoring" },
-  { name: "Policy validation", module: "security-baseline" },
-];
+import { fromManifest } from "@/lib/architecture";
+import { CUSTOMER_PLATFORM, SERVICE_BY_ID, monthlyEstimate } from "@/lib/catalog";
+import { deploySteps } from "@/lib/pipeline";
 
-function manifestModules(manifest: Record<string, unknown>) {
-  const modules = (manifest["modules"] as { name: string; version: string }[] | undefined) ?? [];
-  return modules.length ? modules : MODULE_STEPS.map((s) => ({ name: s.module, version: "n/a" }));
+/** The environment's network mode wins over the blueprint default when both are present. */
+function architectureOf(
+  environment: ProviderContext["environment"],
+  manifest: Record<string, unknown>,
+) {
+  const mode = ((environment.configuration_json ?? {})["network"] as { mode?: string } | undefined)
+    ?.mode;
+  const arch = fromManifest(
+    {
+      network_profile:
+        mode === "existing-customer-hub"
+          ? "customer-hub"
+          : mode === "dedicated-spoke"
+            ? "dedicated-spoke"
+            : null,
+    },
+    manifest,
+  );
+  if (mode === "existing-customer-hub" || mode === "dedicated-spoke") arch.topology.landing = mode;
+  return arch;
 }
 
 /**
@@ -42,10 +52,13 @@ export const demoProvider: InfrastructureProvider = {
       {
         key: "azure_auth",
         name: "Azure authentication",
-        level: connection ? "PASS" : "BLOCKING",
-        detail: connection
-          ? `Federated identity resolved for ${connection.subscription_id ?? "target scope"}.`
-          : "No validated Azure connection on this customer.",
+        level: connection?.status === "validated" ? "PASS" : "BLOCKING",
+        detail:
+          connection?.status === "validated"
+            ? `Federated identity resolved for ${connection.subscription_id ?? "target scope"}.`
+            : connection
+              ? "The customer has not granted access yet — waiting on their install link."
+              : "No validated Azure connection on this customer.",
       },
       {
         key: "rbac",
@@ -53,7 +66,12 @@ export const demoProvider: InfrastructureProvider = {
         level: "PASS",
         detail: "Contributor + User Access Administrator present at subscription scope.",
       },
-      { key: "subscription_state", name: "Subscription state", level: "PASS", detail: "Subscription is Enabled." },
+      {
+        key: "subscription_state",
+        name: "Subscription state",
+        level: "PASS",
+        detail: "Subscription is Enabled.",
+      },
       {
         key: "mg_access",
         name: "Management group access",
@@ -72,7 +90,8 @@ export const demoProvider: InfrastructureProvider = {
         key: "providers",
         name: "Resource provider registration",
         level: "PASS",
-        detail: "Microsoft.ContainerService, Microsoft.DBforPostgreSQL, Microsoft.EventHub registered.",
+        detail:
+          "Microsoft.ContainerService, Microsoft.DBforPostgreSQL, Microsoft.EventHub registered.",
       },
       {
         key: "policy",
@@ -80,7 +99,12 @@ export const demoProvider: InfrastructureProvider = {
         level: "PASS",
         detail: "No deny assignments conflict with the offering module set.",
       },
-      { key: "quota", name: "Resource quotas", level: "PASS", detail: "vCPU and public IP quota sufficient." },
+      {
+        key: "quota",
+        name: "Resource quotas",
+        level: "PASS",
+        detail: "vCPU and public IP quota sufficient.",
+      },
       {
         key: "cidr",
         name: "Network CIDR conflicts",
@@ -108,8 +132,18 @@ export const demoProvider: InfrastructureProvider = {
             ? "Offering expects private endpoints; environment configuration disables them."
             : "Private endpoint subnet has capacity for 9 endpoints.",
       },
-      { key: "hub", name: "Customer hub connectivity", level: "PASS", detail: "Peering and route propagation verified." },
-      { key: "naming", name: "Naming constraints", level: "PASS", detail: "Generated names satisfy Azure length rules." },
+      {
+        key: "hub",
+        name: "Customer hub connectivity",
+        level: "PASS",
+        detail: "Peering and route propagation verified.",
+      },
+      {
+        key: "naming",
+        name: "Naming constraints",
+        level: "PASS",
+        detail: "Generated names satisfy Azure length rules.",
+      },
       {
         key: "existing_resources",
         name: "Required existing resources",
@@ -120,14 +154,22 @@ export const demoProvider: InfrastructureProvider = {
         key: "budget",
         name: "Budget configuration",
         level: isProd ? "PASS" : "WARNING",
-        detail: isProd ? "Budget and action group configured." : "No budget configured for non-production environment.",
+        detail: isProd
+          ? "Budget and action group configured."
+          : "No budget configured for non-production environment.",
       },
-      { key: "skus", name: "Supported SKUs", level: "PASS", detail: "All requested SKUs are available." },
+      {
+        key: "skus",
+        name: "Supported SKUs",
+        level: "PASS",
+        detail: "All requested SKUs are available.",
+      },
       {
         key: "identity_objects",
         name: "Entra identity objects",
         level: "PASS",
-        detail: "Managed identities and Entra groups required by the blueprint resolve in the customer tenant.",
+        detail:
+          "Managed identities and Entra groups required by the blueprint resolve in the customer tenant.",
       },
       {
         key: "offering_compat",
@@ -135,7 +177,12 @@ export const demoProvider: InfrastructureProvider = {
         level: "PASS",
         detail: `Manifest ${String(manifest["version"] ?? "")} is compatible with the target boundary.`,
       },
-      { key: "diagnostics", name: "Diagnostic settings target", level: "PASS", detail: "Customer workspace accepts diagnostics." },
+      {
+        key: "diagnostics",
+        name: "Diagnostic settings target",
+        level: "PASS",
+        detail: "Customer workspace accepts diagnostics.",
+      },
     ];
 
     const pass = checks.filter((c) => c.level === "PASS").length;
@@ -145,48 +192,79 @@ export const demoProvider: InfrastructureProvider = {
   },
 
   async plan({ environment, manifest, deploymentType }: ProviderContext): Promise<DeploymentPlan> {
-    const modules = manifestModules(manifest);
-    const cost = environment.monthly_cost_estimate ?? 14200;
+    const arch = architectureOf(environment, manifest);
+    const cost = environment.monthly_cost_estimate ?? monthlyEstimate(arch.selected);
     const upgrade = deploymentType === "upgrade";
+    const env = environment.name.toLowerCase();
+    const hub = arch.topology.landing === "existing-customer-hub";
+
+    const resources: DeploymentPlan["resources"] = [];
+    for (const s of arch.selected) {
+      const def = SERVICE_BY_ID.get(s.id);
+      if (!def || s.id === "private-endpoints") continue;
+      if (s.id === "network-spoke" && hub) {
+        resources.push({
+          action: upgrade ? "update" : "create",
+          type: "Microsoft.Network/virtualNetworks/virtualNetworkPeerings",
+          name: `peer-spoke-to-hub-${env}`,
+          module: s.id,
+        });
+      }
+      resources.push({
+        action: upgrade ? "update" : "create",
+        type: def.resourceType,
+        name: `${def.id}-${env}`,
+        module: s.id,
+      });
+      if (def.privateLink && arch.topology.privateEndpoints)
+        resources.push({
+          action: "create",
+          type: "Microsoft.Network/privateEndpoints",
+          name: `pe-${def.id}-${env}`,
+          module: "private-endpoints",
+        });
+    }
+    if (hub)
+      for (const p of CUSTOMER_PLATFORM)
+        resources.push({
+          action: "use_existing",
+          type: p.type,
+          name: `customer ${p.name.toLowerCase()}`,
+        });
 
     return {
       correlationId: crypto.randomUUID(),
-      modules,
-      resources: [
-        { action: upgrade ? "update" : "create", type: "Microsoft.DBforPostgreSQL/flexibleServers", name: `pg-${environment.name.toLowerCase()}`, module: "postgres" },
-        { action: "create", type: "Microsoft.Network/privateEndpoints", name: "pe-postgres", module: "private-endpoints" },
-        { action: upgrade ? "update" : "create", type: "Microsoft.EventHub/namespaces", name: "evhns-grid", module: "event-hubs" },
-        { action: upgrade ? "update" : "create", type: "Microsoft.ContainerService/managedClusters", name: "aks-grid", module: "aks" },
-        { action: "create", type: "Microsoft.KeyVault/vaults", name: "kv-grid", module: "key-vault" },
-        { action: "create", type: "Microsoft.Storage/storageAccounts", name: "stgrid", module: "storage" },
-        { action: "use_existing", type: "Microsoft.Network/virtualNetworks", name: "customer hub VNet" },
-        { action: "use_existing", type: "Microsoft.OperationalInsights/workspaces", name: "customer Log Analytics workspace" },
-        { action: "use_existing", type: "Microsoft.Network/dnsResolvers", name: "customer private DNS resolver" },
-      ],
+      modules: arch.selected.map((s) => ({
+        name: s.id,
+        version: SERVICE_BY_ID.get(s.id)?.version ?? "n/a",
+      })),
+      resources,
       policyAssignments: 12,
-      roleAssignments: 4,
+      roleAssignments:
+        arch.selected.filter((s) => SERVICE_BY_ID.get(s.id)?.zone === "app").length * 2 + 2,
       estimatedMonthlyCost: { low: Math.round(cost), high: Math.round(cost * 1.26) },
       warnings: [
-        "Customer-supplied spoke range overlaps a reserved range by 1 subnet.",
+        ...(hub ? ["Customer-supplied spoke range overlaps a reserved range by 1 subnet."] : []),
         environment.environment_type === "production"
-          ? "Zone-redundant PostgreSQL increases cost by roughly 18%."
+          ? "Zone-redundant data services increase cost by roughly 18%."
           : "No budget configured for this environment.",
       ],
       blockers: [],
     };
   },
 
-  async apply({ manifest }: ProviderContext & { plan: DeploymentPlan }): Promise<StepOutcome[]> {
-    const modules = manifestModules(manifest).map((m) => m.name);
-    return MODULE_STEPS.filter((s) => modules.includes(s.module) || s.module === "security-baseline").map(
-      (step, index) => ({
-        sequence: index + 1,
-        name: step.name,
-        module: step.module,
-        status: "succeeded" as const,
-        log: `[demo] ${step.name} applied via ${step.module}. No Azure API calls were made.`,
-      }),
-    );
+  async apply({
+    environment,
+    manifest,
+  }: ProviderContext & { plan: DeploymentPlan }): Promise<StepOutcome[]> {
+    const arch = architectureOf(environment, manifest);
+    return deploySteps(arch.selected, arch.topology).map((step, index) => ({
+      sequence: index + 1,
+      name: step.name,
+      module: step.module,
+      status: "succeeded" as const,
+      log: `[demo] ${step.name} applied via ${SERVICE_BY_ID.get(step.module)?.avm ?? step.module}. No Azure API calls were made.`,
+    }));
   },
 
   async getOutputs({ environment }: ProviderContext) {
@@ -212,8 +290,20 @@ export const demoProvider: InfrastructureProvider = {
 
   async destroy(): Promise<StepOutcome[]> {
     return [
-      { sequence: 1, name: "Decommission workloads", module: "aks", status: "succeeded", log: "[demo] workloads drained." },
-      { sequence: 2, name: "Delete resource group", module: "resource-group", status: "succeeded", log: "[demo] scope removed." },
+      {
+        sequence: 1,
+        name: "Decommission workloads",
+        module: "aks",
+        status: "succeeded",
+        log: "[demo] workloads drained.",
+      },
+      {
+        sequence: 2,
+        name: "Delete resource group",
+        module: "resource-group",
+        status: "succeeded",
+        log: "[demo] scope removed.",
+      },
     ];
   },
 };

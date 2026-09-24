@@ -10,13 +10,13 @@ import { deploymentsQuery } from "@/lib/queries";
 export const Route = createFileRoute("/deployments/")({
   head: () => ({
     meta: [
-      { title: "Deployments · Azure ISV Deployment Factory" },
+      { title: "Deployments · Cloud Delivery" },
       {
         name: "description",
         content:
           "Every deployment run with its state machine position, correlation ID, plan, approvals and step-level execution log.",
       },
-      { property: "og:title", content: "Deployments · Azure ISV Deployment Factory" },
+      { property: "og:title", content: "Deployments · Cloud Delivery" },
       { property: "og:description", content: "Deployment runs, approvals and execution history." },
     ],
   }),
@@ -54,7 +54,9 @@ function Deployments() {
       </div>
 
       {deployments.isLoading && <EmptyState title="Loading deployments…" />}
-      {!deployments.isLoading && !rows.length && <EmptyState title="No deployments in this state." />}
+      {!deployments.isLoading && !rows.length && (
+        <EmptyState title="No deployments in this state." />
+      )}
 
       <div className="overflow-x-auto rounded-md border border-border bg-card">
         <table className="data-table">
@@ -104,7 +106,9 @@ function Deployments() {
                   <td className="text-muted-foreground" title={dateTime(d.requested_at)}>
                     {relative(d.requested_at)}
                   </td>
-                  <td className="font-mono text-[11px] text-muted-foreground">{d.correlation_id?.slice(0, 18)}…</td>
+                  <td className="font-mono text-[11px] text-muted-foreground">
+                    {d.correlation_id?.slice(0, 18)}…
+                  </td>
                 </tr>
               );
             })}

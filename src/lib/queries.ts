@@ -18,7 +18,9 @@ export const productsQuery = queryOptions({
     unwrap(
       await supabase
         .from("products")
-        .select("*, offerings(id, name, offering_type, status, estimated_monthly_cost_low, estimated_monthly_cost_high)")
+        .select(
+          "*, offerings(id, name, offering_type, status, estimated_monthly_cost_low, estimated_monthly_cost_high)",
+        )
         .order("name"),
     ),
 });
@@ -29,14 +31,17 @@ export const offeringsQuery = queryOptions({
     unwrap(
       await supabase
         .from("offerings")
-        .select("*, products(name), offering_versions(id, version, status, release_notes, published_at, manifest_json, ai_generated, created_by, created_at), environments(id)")
+        .select(
+          "*, products(name), offering_versions(id, version, status, release_notes, published_at, manifest_json, ai_generated, created_by, created_at), environments(id)",
+        )
         .order("name"),
     ),
 });
 
 export const modulesQuery = queryOptions({
   queryKey: ["modules"],
-  queryFn: async () => unwrap(await supabase.from("infrastructure_modules").select("*").order("name")),
+  queryFn: async () =>
+    unwrap(await supabase.from("infrastructure_modules").select("*").order("name")),
 });
 
 export const policyPacksQuery = queryOptions({
@@ -64,7 +69,7 @@ export const customersQuery = queryOptions({
       await supabase
         .from("customers")
         .select(
-          "*, environments(id, name, environment_type, status, compliance_score, monthly_cost_estimate, actual:actual_offering_version_id(version), desired:desired_offering_version_id(version), offerings(name)), customer_connections(id, connection_type, subscription_id, status, last_validated_at)",
+          "*, environments(id, name, environment_type, status, compliance_score, monthly_cost_estimate, offering_id, region, configuration_json, drift_findings(status, category), actual:actual_offering_version_id(version), desired:desired_offering_version_id(version), offerings(name)), customer_connections(id, connection_type, subscription_id, status, last_validated_at)",
         )
         .order("name"),
     ),
@@ -91,7 +96,9 @@ export const deploymentsQuery = queryOptions({
     unwrap(
       await supabase
         .from("deployments")
-        .select("*, approvals(*), environments(id, name, environment_type, customers(id, name, customer_code))")
+        .select(
+          "*, approvals(*), environments(id, name, environment_type, customers(id, name, customer_code))",
+        )
         .order("requested_at", { ascending: false })
         .limit(200),
     ),
@@ -105,7 +112,7 @@ export const deploymentQuery = (deploymentId: string) =>
         await supabase
           .from("deployments")
           .select(
-            "*, approvals(*), deployment_steps(*), environments(*, customers(id, name, customer_code), offerings(name, offering_type))",
+            "*, approvals(*), deployment_steps(*), environments(*, customers(id, name, customer_code), offerings(name, offering_type, network_profile), desired:desired_offering_version_id(version, manifest_json))",
           )
           .eq("id", deploymentId)
           .single(),

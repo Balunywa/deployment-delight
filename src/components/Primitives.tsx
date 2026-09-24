@@ -25,7 +25,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide whitespace-nowrap",
+        "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-px text-[11px] font-medium whitespace-nowrap",
         toneClass[tone],
         className,
       )}
@@ -99,8 +99,13 @@ export function Metric({
   };
   return (
     <div className="rounded-md border border-border bg-card px-4 py-3">
-      <p className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{label}</p>
-      <p className={cn("mt-1 font-mono text-2xl leading-none font-semibold tabular-nums", valueTone[tone])}>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p
+        className={cn(
+          "mt-1 font-mono text-2xl leading-none font-semibold tabular-nums",
+          valueTone[tone],
+        )}
+      >
         {value}
       </p>
       {hint && <p className="mt-1.5 text-xs text-muted-foreground">{hint}</p>}
@@ -122,8 +127,10 @@ export function PageHeader({
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-xl font-semibold text-foreground">{title}</h1>
-        {description && <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>}
+        <h1 className="text-[22px] leading-tight font-semibold text-foreground">{title}</h1>
+        {description && (
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
+        )}
         {meta && <div className="mt-2 flex flex-wrap items-center gap-2">{meta}</div>}
       </div>
       {actions && <div className="flex items-center gap-2">{actions}</div>}
@@ -147,22 +154,45 @@ const resultTone: Record<string, Tone> = {
   FAIL: "danger",
 };
 
+const resultLabel: Record<string, string> = {
+  PASS: "Pass",
+  WARNING: "Warning",
+  BLOCKING: "Blocking",
+  FAIL: "Fail",
+};
+
 export function ResultPill({ result }: { result: string }) {
   return (
     <Pill tone={resultTone[result] ?? "neutral"}>
       <Dot tone={resultTone[result] ?? "neutral"} />
-      {result}
+      {resultLabel[result] ?? result}
     </Pill>
   );
 }
 
+export const statusLabel = (status: string) => {
+  const s = status.replace(/_/g, " ").toLowerCase();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+/** Small section label used above groups of content. */
+export function SectionLabel({ children, className }: { children: ReactNode; className?: string }) {
+  return <p className={cn("text-xs font-medium text-muted-foreground", className)}>{children}</p>;
+}
+
 export const deploymentTone = (status: string): Tone => {
   if (status === "SUCCEEDED") return "success";
-  if (["FAILED", "VALIDATION_FAILED", "PLAN_FAILED", "REQUIRES_REMEDIATION"].includes(status)) return "danger";
-  if (["AWAITING_APPROVAL", "AWAITING_PLAN_APPROVAL", "VALIDATING", "PLANNING"].includes(status)) return "warning";
+  if (["FAILED", "VALIDATION_FAILED", "PLAN_FAILED", "REQUIRES_REMEDIATION"].includes(status))
+    return "danger";
+  if (["AWAITING_APPROVAL", "AWAITING_PLAN_APPROVAL", "VALIDATING", "PLANNING"].includes(status))
+    return "warning";
   if (["DEPLOYING", "QUEUED"].includes(status)) return "info";
   return "neutral";
 };
 
 export const severityTone = (severity: string): Tone =>
-  severity === "critical" || severity === "high" ? "danger" : severity === "medium" ? "warning" : "neutral";
+  severity === "critical" || severity === "high"
+    ? "danger"
+    : severity === "medium"
+      ? "warning"
+      : "neutral";

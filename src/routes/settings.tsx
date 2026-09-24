@@ -14,20 +14,27 @@ import { modulesQuery, organizationQuery } from "@/lib/queries";
 export const Route = createFileRoute("/settings")({
   head: () => ({
     meta: [
-      { title: "Settings · Azure ISV Deployment Factory" },
+      { title: "Settings · Cloud Delivery" },
       {
         name: "description",
-        content: "White-label the portal, review registered infrastructure modules, role model and the active execution mode.",
+        content:
+          "White-label the portal, review registered infrastructure modules, role model and the active execution mode.",
       },
-      { property: "og:title", content: "Settings · Azure ISV Deployment Factory" },
-      { property: "og:description", content: "Branding, module registry, roles and execution mode." },
+      { property: "og:title", content: "Settings · Cloud Delivery" },
+      {
+        property: "og:description",
+        content: "Branding, module registry, roles and execution mode.",
+      },
     ],
   }),
   component: Settings,
 });
 
 const ROLES = [
-  ["Platform Super Admin", "Full control of the control plane, including organizations and branding."],
+  [
+    "Platform Super Admin",
+    "Full control of the control plane, including organizations and branding.",
+  ],
   ["ISV Admin", "Manages products, offerings, customers and rollouts for one organization."],
   ["ISV Platform Engineer", "Publishes blueprint versions, plans and runs deployments."],
   ["Onboarding Engineer", "Onboards customers and validates Azure connections."],
@@ -77,11 +84,21 @@ function Settings() {
           <div className="space-y-3">
             <div>
               <Label htmlFor="name">Company name</Label>
-              <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="mt-1" />
+              <Input
+                id="name"
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="mt-1"
+              />
             </div>
             <div>
               <Label htmlFor="portalTitle">Portal title</Label>
-              <Input id="portalTitle" value={form.portalTitle} onChange={(e) => setForm({ ...form, portalTitle: e.target.value })} className="mt-1" />
+              <Input
+                id="portalTitle"
+                value={form.portalTitle}
+                onChange={(e) => setForm({ ...form, portalTitle: e.target.value })}
+                className="mt-1"
+              />
             </div>
             <div>
               <Label htmlFor="supportUrl">Support link</Label>
@@ -95,13 +112,19 @@ function Settings() {
             </div>
             <div>
               <Label htmlFor="primaryColor">Accent colour</Label>
-              <Input id="primaryColor" value={form.primaryColor} onChange={(e) => setForm({ ...form, primaryColor: e.target.value })} className="mt-1" />
+              <Input
+                id="primaryColor"
+                value={form.primaryColor}
+                onChange={(e) => setForm({ ...form, primaryColor: e.target.value })}
+                className="mt-1"
+              />
             </div>
             <Button disabled={save.isPending} onClick={() => save.mutate({ data: form })}>
               {save.isPending ? "Saving…" : "Save branding"}
             </Button>
             <p className="text-xs text-muted-foreground">
-              Business-facing screens use your terminology — offering names and environment labels — not tool names.
+              Business-facing screens use your terminology — offering names and environment labels —
+              not tool names.
             </p>
           </div>
         </Panel>
@@ -111,22 +134,28 @@ function Settings() {
             <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
               <p className="font-semibold text-warning">Demo mode is active</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Deployments follow the real state machine and produce realistic logs, but no Azure API call is made and no
-                resource is created. Simulated runs are labelled <span className="font-mono">mode: demo</span> everywhere.
+                Deployments follow the real state machine and produce realistic logs, but no Azure
+                API call is made and no resource is created. Simulated runs are labelled{" "}
+                <span className="font-mono">mode: demo</span> everywhere.
               </p>
             </div>
             <div className="rounded-md border border-border p-3">
               <p className="font-semibold">Real Azure mode</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Unavailable in this environment. It requires the Azure executor (Container Apps Job running Bicep and
-                Terraform), a federated identity per customer and a central pipeline connection. The control plane already
-                talks only to provider interfaces, so enabling it does not change any screen or domain rule.
+                Unavailable in this environment. It requires the Azure executor (Container Apps Job
+                running Bicep and Terraform), a federated identity per customer and a central
+                pipeline connection. The control plane already talks only to provider interfaces, so
+                enabling it does not change any screen or domain rule.
               </p>
             </div>
           </div>
         </Panel>
 
-        <Panel title="Role model" description="Authorization is enforced server-side per action." bodyClassName="p-0">
+        <Panel
+          title="Role model"
+          description="Authorization is enforced server-side per action."
+          bodyClassName="p-0"
+        >
           <ul className="divide-y divide-border">
             {ROLES.map(([role, description]) => (
               <li key={role} className="px-4 py-2.5">
@@ -137,7 +166,11 @@ function Settings() {
           </ul>
         </Panel>
 
-        <Panel title="Module registry" description="Versioned input/output contracts. One implementation, all customers." bodyClassName="p-0">
+        <Panel
+          title="Module registry"
+          description="Versioned input/output contracts. One implementation, all customers."
+          bodyClassName="p-0"
+        >
           <table className="data-table">
             <thead>
               <tr>

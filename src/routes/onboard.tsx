@@ -1,257 +1,343 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { Check, Copy, ExternalLink, Mail, UserCog } from "lucide-react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { PageHeader, Panel, Pill, ResultPill } from "@/components/Primitives";
+import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
+import { ServiceIcon } from "@/components/architecture/ServiceIcon";
+import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import type { PreflightResult } from "@/lib/engine/types";
-import { createDeployment, onboardCustomer, runPreflight } from "@/lib/factory.functions";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { CONNECTION_LABEL, LANDING_LABEL, fromManifest } from "@/lib/architecture";
+import { SERVICE_BY_ID, inputsFor, monthlyEstimate } from "@/lib/catalog";
+import { discoverPlatform } from "@/lib/discovery";
+import { createDeployment, onboardCustomer } from "@/lib/factory.functions";
+import { semverCompare } from "@/lib/fleet";
 import { currency, titleize } from "@/lib/format";
 import { offeringsQuery } from "@/lib/queries";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/onboard")({
   head: () => ({
     meta: [
-      { title: "Onboard customer · Azure ISV Deployment Factory" },
+      { title: "Onboard customer · Cloud Delivery" },
       {
         name: "description",
-        content: "Guided onboarding: customer, Azure deployment model, connection, network integration, environments, cost preview, preflight, plan and approval.",
+        content:
+          "Onboard a customer onto a published offering: pick the offering, bind the customer's Azure, plan and deploy.",
       },
-      { property: "og:title", content: "Onboard customer · Azure ISV Deployment Factory" },
-      { property: "og:description", content: "Guided customer onboarding into an existing or greenfield Azure estate." },
+      { property: "og:title", content: "Onboard customer · Cloud Delivery" },
+      {
+        property: "og:description",
+        content: "Customer onboarding is configuration, not a project.",
+      },
     ],
   }),
   component: Onboard,
 });
 
-const STEPS = ["Customer", "Azure model", "Offering", "Networking", "Environments", "Preflight & plan"];
-const ENV_TYPES = ["development", "test", "qa", "staging", "production"] as const;
+const STEPS = ["Customer & offering", "Environments", "Customer's Azure", "Review"] as const;
+type Env = "development" | "test" | "qa" | "staging" | "production";
 
 function Onboard() {
   const offerings = useQuery(offeringsQuery);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
-
-  const [form, setForm] = useState({
+  const [customer, setCustomer] = useState({
     name: "Metro Energy",
-    customerCode: "metro-energy-2",
-    tenantId: "8f1c2b64-9a71-4c2e-9d55-7c3e1a0b4d21",
+    code: "metro-energy-2",
     industry: "Electric utility",
-    azureModel: "existing_enterprise_alz" as "existing_enterprise_alz" | "greenfield",
-    connectionType: "existing_subscription" as
-      | "existing_subscription"
-      | "new_subscription"
-      | "existing_resource_group"
-      | "managed_application"
-      | "lighthouse"
-      | "federated_identity",
-    subscriptionId: "2f8a7d11-4c39-4f85-b1de-93c7f6a52e10",
-    managementGroupId: "mg-metro-landingzones-corp",
-    offeringId: "",
-    region: "eastus2",
-    secondaryRegion: "centralus",
-    environments: ["production"] as (typeof ENV_TYPES)[number][],
-    networkMode: "existing-customer-hub" as "existing-customer-hub" | "dedicated-spoke",
-    vnetId: "/subscriptions/2f8a7d11/resourceGroups/rg-metro-network/providers/Microsoft.Network/virtualNetworks/vnet-metro-hub",
-    privateEndpoints: true,
-    publicAccess: false,
-    useCustomerWorkspace: true,
-    logAnalyticsWorkspaceId: "/subscriptions/2f8a7d11/resourceGroups/rg-metro-mgmt/providers/Microsoft.OperationalInsights/workspaces/law-metro-prod",
   });
+  const [offeringId, setOfferingId] = useState<string>("");
+  const [envs, setEnvs] = useState<Env[]>(["production"]);
+  const [region, setRegion] = useState("eastus2");
+  const [access, setAccess] = useState<"customer_link" | "engineer">("engineer");
+  const [connection, setConnection] = useState("federated_identity");
+  const [tenantId, setTenantId] = useState("8f1c2b64-9a71-4c2e-9d55-7c3e1a0b4d21");
+  const [inputs, setInputs] = useState<Record<string, string>>({});
+  const [created, setCreated] = useState<{
+    customerId: string;
+    environments: { id: string; name: string; environment_type: string }[];
+    version: string;
+  } | null>(null);
 
-  const [created, setCreated] = useState<{ customerId: string; environments: { id: string; name: string }[]; version: string } | null>(null);
-  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
-  const [deployment, setDeployment] = useState<{ id: string; status: string } | null>(null);
-
-  const offeringList = (offerings.data ?? []).filter((o) =>
-    ((o.offering_versions ?? []) as { status: string }[]).some((v) => v.status === "published"),
+  const published = (offerings.data ?? [])
+    .map((o) => {
+      const v = (
+        (o.offering_versions ?? []) as {
+          id: string;
+          version: string;
+          status: string;
+          manifest_json: unknown;
+        }[]
+      )
+        .filter((x) => x.status === "published")
+        .sort((a, b) => semverCompare(b.version, a.version))[0];
+      return v ? { offering: o, version: v, arch: fromManifest(o, v.manifest_json) } : null;
+    })
+    .filter((x): x is NonNullable<typeof x> => !!x);
+  const pick =
+    published.find((p) => p.offering.id === offeringId) ??
+    published.find((p) => p.offering.offering_type === "enterprise_private");
+  const arch = useMemo(
+    () => (pick ? { ...pick.arch, topology: { ...pick.arch.topology, regions: [region] } } : null),
+    [pick, region],
   );
-  const offering = offeringList.find((o) => o.id === form.offeringId);
-  const publishedVersion = ((offering?.offering_versions ?? []) as { version: string; status: string }[])
-    .filter((v) => v.status === "published")
-    .sort((a, b) => b.version.localeCompare(a.version))[0];
+  const required = arch ? inputsFor(arch.selected, arch.topology) : [];
+  const discovered = discoverPlatform(customer.code, inputs["subscriptionId"] ?? "2f8a7d11");
+  const value = (k: string) =>
+    inputs[k] ??
+    (k === "subscriptionId" ? "2f8a7d11-4c39-4f85-b1de-93c7f6a52e10" : (discovered[k]?.[0] ?? ""));
+  const monthly = arch ? monthlyEstimate(arch.selected) : 0;
+  const quote = envs.reduce((s, e) => s + (e === "production" ? monthly : monthly * 0.3), 0);
+  const hub = arch?.topology.landing === "existing-customer-hub";
 
   const onboard = useMutation({
     mutationFn: useServerFn(onboardCustomer),
     onSuccess: (r) => {
       setCreated(r as typeof created);
-      toast.success(`Customer created with ${(r as { environments: unknown[] }).environments.length} environment(s).`);
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-      queryClient.invalidateQueries({ queryKey: ["estate"] });
+      void queryClient.invalidateQueries({ queryKey: ["customers"] });
+      void queryClient.invalidateQueries({ queryKey: ["estate"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
-
-  const preflightRun = useMutation({
-    mutationFn: useServerFn(runPreflight),
-    onSuccess: (r) => {
-      setPreflight(r as PreflightResult);
-      const res = r as PreflightResult;
-      toast[res.blocking ? "error" : "success"](`${res.pass} PASS · ${res.warning} WARNING · ${res.blocking} BLOCKING`);
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const createPlan = useMutation({
+  const plan = useMutation({
     mutationFn: useServerFn(createDeployment),
-    onSuccess: (r) => {
-      const d = r as { deploymentId: string; status: string };
-      setDeployment({ id: d.deploymentId, status: d.status });
-      toast.success(`Deployment created in state ${d.status.replace(/_/g, " ")}. Approve it on the run page.`);
-      queryClient.invalidateQueries({ queryKey: ["deployments"] });
+    onSuccess: (r: { deploymentId: string }) => {
+      void queryClient.invalidateQueries({ queryKey: ["deployments"] });
+      void navigate({ to: "/deployments/$deploymentId", params: { deploymentId: r.deploymentId } });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
+  if (!pick || !arch) return <p className="text-sm text-muted-foreground">Loading offerings…</p>;
 
-  const firstEnv = created?.environments?.[0];
-  const perEnvCost = Number(offering?.estimated_monthly_cost_low ?? 0);
-  const costPreview = form.environments.reduce((s, t) => s + (t === "production" ? perEnvCost : perEnvCost * 0.25), 0);
+  const submit = () => {
+    const bound = Object.fromEntries(required.map((i) => [i.key, value(i.key)]));
+    onboard.mutate({
+      data: {
+        name: customer.name,
+        customerCode: customer.code,
+        industry: customer.industry,
+        accessMethod: access,
+        ...(access === "engineer" ? { tenantId, subscriptionId: value("subscriptionId") } : {}),
+        azureModel: hub ? "existing_enterprise_alz" : "greenfield",
+        connectionType: connection as "federated_identity",
+        offeringId: pick.offering.id,
+        region,
+        environments: envs,
+        inputs: access === "engineer" ? bound : {},
+        network: {
+          mode: hub ? "existing-customer-hub" : "dedicated-spoke",
+          ...(access === "engineer" && hub ? { vnetId: value("vnetId") } : {}),
+          privateEndpoints: arch.topology.privateEndpoints,
+          publicAccess: arch.topology.publicAccess,
+        },
+        observability: {
+          useCustomerWorkspace: hub,
+          ...(access === "engineer" && hub
+            ? { logAnalyticsWorkspaceId: value("logAnalyticsWorkspaceId") }
+            : {}),
+        },
+      },
+    });
+  };
+
+  const link =
+    created && typeof window !== "undefined"
+      ? `${window.location.origin}/connect/${created.customerId}`
+      : "";
+  const prodEnv =
+    created?.environments.find((e) => e.environment_type === "production") ??
+    created?.environments[0];
 
   return (
-    <>
-      <PageHeader
-        title="Onboard customer"
-        description="The customer's Azure platform is authoritative. Existing management groups, landing zones, hub networking, DNS, firewall and policy are consumed, never replaced."
-        meta={<Pill tone="warning">Demo mode — deployment execution is simulated</Pill>}
-      />
+    <div className="mx-auto max-w-6xl">
+      <div className="mb-5">
+        <p className="text-xs text-muted-foreground">Customers / Onboard</p>
+        <h1 className="text-[22px] font-semibold">Onboard a customer</h1>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Nothing to design — pick a published offering and bind it to the customer's Azure. Same
+          architecture, same pipeline, every customer.
+        </p>
+      </div>
 
-      <ol className="mb-4 flex flex-wrap gap-1.5">
-        {STEPS.map((label, index) => (
-          <li key={label}>
+      <ol className="mb-5 flex items-center gap-2 text-[13px]">
+        {STEPS.map((label, i) => (
+          <li key={label} className="flex items-center gap-2">
             <button
-              onClick={() => setStep(index)}
-              className={`rounded-sm border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                index === step
-                  ? "border-primary bg-primary/10 text-primary"
-                  : index < step
-                    ? "border-success/40 text-success"
-                    : "border-border text-muted-foreground"
-              }`}
+              disabled={i > step || !!created}
+              onClick={() => setStep(i)}
+              className={cn(
+                "flex items-center gap-2",
+                i === step
+                  ? "font-medium text-foreground"
+                  : i < step
+                    ? "text-foreground"
+                    : "text-muted-foreground",
+              )}
             >
-              {index + 1}. {label}
+              <span
+                className={cn(
+                  "grid size-5 place-items-center rounded-full border text-[11px]",
+                  i < step || created
+                    ? "border-success bg-success text-white"
+                    : i === step
+                      ? "border-primary text-primary"
+                      : "border-border",
+                )}
+              >
+                {i < step || created ? <Check className="size-3" /> : i + 1}
+              </span>
+              {label}
             </button>
+            {i < STEPS.length - 1 && <span className="h-px w-8 bg-border" />}
           </li>
         ))}
       </ol>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="space-y-4">
-          {step === 0 && (
-            <Panel title="Customer" description="Identity of the customer tenant you are deploying into.">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Field label="Customer name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-                <Field label="Customer code" value={form.customerCode} onChange={(v) => setForm({ ...form, customerCode: v })} hint="lowercase, hyphens" />
-                <Field label="Entra tenant ID" value={form.tenantId} onChange={(v) => setForm({ ...form, tenantId: v })} />
-                <Field label="Industry" value={form.industry} onChange={(v) => setForm({ ...form, industry: v })} />
-              </div>
-            </Panel>
-          )}
+      {created ? (
+        <Done
+          access={access}
+          customerId={created.customerId}
+          name={customer.name}
+          link={link}
+          version={created.version}
+          canPlan={access === "engineer" && !!prodEnv}
+          planning={plan.isPending}
+          onPlan={() =>
+            prodEnv &&
+            plan.mutate({
+              data: {
+                environmentId: prodEnv.id,
+                deploymentType: "initial",
+                requestedBy: "Sarah Chen",
+              },
+            })
+          }
+        />
+      ) : (
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="min-w-0 space-y-4">
+            {step === 0 && (
+              <>
+                <Card title="Customer">
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <Field
+                      label="Name"
+                      value={customer.name}
+                      onChange={(v) => setCustomer({ ...customer, name: v })}
+                    />
+                    <Field
+                      label="Customer code"
+                      value={customer.code}
+                      onChange={(v) => setCustomer({ ...customer, code: v })}
+                      hint="Used in resource names"
+                    />
+                    <Field
+                      label="Industry"
+                      value={customer.industry}
+                      onChange={(v) => setCustomer({ ...customer, industry: v })}
+                    />
+                  </div>
+                </Card>
+                <Card
+                  title="Offering"
+                  subtitle="Published offerings only. Each one is a fixed, versioned architecture."
+                >
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {published.map((p) => (
+                      <button
+                        key={p.offering.id}
+                        onClick={() => setOfferingId(p.offering.id)}
+                        className={cn(
+                          "rounded-md border p-3 text-left transition-colors",
+                          p.offering.id === pick.offering.id
+                            ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                            : "border-border hover:border-border-strong",
+                        )}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-[13px] font-semibold">{p.offering.name}</p>
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            v{p.version.version}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {LANDING_LABEL[p.arch.topology.landing].title}
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {p.arch.selected
+                            .filter(
+                              (s) =>
+                                !SERVICE_BY_ID.get(s.id)?.locked &&
+                                s.id !== "private-endpoints" &&
+                                s.id !== "network-spoke",
+                            )
+                            .map((s) => (
+                              <span key={s.id} title={SERVICE_BY_ID.get(s.id)?.name}>
+                                <ServiceIcon id={s.id} size="sm" />
+                              </span>
+                            ))}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              </>
+            )}
 
-          {step === 1 && (
-            <Panel title="Azure deployment model" description="Mode A is the default. Mode B requires explicit authorization and sufficient permissions on the connected identity.">
-              <div className="space-y-2">
-                {[
-                  {
-                    id: "existing_enterprise_alz",
-                    title: "Existing enterprise Azure (default)",
-                    body: "Deploy into the customer's existing landing zone. Their management groups, hub network, DNS, firewall, policy and security tooling remain untouched and authoritative.",
-                  },
-                  {
-                    id: "greenfield",
-                    title: "Greenfield baseline (authorized only)",
-                    body: "Create a minimal baseline. Only valid when the customer has explicitly authorized it and the connected identity holds the required scope. No tenant-level control is assumed.",
-                  },
-                ].map((option) => (
-                  <button
-                    key={option.id}
-                    onClick={() => setForm({ ...form, azureModel: option.id as typeof form.azureModel })}
-                    className={`w-full rounded-md border p-3 text-left transition-colors ${
-                      form.azureModel === option.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
-                    }`}
-                  >
-                    <p className="text-[13px] font-semibold">{option.title}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{option.body}</p>
-                  </button>
-                ))}
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <div>
-                  <Label className="text-xs">Connection mode</Label>
-                  <Select value={form.connectionType} onValueChange={(v) => setForm({ ...form, connectionType: v as typeof form.connectionType })}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["existing_subscription", "existing_resource_group", "new_subscription", "lighthouse", "managed_application", "federated_identity"].map((t) => (
-                        <SelectItem key={t} value={t}>
-                          {titleize(t)}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            {step === 1 && (
+              <Card
+                title="Environments & region"
+                subtitle="Each environment is an install of the same architecture."
+              >
+                <div className="flex flex-wrap gap-2">
+                  {(arch.topology.environments as Env[]).map((e) => {
+                    const on = envs.includes(e);
+                    return (
+                      <button
+                        key={e}
+                        onClick={() => setEnvs(on ? envs.filter((x) => x !== e) : [...envs, e])}
+                        className={cn(
+                          "flex items-center gap-2 rounded-md border px-3 py-2 text-[13px]",
+                          on
+                            ? "border-primary bg-primary/5 font-medium"
+                            : "border-border text-muted-foreground",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "grid size-4 place-items-center rounded-[3px] border",
+                            on ? "border-primary bg-primary text-white" : "border-border-strong",
+                          )}
+                        >
+                          {on && <Check className="size-3" />}
+                        </span>
+                        {titleize(e)}
+                      </button>
+                    );
+                  })}
                 </div>
-                <Field label="Subscription ID" value={form.subscriptionId} onChange={(v) => setForm({ ...form, subscriptionId: v })} />
-                <Field
-                  label="Management group (optional)"
-                  value={form.managementGroupId}
-                  onChange={(v) => setForm({ ...form, managementGroupId: v })}
-                  hint="Leave blank if no management group scope was granted"
-                />
-              </div>
-              <p className="mt-3 text-xs text-muted-foreground">
-                No Azure secret is stored. Onboarding records a federated identity reference to the customer's Key Vault
-                secret only.
-              </p>
-            </Panel>
-          )}
-
-          {step === 2 && (
-            <Panel title="Offering" description="Only offerings with a published version can be deployed.">
-              <div className="space-y-2">
-                {offeringList.map((o) => {
-                  const version = ((o.offering_versions ?? []) as { version: string; status: string }[])
-                    .filter((v) => v.status === "published")
-                    .sort((a, b) => b.version.localeCompare(a.version))[0];
-                  return (
-                    <button
-                      key={o.id}
-                      onClick={() => setForm({ ...form, offeringId: o.id })}
-                      className={`w-full rounded-md border p-3 text-left transition-colors ${
-                        form.offeringId === o.id ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[13px] font-semibold">{o.name}</p>
-                        <Pill tone="primary">v{version?.version}</Pill>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground">{o.description}</p>
-                      <p className="mt-1 text-[11px] text-muted-foreground">
-                        {titleize(o.offering_type)} · {o.deployment_boundary} · {currency(o.estimated_monthly_cost_low)}–
-                        {currency(o.estimated_monthly_cost_high)} / month
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <div>
+                <div className="mt-4 max-w-xs">
                   <Label className="text-xs">Primary region</Label>
-                  <Select value={form.region} onValueChange={(v) => setForm({ ...form, region: v })}>
+                  <Select value={region} onValueChange={setRegion}>
                     <SelectTrigger className="mt-1">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(offering?.supported_regions ?? ["eastus2", "centralus"]).map((r: string) => (
+                      {pick.arch.topology.regions.map((r) => (
                         <SelectItem key={r} value={r}>
                           {r}
                         </SelectItem>
@@ -259,210 +345,314 @@ function Onboard() {
                     </SelectContent>
                   </Select>
                 </div>
-                <Field label="Secondary region (optional)" value={form.secondaryRegion} onChange={(v) => setForm({ ...form, secondaryRegion: v })} />
-              </div>
-            </Panel>
-          )}
+              </Card>
+            )}
 
-          {step === 3 && (
-            <Panel title="Network integration" description="Consume the customer's existing connectivity wherever they provide it.">
-              <div className="space-y-3">
-                <div>
-                  <Label className="text-xs">Connectivity model</Label>
-                  <Select value={form.networkMode} onValueChange={(v) => setForm({ ...form, networkMode: v as typeof form.networkMode })}>
-                    <SelectTrigger className="mt-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="existing-customer-hub">Existing customer hub / VNet</SelectItem>
-                      <SelectItem value="dedicated-spoke">Dedicated spoke created by the offering</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Field label="Existing VNet resource ID" value={form.vnetId} onChange={(v) => setForm({ ...form, vnetId: v })} />
-                <Toggle
-                  label="Private endpoints for all platform services"
-                  checked={form.privateEndpoints}
-                  onChange={(v) => setForm({ ...form, privateEndpoints: v })}
-                />
-                <Toggle label="Allow public network access" checked={form.publicAccess} onChange={(v) => setForm({ ...form, publicAccess: v })} />
-                <Toggle
-                  label="Send diagnostics to the customer's Log Analytics workspace"
-                  checked={form.useCustomerWorkspace}
-                  onChange={(v) => setForm({ ...form, useCustomerWorkspace: v })}
-                />
-                {form.useCustomerWorkspace && (
-                  <Field
-                    label="Log Analytics workspace resource ID"
-                    value={form.logAnalyticsWorkspaceId}
-                    onChange={(v) => setForm({ ...form, logAnalyticsWorkspaceId: v })}
-                  />
-                )}
-              </div>
-            </Panel>
-          )}
-
-          {step === 4 && (
-            <Panel title="Environments" description="Each environment gets its own declarative manifest — no per-customer IaC repository is created.">
-              <div className="grid gap-2 sm:grid-cols-2">
-                {ENV_TYPES.map((type) => (
-                  <label key={type} className="flex items-center gap-2 rounded-md border border-border p-2.5 text-[13px]">
-                    <Checkbox
-                      checked={form.environments.includes(type)}
-                      onCheckedChange={(v) =>
-                        setForm({
-                          ...form,
-                          environments: v ? [...form.environments, type] : form.environments.filter((t) => t !== type),
-                        })
-                      }
+            {step === 2 && (
+              <>
+                <Card title="How will the customer grant access?">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <Choice
+                      on={access === "customer_link"}
+                      onClick={() => setAccess("customer_link")}
+                      icon={<Mail className="size-4" />}
+                      title="Send an install link (recommended)"
+                      body="Their Azure admin signs in, picks the subscription and approves access. Hub, DNS and workspace are discovered — you never handle their IDs."
                     />
-                    {titleize(type)}
-                  </label>
-                ))}
-              </div>
+                    <Choice
+                      on={access === "engineer"}
+                      onClick={() => setAccess("engineer")}
+                      icon={<UserCog className="size-4" />}
+                      title="I have the details"
+                      body="Enter the customer's tenant and platform resources yourself, e.g. from a completed intake form."
+                    />
+                  </div>
+                  <div className="mt-3 max-w-sm">
+                    <Label className="text-xs">Access model</Label>
+                    <Select value={connection} onValueChange={setConnection}>
+                      <SelectTrigger className="mt-1">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {[
+                          "federated_identity",
+                          "lighthouse",
+                          "managed_application",
+                          "existing_subscription",
+                        ].map((c) => (
+                          <SelectItem key={c} value={c}>
+                            {CONNECTION_LABEL[c]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </Card>
 
-              <div className="mt-4 rounded-md border border-border p-3 text-sm">
-                <p className="font-semibold">Cost preview (ESTIMATE)</p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {currency(costPreview)} / month · {currency(costPreview * 12)} / year across {form.environments.length}{" "}
-                  environment(s), based on the offering cost model.
-                </p>
-              </div>
-
-              <Button
-                className="mt-4"
-                disabled={onboard.isPending || !form.offeringId || !form.environments.length}
-                onClick={() =>
-                  onboard.mutate({
-                    data: {
-                      name: form.name,
-                      customerCode: form.customerCode,
-                      tenantId: form.tenantId,
-                      industry: form.industry,
-                      azureModel: form.azureModel,
-                      connectionType: form.connectionType,
-                      subscriptionId: form.subscriptionId || undefined,
-                      managementGroupId: form.managementGroupId || undefined,
-                      offeringId: form.offeringId,
-                      region: form.region,
-                      secondaryRegion: form.secondaryRegion || undefined,
-                      environments: form.environments,
-                      network: {
-                        mode: form.networkMode,
-                        vnetId: form.vnetId || undefined,
-                        privateEndpoints: form.privateEndpoints,
-                        publicAccess: form.publicAccess,
-                      },
-                      observability: {
-                        useCustomerWorkspace: form.useCustomerWorkspace,
-                        logAnalyticsWorkspaceId: form.logAnalyticsWorkspaceId || undefined,
-                      },
-                    },
-                  })
-                }
-              >
-                {onboard.isPending ? "Creating…" : created ? "Customer created" : "Create customer & environments"}
-              </Button>
-            </Panel>
-          )}
-
-          {step === 5 && (
-            <Panel
-              title="Preflight, plan and approval"
-              description="Validation runs first; blocking results forbid deployment. Production plans require explicit approval."
-            >
-              {!created && <p className="text-sm text-muted-foreground">Complete step 5 to create the customer first.</p>}
-
-              {created && firstEnv && (
-                <div className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <Button size="sm" variant="outline" disabled={preflightRun.isPending} onClick={() => preflightRun.mutate({ data: { environmentId: firstEnv.id } })}>
-                      Run preflight on {firstEnv.name}
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={createPlan.isPending || !preflight || preflight.blocking > 0}
-                      onClick={() => createPlan.mutate({ data: { environmentId: firstEnv.id, deploymentType: "initial", requestedBy: "Sarah Chen" } })}
-                    >
-                      Generate plan
-                    </Button>
-                    {deployment && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => navigate({ to: "/deployments/$deploymentId", params: { deploymentId: deployment.id } })}
-                      >
-                        Open deployment run
-                      </Button>
+                <Card
+                  title="Customer bindings"
+                  subtitle={`These ${required.length} values are all the architecture needs from ${customer.name}. They were derived from the offering — nothing else is asked.`}
+                >
+                  <div className="space-y-2.5">
+                    {access === "engineer" && (
+                      <Field label="Entra tenant ID" value={tenantId} onChange={setTenantId} mono />
+                    )}
+                    {required.map((i) =>
+                      access === "engineer" ? (
+                        <Field
+                          key={i.key}
+                          label={i.label}
+                          value={value(i.key)}
+                          onChange={(v) => setInputs({ ...inputs, [i.key]: v })}
+                          hint={`${i.key} · ${i.help}`}
+                          mono
+                        />
+                      ) : (
+                        <div
+                          key={i.key}
+                          className="flex items-center justify-between gap-3 rounded-sm border border-border px-3 py-2"
+                        >
+                          <div>
+                            <p className="text-[13px] font-medium">{i.label}</p>
+                            <p className="text-[11px] text-muted-foreground">{i.help}</p>
+                          </div>
+                          <Pill tone={i.source === "customer" ? "info" : "neutral"}>
+                            {i.from === "Customer platform" || i.key === "subscriptionId"
+                              ? "Discovered via link"
+                              : i.source === "customer"
+                                ? "Customer enters"
+                                : "Your team"}
+                          </Pill>
+                        </div>
+                      ),
                     )}
                   </div>
+                </Card>
+              </>
+            )}
 
-                  {preflight && (
-                    <div className="rounded-md border border-border">
-                      <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-xs">
-                        <ResultPill result="PASS" />
-                        <span className="mono-num">{preflight.pass}</span>
-                        <ResultPill result="WARNING" />
-                        <span className="mono-num">{preflight.warning}</span>
-                        <ResultPill result="BLOCKING" />
-                        <span className="mono-num">{preflight.blocking}</span>
-                      </div>
-                      <ul className="max-h-72 divide-y divide-border overflow-auto">
-                        {preflight.checks.map((c) => (
-                          <li key={c.key} className="flex items-start justify-between gap-3 px-3 py-2">
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-medium">{c.name}</p>
-                              <p className="text-xs text-muted-foreground">{c.detail}</p>
-                            </div>
-                            <ResultPill result={c.level} />
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              )}
-            </Panel>
-          )}
-
-          <div className="flex justify-between">
-            <Button variant="outline" disabled={step === 0} onClick={() => setStep((s) => s - 1)}>
-              Back
-            </Button>
-            <Button disabled={step === STEPS.length - 1} onClick={() => setStep((s) => s + 1)}>
-              Continue
-            </Button>
-          </div>
-        </div>
-
-        <Panel title="Summary" description="What will be created">
-          <dl className="space-y-1.5 text-xs">
-            <Row label="Customer" value={form.name} />
-            <Row label="Tenant" value={form.tenantId.slice(0, 13) + "…"} />
-            <Row label="Azure model" value={form.azureModel === "greenfield" ? "Greenfield baseline" : "Existing enterprise ALZ"} />
-            <Row label="Connection" value={titleize(form.connectionType)} />
-            <Row label="Offering" value={offering?.name ?? "not selected"} />
-            <Row label="Version" value={publishedVersion ? `v${publishedVersion.version}` : "—"} />
-            <Row label="Region" value={form.region} />
-            <Row label="Environments" value={form.environments.map(titleize).join(", ") || "none"} />
-            <Row label="Networking" value={form.networkMode === "existing-customer-hub" ? "Customer hub" : "Dedicated spoke"} />
-            <Row label="Private endpoints" value={form.privateEndpoints ? "required" : "disabled"} />
-            <Row label="Estimated monthly" value={currency(costPreview)} />
-          </dl>
-          {created && (
-            <div className="mt-3 rounded-md border border-success/40 bg-success/5 p-2.5 text-xs">
-              <p className="font-semibold text-success">Customer created on v{created.version}</p>
-              <button
-                className="mt-1 font-medium text-primary hover:underline"
-                onClick={() => navigate({ to: "/customers/$customerId", params: { customerId: created.customerId } })}
+            {step === 3 && (
+              <Card
+                title={`What lands in ${customer.name}'s Azure`}
+                subtitle={`${pick.offering.name} v${pick.version.version} · ${envs.length} environment(s) · ${region}`}
               >
-                Open customer page
-              </button>
+                <ArchitectureCanvas
+                  selected={arch.selected}
+                  topology={arch.topology}
+                  bindings={
+                    access === "engineer"
+                      ? Object.fromEntries(required.map((i) => [i.key, value(i.key)]))
+                      : {}
+                  }
+                  installName={`${customer.code}-prod`}
+                  compact
+                />
+              </Card>
+            )}
+
+            <div className="flex justify-between">
+              <Button variant="outline" disabled={step === 0} onClick={() => setStep(step - 1)}>
+                Back
+              </Button>
+              {step < STEPS.length - 1 ? (
+                <Button disabled={step === 1 && !envs.length} onClick={() => setStep(step + 1)}>
+                  Continue
+                </Button>
+              ) : (
+                <Button disabled={onboard.isPending || !envs.length} onClick={submit}>
+                  {onboard.isPending
+                    ? "Creating…"
+                    : access === "customer_link"
+                      ? "Create customer & install link"
+                      : "Create customer"}
+                </Button>
+              )}
             </div>
-          )}
-        </Panel>
-      </div>
-    </>
+          </div>
+
+          <aside className="h-fit rounded-md border border-border bg-card p-4 lg:sticky lg:top-16">
+            <p className="text-[13px] font-semibold">{customer.name || "New customer"}</p>
+            <dl className="mt-3 space-y-1.5 text-xs">
+              <Row k="Offering" v={`${pick.offering.name} v${pick.version.version}`} />
+              <Row k="Lands into" v={LANDING_LABEL[arch.topology.landing].title} />
+              <Row k="Environments" v={envs.map(titleize).join(", ") || "—"} />
+              <Row k="Region" v={region} />
+              <Row k="Resources per install" v={String(arch.selected.length)} />
+              <Row k="Customer inputs" v={String(required.length)} />
+              <Row
+                k="Access"
+                v={
+                  access === "customer_link"
+                    ? "Install link"
+                    : (CONNECTION_LABEL[connection] ?? connection)
+                }
+              />
+            </dl>
+            <div className="mt-4 border-t border-border pt-3">
+              <p className="text-xs text-muted-foreground">
+                Quote · customer's Azure bill (estimate)
+              </p>
+              <p className="mt-0.5 font-mono text-lg font-semibold">
+                {currency(quote)}
+                <span className="text-xs font-normal text-muted-foreground"> / month</span>
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                List-price estimate from the offering's services; non-production at ~30%.
+              </p>
+            </div>
+            <div className="mt-4 border-t border-border pt-3 text-[11px] text-muted-foreground">
+              No per-customer IaC, repository or pipeline is created. This customer runs{" "}
+              <Link
+                to="/offerings"
+                search={{ offering: pick.offering.id, view: "pipeline" }}
+                className="text-primary hover:underline"
+              >
+                the {pick.offering.name} pipeline
+              </Link>{" "}
+              with their parameters.
+            </div>
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Done({
+  access,
+  customerId,
+  name,
+  link,
+  version,
+  canPlan,
+  planning,
+  onPlan,
+}: {
+  access: "customer_link" | "engineer";
+  customerId: string;
+  name: string;
+  link: string;
+  version: string;
+  canPlan: boolean;
+  planning: boolean;
+  onPlan: () => void;
+}) {
+  return (
+    <div className="max-w-2xl rounded-md border border-border bg-card p-5">
+      <p className="flex items-center gap-2 text-[15px] font-semibold">
+        <span className="grid size-5 place-items-center rounded-full bg-success text-white">
+          <Check className="size-3" />
+        </span>
+        {name} created on v{version}
+      </p>
+      {access === "customer_link" ? (
+        <>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Send this link to {name}'s Azure administrator. When they approve access, the customer
+            moves to <b>Ready to plan</b> and their platform resources are bound automatically.
+          </p>
+          <div className="mt-3 flex items-center gap-2 rounded-sm border border-border bg-muted/50 px-3 py-2">
+            <code className="min-w-0 flex-1 truncate font-mono text-xs">{link}</code>
+            <button
+              onClick={() => {
+                void navigator.clipboard.writeText(link);
+                toast.success("Install link copied");
+              }}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Copy link"
+            >
+              <Copy className="size-3.5" />
+            </button>
+          </div>
+          <div className="mt-4 flex gap-2">
+            <a
+              href={link}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-sm border border-border px-3 py-1.5 text-[13px] font-medium hover:bg-muted"
+            >
+              <ExternalLink className="size-3.5" /> Open as customer
+            </a>
+            <Link
+              to="/customers/$customerId"
+              params={{ customerId }}
+              className="rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground"
+            >
+              Go to customer
+            </Link>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Bindings recorded. Validate the customer's landing zone and generate the production plan
+            — it opens as a pipeline run that waits for approval.
+          </p>
+          <div className="mt-4 flex gap-2">
+            <Button disabled={!canPlan || planning} onClick={onPlan}>
+              {planning ? "Validating & planning…" : "Validate & plan production"}
+            </Button>
+            <Link
+              to="/customers/$customerId"
+              params={{ customerId }}
+              className="rounded-sm border border-border px-3 py-1.5 text-[13px] font-medium hover:bg-muted"
+            >
+              Go to customer
+            </Link>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Card({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <h2 className="text-[13px] font-semibold">{title}</h2>
+      {subtitle && <p className="mt-0.5 text-xs text-muted-foreground">{subtitle}</p>}
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function Choice({
+  on,
+  onClick,
+  icon,
+  title,
+  body,
+}: {
+  on: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  title: string;
+  body: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        "rounded-md border p-3 text-left transition-colors",
+        on
+          ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+          : "border-border hover:border-border-strong",
+      )}
+    >
+      <p className="flex items-center gap-2 text-[13px] font-semibold">
+        {icon}
+        {title}
+      </p>
+      <p className="mt-1 text-xs text-muted-foreground">{body}</p>
+    </button>
   );
 }
 
@@ -471,35 +661,32 @@ function Field({
   value,
   onChange,
   hint,
+  mono,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   hint?: string;
+  mono?: boolean;
 }) {
   return (
     <div>
       <Label className="text-xs">{label}</Label>
-      <Input value={value} onChange={(e) => onChange(e.target.value)} className="mt-1" />
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn("mt-1", mono && "font-mono text-xs")}
+      />
       {hint && <p className="mt-1 text-[11px] text-muted-foreground">{hint}</p>}
     </div>
   );
 }
 
-function Toggle({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
-  return (
-    <label className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-[13px]">
-      {label}
-      <Switch checked={checked} onCheckedChange={onChange} />
-    </label>
-  );
-}
-
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right font-medium text-foreground">{value}</dd>
+      <dt className="text-muted-foreground">{k}</dt>
+      <dd className="truncate text-right font-medium">{v}</dd>
     </div>
   );
 }

@@ -58,6 +58,13 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-cat-compute: var(--cat-compute);
+  --color-cat-data: var(--cat-data);
+  --color-cat-messaging: var(--cat-messaging);
+  --color-cat-networking: var(--cat-networking);
+  --color-cat-security: var(--cat-security);
+  --color-cat-observability: var(--cat-observability);
+  --color-cat-governance: var(--cat-governance);
   --color-sidebar: var(--nav);
   --color-sidebar-foreground: var(--nav-foreground);
   --color-sidebar-primary: var(--primary);
@@ -115,6 +122,16 @@
   --chart-3: oklch(0.52 0.12 152);
   --chart-4: oklch(0.63 0.13 72);
   --chart-5: oklch(0.53 0.15 300);
+
+  /* Azure service categories on the architecture canvas */
+  --cat-compute: oklch(0.55 0.15 253);
+  --cat-data: oklch(0.55 0.11 175);
+  --cat-messaging: oklch(0.52 0.15 300);
+  --cat-networking: oklch(0.56 0.12 225);
+  --cat-security: oklch(0.62 0.13 70);
+  --cat-observability: oklch(0.56 0.15 350);
+  --cat-governance: oklch(0.5 0.03 255);
+  --canvas-dot: oklch(0.86 0.008 250);
 }
 
 .dark {
@@ -166,10 +183,8 @@
 
   & thead th {
     text-align: left;
-    font-weight: 600;
-    font-size: 0.6875rem;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
+    font-weight: 500;
+    font-size: 0.75rem;
     color: var(--color-muted-foreground);
     padding: 0.5rem 0.75rem;
     border-bottom: 1px solid var(--color-border);
@@ -192,4 +207,10 @@
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   font-size: 0.8125rem;
+}
+
+@utility canvas-grid {
+  background-color: var(--color-background);
+  background-image: radial-gradient(var(--canvas-dot) 1px, transparent 1px);
+  background-size: 16px 16px;
 }

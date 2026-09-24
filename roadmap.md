@@ -8,9 +8,15 @@
 - Server functions: preflight, connection validation, plan creation, approvals, execution, drift detect/resolve, AI architecture intake + deterministic schema & architecture-policy validation, version create/publish (published versions immutable), onboarding, upgrade classification, rollout waves, branding.
 - UI: overview, products, offerings catalog + version history + architecture intake, customers list, customer detail (8 tabs), deployments list + run detail with approvals/plan/preflight/timeline, estate with filters and batch plan generation, compliance, upgrades, costs, audit, settings, onboarding wizard.
 - Acceptance path verified: Metro Energy preflight returns 17 PASS / 2 WARNING / 0 BLOCKING.
+- UX reframe around the ISV-owned delivery lifecycle (one product definition, N customer installs):
+  - Offering designer (`/offerings`): click Azure services from a catalog (`src/lib/catalog.ts`) onto an architecture canvas; the Bicep entry point, CI/CD pipeline (GitHub Actions / Azure DevOps) and customer inputs are generated from it (`src/lib/pipeline.ts`). Saving creates or updates a draft release; published releases stay immutable.
+  - The demo engine now plans and applies from the architecture instead of a hardcoded resource list.
+  - Onboarding asks only for the inputs the architecture needs, either entered by the engineer or collected through a branded customer install link (`/connect/$customerId`) with platform discovery.
+  - Pipeline run view (`/deployments/$deploymentId`): stage → job graph, per-resource status on the architecture, job logs and a what-if style plan.
+  - Home, customer page, releases (rings, Preferred/Supported/Deprecated), installed-base grid, ⌘K palette, collapsible nav rail; costs are modelled from each install's architecture.
+  - Fixed: rollout waves now set the install's desired release and create the approval gate.
 
 ## Open (needs owner decision or external access)
-- Product and UX direction audit: compare the current experience with the original brief and leading infrastructure deployment platforms (including Massdriver), then reframe the interface around the productized deployment lifecycle.
 - Real Azure execution mode: Container Apps Job running Bicep/Terraform, per-customer federated identity, GitHub/ADO reusable workflow dispatch. Blocked on an Azure tenant + pipeline credentials; the provider interfaces are already in place.
 - Actual cost ingestion from Azure Cost Management (estimates only today).
 - Entra sign-in and role enforcement per user: authorization rules are modelled, but sign-in is not wired because no identity provider has been chosen yet.

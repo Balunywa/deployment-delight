@@ -80,14 +80,14 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Azure ISV Deployment Factory" },
+      { title: "Cloud Delivery" },
       {
         name: "description",
         content:
           "Turn your Azure architecture into a versioned product catalog and deploy it repeatably into every customer tenant.",
       },
       { name: "author", content: "GridWorks" },
-      { property: "og:title", content: "Azure ISV Deployment Factory" },
+      { property: "og:title", content: "Cloud Delivery" },
       {
         property: "og:description",
         content:

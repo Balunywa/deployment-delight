@@ -62,7 +62,10 @@ async function loadContext(db: Db, environmentId: string, deploymentType = "init
     .limit(1)
     .maybeSingle();
 
-  const version = environment.desired as { manifest_json?: Record<string, unknown>; version?: string } | null;
+  const version = environment.desired as {
+    manifest_json?: Record<string, unknown>;
+    version?: string;
+  } | null;
 
   const ctx: ProviderContext = {
     environment: {
@@ -93,7 +96,9 @@ async function loadContext(db: Db, environmentId: string, deploymentType = "init
 /* ---------------------------------------------------------------- preflight */
 
 export const runPreflight = createServerFn({ method: "POST" })
-  .inputValidator((d: { environmentId: string }) => z.object({ environmentId: z.string().uuid() }).parse(d))
+  .inputValidator((d: { environmentId: string }) =>
+    z.object({ environmentId: z.string().uuid() }).parse(d),
+  )
   .handler(async ({ data }) => {
     const db = await admin();
     const { environment, ctx } = await loadContext(db, data.environmentId);
@@ -110,7 +115,9 @@ export const runPreflight = createServerFn({ method: "POST" })
   });
 
 export const validateConnection = createServerFn({ method: "POST" })
-  .inputValidator((d: { connectionId: string }) => z.object({ connectionId: z.string().uuid() }).parse(d))
+  .inputValidator((d: { connectionId: string }) =>
+    z.object({ connectionId: z.string().uuid() }).parse(d),
+  )
   .handler(async ({ data }) => {
     const db = await admin();
     const { data: updated, error } = await db
@@ -146,7 +153,14 @@ export const createDeployment = createServerFn({ method: "POST" })
       .object({
         environmentId: z.string().uuid(),
         deploymentType: z
-          .enum(["initial", "upgrade", "configuration_change", "repair", "drift_remediation", "decommission"])
+          .enum([
+            "initial",
+            "upgrade",
+            "configuration_change",
+            "repair",
+            "drift_remediation",
+            "decommission",
+          ])
           .default("initial"),
         requestedBy: z.string().default("Mike Alvarez"),
       })
@@ -154,7 +168,11 @@ export const createDeployment = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const db = await admin();
-    const { environment, ctx, version } = await loadContext(db, data.environmentId, data.deploymentType);
+    const { environment, ctx, version } = await loadContext(
+      db,
+      data.environmentId,
+      data.deploymentType,
+    );
 
     const preflight = await demoProvider.validate(ctx);
     let state: DeploymentState = "DRAFT";
@@ -175,7 +193,10 @@ export const createDeployment = createServerFn({ method: "POST" })
     if (state === "PLANNING") {
       plan = await demoProvider.plan(ctx);
       assertTransition(state, "AWAITING_PLAN_APPROVAL");
-      state = environment.environment_type === "production" ? "AWAITING_APPROVAL" : "AWAITING_PLAN_APPROVAL";
+      state =
+        environment.environment_type === "production"
+          ? "AWAITING_APPROVAL"
+          : "AWAITING_PLAN_APPROVAL";
     }
 
     const { data: actualVersion } = await db
@@ -207,7 +228,8 @@ export const createDeployment = createServerFn({ method: "POST" })
         deployment_id: deployment.id,
         approval_type:
           environment.environment_type === "production" ? "production_deployment" : "plan_approval",
-        requested_from: environment.environment_type === "production" ? "Security Approver" : "Platform Engineer",
+        requested_from:
+          environment.environment_type === "production" ? "Security Approver" : "Platform Engineer",
         status: "pending",
       });
     }
@@ -227,15 +249,21 @@ export const createDeployment = createServerFn({ method: "POST" })
   });
 
 export const decideApproval = createServerFn({ method: "POST" })
-  .inputValidator((d: { approvalId: string; decision: "approved" | "rejected"; comments?: string; decidedBy?: string }) =>
-    z
-      .object({
-        approvalId: z.string().uuid(),
-        decision: z.enum(["approved", "rejected"]),
-        comments: z.string().max(2000).optional(),
-        decidedBy: z.string().default("Jennifer Park"),
-      })
-      .parse(d),
+  .inputValidator(
+    (d: {
+      approvalId: string;
+      decision: "approved" | "rejected";
+      comments?: string;
+      decidedBy?: string;
+    }) =>
+      z
+        .object({
+          approvalId: z.string().uuid(),
+          decision: z.enum(["approved", "rejected"]),
+          comments: z.string().max(2000).optional(),
+          decidedBy: z.string().default("Jennifer Park"),
+        })
+        .parse(d),
   )
   .handler(async ({ data }) => {
     const db = await admin();
@@ -247,7 +275,12 @@ export const decideApproval = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     if (approval.status !== "pending") throw new Error("This approval has already been decided.");
 
-    const deployment = approval.deployments as { id: string; status: DeploymentState; correlation_id: string; environment_id: string };
+    const deployment = approval.deployments as {
+      id: string;
+      status: DeploymentState;
+      correlation_id: string;
+      environment_id: string;
+    };
 
     await db
       .from("approvals")
@@ -278,7 +311,9 @@ export const decideApproval = createServerFn({ method: "POST" })
   });
 
 export const executeDeployment = createServerFn({ method: "POST" })
-  .inputValidator((d: { deploymentId: string }) => z.object({ deploymentId: z.string().uuid() }).parse(d))
+  .inputValidator((d: { deploymentId: string }) =>
+    z.object({ deploymentId: z.string().uuid() }).parse(d),
+  )
   .handler(async ({ data }) => {
     const db = await admin();
     const { data: deployment, error } = await db
@@ -293,10 +328,17 @@ export const executeDeployment = createServerFn({ method: "POST" })
       throw new Error(`Deployment must be QUEUED to execute. Current state: ${status}.`);
     }
 
-    const { environment, ctx } = await loadContext(db, deployment.environment_id, deployment.deployment_type);
+    const { environment, ctx } = await loadContext(
+      db,
+      deployment.environment_id,
+      deployment.deployment_type,
+    );
     assertTransition("QUEUED", "DEPLOYING");
     const startedAt = new Date().toISOString();
-    await db.from("deployments").update({ status: "DEPLOYING", started_at: startedAt }).eq("id", deployment.id);
+    await db
+      .from("deployments")
+      .update({ status: "DEPLOYING", started_at: startedAt })
+      .eq("id", deployment.id);
 
     const run = await demoPipelineProvider.dispatch({
       correlationId: deployment.correlation_id,
@@ -328,7 +370,12 @@ export const executeDeployment = createServerFn({ method: "POST" })
       .update({
         status: finalState,
         completed_at: new Date().toISOString(),
-        result_json: { outcome: finalState.toLowerCase(), outputs, pipelineRun: run.runUrl, mode: "demo" } as never,
+        result_json: {
+          outcome: finalState.toLowerCase(),
+          outputs,
+          pipelineRun: run.runUrl,
+          mode: "demo",
+        } as never,
       })
       .eq("id", deployment.id);
 
@@ -361,7 +408,9 @@ export const executeDeployment = createServerFn({ method: "POST" })
 /* -------------------------------------------------------------------- drift */
 
 export const detectDrift = createServerFn({ method: "POST" })
-  .inputValidator((d: { environmentId: string }) => z.object({ environmentId: z.string().uuid() }).parse(d))
+  .inputValidator((d: { environmentId: string }) =>
+    z.object({ environmentId: z.string().uuid() }).parse(d),
+  )
   .handler(async ({ data }) => {
     const db = await admin();
     const { environment, ctx } = await loadContext(db, data.environmentId);
@@ -397,14 +446,19 @@ export const detectDrift = createServerFn({ method: "POST" })
   });
 
 export const resolveDrift = createServerFn({ method: "POST" })
-  .inputValidator((d: { findingId: string; action: "accept" | "remediate" | "ignore" | "escalate"; actor?: string }) =>
-    z
-      .object({
-        findingId: z.string().uuid(),
-        action: z.enum(["accept", "remediate", "ignore", "escalate"]),
-        actor: z.string().default("Sarah Chen"),
-      })
-      .parse(d),
+  .inputValidator(
+    (d: {
+      findingId: string;
+      action: "accept" | "remediate" | "ignore" | "escalate";
+      actor?: string;
+    }) =>
+      z
+        .object({
+          findingId: z.string().uuid(),
+          action: z.enum(["accept", "remediate", "ignore", "escalate"]),
+          actor: z.string().default("Sarah Chen"),
+        })
+        .parse(d),
   )
   .handler(async ({ data }) => {
     const db = await admin();
@@ -489,6 +543,37 @@ const blueprintSchema = z.object({
       }),
     )
     .min(1),
+  deploymentOptions: z
+    .object({
+      azureModels: z.array(z.enum(["existing_enterprise_alz", "greenfield"])).min(1),
+      connectionModes: z.array(z.string()).min(1),
+      environments: z.array(z.string()).min(1),
+    })
+    .optional(),
+  customerInputs: z
+    .array(
+      z.object({
+        key: z.string().regex(/^[a-zA-Z][a-zA-Z0-9]*$/, "Input keys must be camelCase identifiers"),
+        label: z.string().min(1),
+        help: z.string().optional(),
+        type: z.enum(["text", "resource-id", "cidr", "boolean", "select"]),
+        required: z.boolean(),
+        source: z.enum(["customer", "isv"]),
+        discoverable: z.boolean().optional(),
+        options: z.array(z.string()).optional(),
+        placeholder: z.string().optional(),
+      }),
+    )
+    .optional(),
+  overridable: z.array(z.string()).optional(),
+  source: z
+    .object({
+      repository: z.string().min(3),
+      path: z.string(),
+      iac: z.enum(["bicep", "terraform"]),
+      pipeline: z.enum(["github-actions", "azure-devops"]),
+    })
+    .optional(),
 });
 
 export const draftBlueprintFromDescription = createServerFn({ method: "POST" })
@@ -499,7 +584,9 @@ export const draftBlueprintFromDescription = createServerFn({ method: "POST" })
     const apiKey = process.env["LOVABLE_API_KEY"];
     if (!apiKey) throw new Error("AI drafting is not configured for this environment.");
     const db = await admin();
-    const { data: modules } = await db.from("infrastructure_modules").select("name, version, module_type");
+    const { data: modules } = await db
+      .from("infrastructure_modules")
+      .select("name, version, module_type");
 
     const system = `You convert an ISV's Azure architecture description into a DRAFT deployment blueprint manifest.
 Return ONLY JSON matching this shape:
@@ -524,7 +611,10 @@ Never invent Azure credentials, subscriptions or resource IDs.`;
     }
     const payload = (await response.json()) as { choices?: { message?: { content?: string } }[] };
     const raw = payload.choices?.[0]?.message?.content ?? "";
-    const json = raw.replace(/^```(?:json)?/m, "").replace(/```$/m, "").trim();
+    const json = raw
+      .replace(/^```(?:json)?/m, "")
+      .replace(/```$/m, "")
+      .trim();
 
     let parsedUnknown: unknown;
     try {
@@ -536,7 +626,10 @@ Never invent Azure credentials, subscriptions or resource IDs.`;
     const parsed = blueprintSchema.safeParse(parsedUnknown);
     const validation = parsed.success
       ? { schema: "PASS" as const, issues: [] as string[] }
-      : { schema: "BLOCKING" as const, issues: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`) };
+      : {
+          schema: "BLOCKING" as const,
+          issues: parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+        };
 
     const manifest = (parsed.success ? parsed.data : parsedUnknown) as Record<string, unknown>;
     const policyIssues = architecturePolicyCheck(manifest);
@@ -558,22 +651,39 @@ function architecturePolicyCheck(manifest: Record<string, unknown>) {
   const modules = (manifest["modules"] ?? []) as { name?: string }[];
 
   if (network["publicAccess"] === true)
-    issues.push({ level: "BLOCKING", message: "ISV architecture policy requires publicAccess: false." });
+    issues.push({
+      level: "BLOCKING",
+      message: "ISV architecture policy requires publicAccess: false.",
+    });
   if (network["privateEndpoints"] !== true)
-    issues.push({ level: "BLOCKING", message: "Private endpoints are mandatory for all data services." });
+    issues.push({
+      level: "BLOCKING",
+      message: "Private endpoints are mandatory for all data services.",
+    });
   if (identity["managedIdentity"] !== true)
-    issues.push({ level: "BLOCKING", message: "Managed identity is mandatory; secrets-based auth is not permitted." });
+    issues.push({
+      level: "BLOCKING",
+      message: "Managed identity is mandatory; secrets-based auth is not permitted.",
+    });
   if (obs["diagnosticsRequired"] !== true)
-    issues.push({ level: "WARNING", message: "Diagnostic settings should be required by every offering." });
+    issues.push({
+      level: "WARNING",
+      message: "Diagnostic settings should be required by every offering.",
+    });
   if (!modules.some((m) => m.name === "security-baseline"))
     issues.push({ level: "BLOCKING", message: "security-baseline module must be present." });
   if (!modules.some((m) => m.name === "monitoring"))
-    issues.push({ level: "WARNING", message: "monitoring module is recommended in every blueprint." });
+    issues.push({
+      level: "WARNING",
+      message: "monitoring module is recommended in every blueprint.",
+    });
   return issues;
 }
 
 export const validateBlueprint = createServerFn({ method: "POST" })
-  .inputValidator((d: { manifestJson: string }) => z.object({ manifestJson: z.string().max(60000) }).parse(d))
+  .inputValidator((d: { manifestJson: string }) =>
+    z.object({ manifestJson: z.string().max(60000) }).parse(d),
+  )
   .handler(async ({ data }) => {
     let manifest: unknown;
     try {
@@ -584,21 +694,29 @@ export const validateBlueprint = createServerFn({ method: "POST" })
     const parsed = blueprintSchema.safeParse(manifest);
     return {
       schema: parsed.success ? ("PASS" as const) : ("BLOCKING" as const),
-      issues: parsed.success ? [] : parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
+      issues: parsed.success
+        ? []
+        : parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
       policyIssues: architecturePolicyCheck((manifest ?? {}) as Record<string, unknown>),
     };
   });
 
 export const createOfferingVersion = createServerFn({ method: "POST" })
-  .inputValidator((d: { offeringId: string; manifestJson: string; releaseNotes?: string; aiGenerated?: boolean }) =>
-    z
-      .object({
-        offeringId: z.string().uuid(),
-        manifestJson: z.string().max(60000),
-        releaseNotes: z.string().max(4000).optional(),
-        aiGenerated: z.boolean().default(false),
-      })
-      .parse(d),
+  .inputValidator(
+    (d: {
+      offeringId: string;
+      manifestJson: string;
+      releaseNotes?: string;
+      aiGenerated?: boolean;
+    }) =>
+      z
+        .object({
+          offeringId: z.string().uuid(),
+          manifestJson: z.string().max(60000),
+          releaseNotes: z.string().max(4000).optional(),
+          aiGenerated: z.boolean().default(false),
+        })
+        .parse(d),
   )
   .handler(async ({ data }) => {
     let manifestInput: unknown;
@@ -608,7 +726,10 @@ export const createOfferingVersion = createServerFn({ method: "POST" })
       throw new Error("The blueprint is not valid JSON.");
     }
     const parsed = blueprintSchema.safeParse(manifestInput);
-    if (!parsed.success) throw new Error("Blueprint failed schema validation; fix the issues before saving a version.");
+    if (!parsed.success)
+      throw new Error(
+        "Blueprint failed schema validation; fix the issues before saving a version.",
+      );
     const db = await admin();
     const { data: version, error } = await db
       .from("offering_versions")
@@ -633,6 +754,53 @@ export const createOfferingVersion = createServerFn({ method: "POST" })
     return version;
   });
 
+export const updateDraftVersion = createServerFn({ method: "POST" })
+  .inputValidator((d: { versionId: string; manifestJson: string; releaseNotes?: string }) =>
+    z
+      .object({
+        versionId: z.string().uuid(),
+        manifestJson: z.string().max(60000),
+        releaseNotes: z.string().max(4000).optional(),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const parsed = blueprintSchema.safeParse(JSON.parse(data.manifestJson));
+    if (!parsed.success)
+      throw new Error(
+        `Blueprint failed schema validation: ${parsed.error.issues.map((i) => i.message).join("; ")}`,
+      );
+    const db = await admin();
+    const { data: current, error } = await db
+      .from("offering_versions")
+      .select("*")
+      .eq("id", data.versionId)
+      .single();
+    if (error) throw new Error(error.message);
+    if (current.status !== "draft")
+      throw new Error("Only draft versions can be edited. Published versions are immutable.");
+    const { data: updated, error: upError } = await db
+      .from("offering_versions")
+      .update({
+        manifest_json: { ...parsed.data, version: current.version } as never,
+        ...(data.releaseNotes !== undefined ? { release_notes: data.releaseNotes } : {}),
+      })
+      .eq("id", data.versionId)
+      .select("*")
+      .single();
+    if (upError) throw new Error(upError.message);
+    await audit(db, {
+      event_type: "offering_version.draft_updated",
+      resource_type: "offering_version",
+      resource_id: current.version,
+      previous_value: {
+        modules: ((current.manifest_json as { modules?: unknown[] })?.modules ?? []).length,
+      },
+      new_value: { modules: parsed.data.modules.length },
+    });
+    return updated;
+  });
+
 export const publishOfferingVersion = createServerFn({ method: "POST" })
   .inputValidator((d: { versionId: string }) => z.object({ versionId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
@@ -647,7 +815,9 @@ export const publishOfferingVersion = createServerFn({ method: "POST" })
       throw new Error("Published versions are immutable. Create a new version instead.");
 
     const check = blueprintSchema.safeParse(version.manifest_json);
-    const policyIssues = architecturePolicyCheck((version.manifest_json ?? {}) as Record<string, unknown>);
+    const policyIssues = architecturePolicyCheck(
+      (version.manifest_json ?? {}) as Record<string, unknown>,
+    );
     const blocking = policyIssues.filter((i) => i.level === "BLOCKING");
     if (!check.success || blocking.length) {
       throw new Error(
@@ -680,8 +850,15 @@ export const onboardCustomer = createServerFn({ method: "POST" })
     z
       .object({
         name: z.string().min(2).max(120),
-        customerCode: z.string().min(2).max(60).regex(/^[a-z0-9-]+$/, "Lowercase letters, numbers and hyphens only"),
-        tenantId: z.string().min(8).max(64),
+        customerCode: z
+          .string()
+          .min(2)
+          .max(60)
+          .regex(/^[a-z0-9-]+$/, "Lowercase letters, numbers and hyphens only"),
+        tenantId: z.string().max(64).optional(),
+        accessMethod: z.enum(["customer_link", "engineer"]).default("engineer"),
+        inputs: z.record(z.string(), z.union([z.string().max(400), z.boolean()])).default({}),
+        overrides: z.record(z.string(), z.string().max(200)).default({}),
         industry: z.string().max(80).optional(),
         azureModel: z.enum(["existing_enterprise_alz", "greenfield"]),
         connectionType: z.enum([
@@ -698,7 +875,9 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         offeringId: z.string().uuid(),
         region: z.string().min(3).max(40),
         secondaryRegion: z.string().max(40).optional(),
-        environments: z.array(z.enum(["development", "test", "qa", "staging", "production"])).min(1),
+        environments: z
+          .array(z.enum(["development", "test", "qa", "staging", "production"]))
+          .min(1),
         network: z.object({
           mode: z.enum(["existing-customer-hub", "dedicated-spoke"]),
           vnetId: z.string().max(300).optional(),
@@ -722,38 +901,51 @@ export const onboardCustomer = createServerFn({ method: "POST" })
       .single();
     if (offeringError) throw new Error(offeringError.message);
 
-    const published = (offering.offering_versions as { id: string; version: string; status: string }[])
+    const published = (
+      offering.offering_versions as { id: string; version: string; status: string }[]
+    )
       .filter((v) => v.status === "published")
       .sort((a, b) => b.version.localeCompare(a.version))[0];
     if (!published) throw new Error("This offering has no published version to deploy.");
 
+    const viaLink = data.accessMethod === "customer_link";
     const { data: customer, error } = await db
       .from("customers")
       .insert({
         organization_id: ORG_ID,
         name: data.name,
         customer_code: data.customerCode,
-        tenant_id: data.tenantId,
+        tenant_id: data.tenantId || null,
         industry: data.industry ?? null,
         azure_model: data.azureModel,
+        status: viaLink ? "onboarding" : "active",
       })
       .select("*")
       .single();
-    if (error) throw new Error(error.message.includes("duplicate") ? "That customer code is already in use." : error.message);
+    if (error)
+      throw new Error(
+        error.message.includes("duplicate")
+          ? "That customer code is already in use."
+          : error.message,
+      );
 
     const { data: connection } = await db
       .from("customer_connections")
       .insert({
         customer_id: customer.id,
         connection_type: data.connectionType,
-        tenant_id: data.tenantId,
-        subscription_id: data.subscriptionId ?? null,
+        tenant_id: data.tenantId || null,
+        subscription_id: data.subscriptionId || null,
         resource_group_id: data.resourceGroupId ?? null,
         management_group_id: data.managementGroupId ?? null,
         credential_reference: `kv://gridworks-platform-kv/secrets/oidc-${data.customerCode}`,
-        status: "validated",
-        last_validated_at: new Date().toISOString(),
-        metadata_json: { federatedIdentity: true, mode: "demo" } as never,
+        status: viaLink ? "awaiting_customer" : "validated",
+        last_validated_at: viaLink ? null : new Date().toISOString(),
+        metadata_json: {
+          federatedIdentity: true,
+          mode: "demo",
+          accessMethod: data.accessMethod,
+        } as never,
       })
       .select("*")
       .single();
@@ -775,7 +967,12 @@ export const onboardCustomer = createServerFn({ method: "POST" })
           status: "pending_deployment",
           compliance_score: 0,
           monthly_cost_estimate: type === "production" ? costPerEnv : Math.round(costPerEnv * 0.25),
-          configuration_json: { network: data.network, observability: data.observability } as never,
+          configuration_json: {
+            network: data.network,
+            observability: data.observability,
+            inputs: data.inputs,
+            overrides: data.overrides,
+          } as never,
         })),
       )
       .select("*");
@@ -790,6 +987,8 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         version: published.version,
         environments: data.environments,
         azureModel: data.azureModel,
+        accessMethod: data.accessMethod,
+        overrides: Object.keys(data.overrides),
       },
     });
 
@@ -801,10 +1000,94 @@ export const onboardCustomer = createServerFn({ method: "POST" })
     };
   });
 
+/**
+ * Called from the customer-facing install page once the customer's Azure admin has granted access.
+ * Records the connection as validated and merges discovered platform resources into every environment.
+ */
+export const completeCustomerLink = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        customerId: z.string().uuid(),
+        tenantId: z.string().min(8).max(64),
+        subscriptionId: z.string().min(8).max(80),
+        inputs: z.record(z.string(), z.union([z.string().max(400), z.boolean()])).default({}),
+        grantedBy: z.string().max(120).default("Customer administrator"),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const { data: customer, error } = await db
+      .from("customers")
+      .select("*")
+      .eq("id", data.customerId)
+      .single();
+    if (error) throw new Error(error.message);
+
+    await db
+      .from("customers")
+      .update({ tenant_id: data.tenantId, status: "active" })
+      .eq("id", customer.id);
+    await db
+      .from("customer_connections")
+      .update({
+        tenant_id: data.tenantId,
+        subscription_id: data.subscriptionId,
+        status: "validated",
+        last_validated_at: new Date().toISOString(),
+      })
+      .eq("customer_id", customer.id);
+
+    const { data: envs } = await db
+      .from("environments")
+      .select("id, configuration_json")
+      .eq("customer_id", customer.id);
+    for (const env of envs ?? []) {
+      const cfg = (env.configuration_json ?? {}) as Record<string, Record<string, unknown>>;
+      const inputs = {
+        ...(cfg["inputs"] ?? {}),
+        ...data.inputs,
+        subscriptionId: data.subscriptionId,
+      };
+      await db
+        .from("environments")
+        .update({
+          configuration_json: {
+            ...cfg,
+            inputs,
+            network: {
+              ...(cfg["network"] ?? {}),
+              vnetId: data.inputs["vnetId"] ?? cfg["network"]?.["vnetId"],
+            },
+            observability: {
+              ...(cfg["observability"] ?? {}),
+              logAnalyticsWorkspaceId:
+                data.inputs["logAnalyticsWorkspaceId"] ??
+                cfg["observability"]?.["logAnalyticsWorkspaceId"],
+            },
+          } as never,
+        })
+        .eq("id", env.id);
+    }
+
+    await audit(db, {
+      event_type: "customer.access_granted",
+      actor_name: data.grantedBy,
+      customer_id: customer.id,
+      resource_type: "customer_connection",
+      resource_id: data.subscriptionId,
+      new_value: { status: "validated", discovered: Object.keys(data.inputs), mode: "demo" },
+    });
+    return { customerId: customer.id, status: "validated" as const };
+  });
+
 /* ----------------------------------------------------------------- upgrades */
 
 export const planUpgrades = createServerFn({ method: "POST" })
-  .inputValidator((d: { offeringVersionId: string }) => z.object({ offeringVersionId: z.string().uuid() }).parse(d))
+  .inputValidator((d: { offeringVersionId: string }) =>
+    z.object({ offeringVersionId: z.string().uuid() }).parse(d),
+  )
   .handler(async ({ data }) => {
     const db = await admin();
     const { data: target, error } = await db
@@ -816,7 +1099,9 @@ export const planUpgrades = createServerFn({ method: "POST" })
 
     const { data: environments } = await db
       .from("environments")
-      .select("id, name, environment_type, compliance_score, customers(name), actual:actual_offering_version_id(version)")
+      .select(
+        "id, name, environment_type, compliance_score, customers(name), actual:actual_offering_version_id(version)",
+      )
       .eq("offering_id", (target.offerings as { id: string }).id);
 
     const current: string[] = [];
@@ -826,11 +1111,18 @@ export const planUpgrades = createServerFn({ method: "POST" })
     for (const env of environments ?? []) {
       const actual = (env.actual as { version?: string } | null)?.version ?? null;
       if (actual === target.version) current.push(env.id);
-      else if (!actual) manualReview.push({ id: env.id, reason: "Environment has never been deployed." });
+      else if (!actual)
+        manualReview.push({ id: env.id, reason: "Environment has never been deployed." });
       else if (Number(actual.split(".")[0]) < Number(target.version.split(".")[0]))
-        manualReview.push({ id: env.id, reason: `Major version gap (${actual} → ${target.version}) requires review.` });
+        manualReview.push({
+          id: env.id,
+          reason: `Major version gap (${actual} → ${target.version}) requires review.`,
+        });
       else if (Number(env.compliance_score) < 95)
-        manualReview.push({ id: env.id, reason: `Compliance at ${env.compliance_score}% — remediate before upgrading.` });
+        manualReview.push({
+          id: env.id,
+          reason: `Compliance at ${env.compliance_score}% — remediate before upgrading.`,
+        });
       else compatible.push(env.id);
     }
 
@@ -845,15 +1137,21 @@ export const planUpgrades = createServerFn({ method: "POST" })
   });
 
 export const createRollout = createServerFn({ method: "POST" })
-  .inputValidator((d: { offeringVersionId: string; waves: { name: string; environmentIds: string[] }[] }) =>
-    z
-      .object({
-        offeringVersionId: z.string().uuid(),
-        waves: z
-          .array(z.object({ name: z.string().min(1).max(80), environmentIds: z.array(z.string().uuid()).min(1) }))
-          .min(1),
-      })
-      .parse(d),
+  .inputValidator(
+    (d: { offeringVersionId: string; waves: { name: string; environmentIds: string[] }[] }) =>
+      z
+        .object({
+          offeringVersionId: z.string().uuid(),
+          waves: z
+            .array(
+              z.object({
+                name: z.string().min(1).max(80),
+                environmentIds: z.array(z.string().uuid()).min(1),
+              }),
+            )
+            .min(1),
+        })
+        .parse(d),
   )
   .handler(async ({ data }) => {
     const db = await admin();
@@ -876,7 +1174,9 @@ export const createRollout = createServerFn({ method: "POST" })
       event_type: "upgrade_rollout.created",
       resource_type: "upgrade_wave",
       resource_id: data.offeringVersionId,
-      new_value: { waves: data.waves.map((w) => ({ name: w.name, count: w.environmentIds.length })) },
+      new_value: {
+        waves: data.waves.map((w) => ({ name: w.name, count: w.environmentIds.length })),
+      },
     });
     return waves;
   });
@@ -885,25 +1185,59 @@ export const startWave = createServerFn({ method: "POST" })
   .inputValidator((d: { waveId: string }) => z.object({ waveId: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => {
     const db = await admin();
-    const { data: wave, error } = await db.from("upgrade_waves").select("*").eq("id", data.waveId).single();
+    const { data: wave, error } = await db
+      .from("upgrade_waves")
+      .select("*")
+      .eq("id", data.waveId)
+      .single();
     if (error) throw new Error(error.message);
     if (wave.status !== "planned") throw new Error("This wave has already been started.");
 
     let created = 0;
     for (const environmentId of wave.environment_ids) {
-      const { environment, ctx } = await loadContext(db, environmentId, "upgrade");
+      // The wave's release becomes the install's desired state before it is planned.
+      await db
+        .from("environments")
+        .update({ desired_offering_version_id: wave.offering_version_id })
+        .eq("id", environmentId);
+      const { environment, ctx, version } = await loadContext(db, environmentId, "upgrade");
+      const { data: actualVersion } = await db
+        .from("offering_versions")
+        .select("version")
+        .eq("id", environment.actual_offering_version_id ?? "")
+        .maybeSingle();
       const preflight = await demoProvider.validate(ctx);
       const plan = preflight.deployable ? await demoProvider.plan(ctx) : null;
-      await db.from("deployments").insert({
-        environment_id: environmentId,
-        deployment_type: "upgrade",
-        status: preflight.deployable ? "AWAITING_APPROVAL" : "VALIDATION_FAILED",
-        mode: "demo",
-        requested_by: "Rollout automation",
-        plan_json: (plan ?? {}) as never,
-        preflight_json: preflight as never,
-        correlation_id: plan?.correlationId ?? crypto.randomUUID(),
-      });
+      const { data: deployment } = await db
+        .from("deployments")
+        .insert({
+          environment_id: environmentId,
+          deployment_type: "upgrade",
+          desired_version: version?.version ?? null,
+          previous_version: actualVersion?.version ?? null,
+          status: preflight.deployable ? "AWAITING_APPROVAL" : "VALIDATION_FAILED",
+          mode: "demo",
+          requested_by: "Rollout automation",
+          plan_json: (plan ?? {}) as never,
+          preflight_json: preflight as never,
+          correlation_id: plan?.correlationId ?? crypto.randomUUID(),
+        })
+        .select("id")
+        .single();
+      if (deployment && preflight.deployable) {
+        await db.from("approvals").insert({
+          deployment_id: deployment.id,
+          approval_type:
+            environment.environment_type === "production"
+              ? "production_deployment"
+              : "plan_approval",
+          requested_from:
+            environment.environment_type === "production"
+              ? "Security Approver"
+              : "Platform Engineer",
+          status: "pending",
+        });
+      }
       created += 1;
       await audit(db, {
         event_type: "upgrade_wave.deployment_queued",

@@ -19,6 +19,7 @@ import { Route as OnboardRouteImport } from './routes/onboard'
 import { Route as ProductsRouteImport } from './routes/products'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as UpgradesRouteImport } from './routes/upgrades'
+import { Route as ConnectCustomerIdRouteImport } from './routes/connect.$customerId'
 import { Route as CustomersIndexRouteImport } from './routes/customers.index'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
@@ -74,6 +75,11 @@ const UpgradesRoute = UpgradesRouteImport.update({
   path: '/upgrades',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConnectCustomerIdRoute = ConnectCustomerIdRouteImport.update({
+  id: '/connect/$customerId',
+  path: '/connect/$customerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CustomersIndexRoute = CustomersIndexRouteImport.update({
   id: '/customers/',
   path: '/customers/',
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
+  '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/customers/': typeof CustomersIndexRoute
@@ -122,6 +129,7 @@ export interface FileRoutesByTo {
   '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
+  '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/customers': typeof CustomersIndexRoute
@@ -139,6 +147,7 @@ export interface FileRoutesById {
   '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
+  '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/customers/': typeof CustomersIndexRoute
@@ -157,6 +166,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/settings'
     | '/upgrades'
+    | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
     | '/customers/'
@@ -173,6 +183,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/settings'
     | '/upgrades'
+    | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
     | '/customers'
@@ -189,6 +200,7 @@ export interface FileRouteTypes {
     | '/products'
     | '/settings'
     | '/upgrades'
+    | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
     | '/customers/'
@@ -206,6 +218,7 @@ export interface RootRouteChildren {
   ProductsRoute: typeof ProductsRoute
   SettingsRoute: typeof SettingsRoute
   UpgradesRoute: typeof UpgradesRoute
+  ConnectCustomerIdRoute: typeof ConnectCustomerIdRoute
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   DeploymentsDeploymentIdRoute: typeof DeploymentsDeploymentIdRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
@@ -284,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UpgradesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/connect/$customerId': {
+      id: '/connect/$customerId'
+      path: '/connect/$customerId'
+      fullPath: '/connect/$customerId'
+      preLoaderRoute: typeof ConnectCustomerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/customers/': {
       id: '/customers/'
       path: '/customers'
@@ -326,6 +346,7 @@ const rootRouteChildren: RootRouteChildren = {
   ProductsRoute: ProductsRoute,
   SettingsRoute: SettingsRoute,
   UpgradesRoute: UpgradesRoute,
+  ConnectCustomerIdRoute: ConnectCustomerIdRoute,
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   DeploymentsDeploymentIdRoute: DeploymentsDeploymentIdRoute,
   CustomersIndexRoute: CustomersIndexRoute,

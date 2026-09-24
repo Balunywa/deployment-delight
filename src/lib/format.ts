@@ -27,7 +27,11 @@ export const dateTime = (value: string | null | undefined) =>
 
 export const shortDate = (value: string | null | undefined) =>
   value
-    ? new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    ? new Date(value).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      })
     : "—";
 
 export const relative = (value: string | null | undefined) => {
@@ -45,3 +49,13 @@ export const relative = (value: string | null | undefined) => {
 
 export const titleize = (value: string | null | undefined) =>
   (value ?? "").replace(/[_-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** Human-readable rendering of JSON evidence/values (key: value pairs) instead of raw JSON. */
+export const describe = (v: unknown): string => {
+  if (v === null || v === undefined) return "—";
+  if (typeof v !== "object") return String(v);
+  if (Array.isArray(v)) return v.length ? v.map(describe).join(", ") : "none";
+  return Object.entries(v as Record<string, unknown>)
+    .map(([k, x]) => `${k.replace(/([A-Z])/g, " $1").toLowerCase()}: ${describe(x)}`)
+    .join(" · ");
+};
