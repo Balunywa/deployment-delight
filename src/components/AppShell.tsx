@@ -61,22 +61,29 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="mt-0.5 text-[11px] text-nav-muted">Cloud Deployment Portal</p>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
-          {nav.map((item) => {
-            const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "mb-0.5 flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-[13px] text-nav-muted transition-colors hover:bg-nav-active hover:text-nav-foreground",
-                  active && "bg-nav-active font-medium text-nav-foreground",
-                )}
-              >
-                <item.icon className="size-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+          {nav.map((group) => (
+            <div key={group.label} className="mb-4">
+              <p className="mb-1 px-2.5 text-[10px] font-bold tracking-wider text-nav-muted uppercase">
+                {group.label}
+              </p>
+              {group.items.map((item) => {
+                const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={cn(
+                      "mb-0.5 flex items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-[13px] text-nav-muted transition-colors hover:bg-nav-active hover:text-nav-foreground",
+                      active && "bg-nav-active font-medium text-nav-foreground",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="border-t border-nav-active p-3">
           <Link
@@ -106,7 +113,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card px-2 py-1.5 lg:hidden">
-          {nav.map((item) => (
+          {nav.flatMap((g) => g.items).map((item) => (
             <Link
               key={item.to}
               to={item.to}
