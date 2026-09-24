@@ -9,7 +9,7 @@ import { type JobStatus, PipelineGraph } from "@/components/architecture/Pipelin
 import { EmptyState, Pill, ResultPill, deploymentTone, statusLabel } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { fromManifest } from "@/lib/architecture";
-import type { DeploymentPlan, PreflightResult } from "@/lib/engine/types";
+import type { DeploymentPlan, PlanResource, PreflightResult } from "@/lib/engine/types";
 import { decideApproval, executeDeployment } from "@/lib/factory.functions";
 import { currency, dateTime, relative } from "@/lib/format";
 import { type Job, pipelineFor } from "@/lib/pipeline";
@@ -148,8 +148,8 @@ function DeploymentRun() {
   if (deployment.isLoading) return <EmptyState title="Loading run…" />;
   if (!d || !env || !arch) return <EmptyState title="Run not found." />;
 
-  const preflight = (d.preflight_json ?? null) as PreflightResult | null;
-  const plan = (d.plan_json ?? null) as DeploymentPlan | null;
+  const preflight = asPreflight(d.preflight_json);
+  const plan = asPlan(d.plan_json);
   const approvals = (d.approvals ?? []) as unknown as Approval[];
   const pending = approvals.find((a) => a.status === "pending");
   const stages = pipelineFor(arch.selected, arch.topology);
@@ -433,6 +433,57 @@ function DeploymentRun() {
   );
 }
 
+const num = (v: unknown) => (typeof v === "number" ? v : 0);
+const strs = (v: unknown) =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+
+// Runs written before the engine stored full results (and seeded runs) carry summary-only or empty JSON.
+function asPreflight(raw: unknown): PreflightResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  const checks = Array.isArray(p["checks"]) ? (p["checks"] as PreflightResult["checks"]) : [];
+  if (!checks.length && !("pass" in p) && !("blocking" in p)) return null;
+  const blocking = num(p["blocking"]);
+  return {
+    checks,
+    pass: num(p["pass"]),
+    warning: num(p["warning"]),
+    blocking,
+    deployable: typeof p["deployable"] === "boolean" ? p["deployable"] : blocking === 0,
+  };
+}
+
+type RunPlan = Omit<DeploymentPlan, "estimatedMonthlyCost"> & {
+  estimatedMonthlyCost: DeploymentPlan["estimatedMonthlyCost"] | null;
+};
+
+function asPlan(raw: unknown): RunPlan | null {
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  const resources: PlanResource[] = Array.isArray(p["resources"])
+    ? (p["resources"] as PlanResource[])
+    : [
+        ...strs(p["create"]).map((name) => ({ action: "create" as const, type: name, name })),
+        ...strs(p["useExisting"]).map((name) => ({
+          action: "use_existing" as const,
+          type: name,
+          name,
+        })),
+      ];
+  const cost = p["estimatedMonthlyCost"] as DeploymentPlan["estimatedMonthlyCost"] | undefined;
+  return {
+    correlationId: typeof p["correlationId"] === "string" ? p["correlationId"] : "",
+    resources,
+    policyAssignments: num(p["policyAssignments"]),
+    roleAssignments: num(p["roleAssignments"]),
+    estimatedMonthlyCost:
+      cost && typeof cost.low === "number" && typeof cost.high === "number" ? cost : null,
+    warnings: strs(p["warnings"]),
+    blockers: strs(p["blockers"]),
+    modules: Array.isArray(p["modules"]) ? (p["modules"] as DeploymentPlan["modules"]) : [],
+  };
+}
+
 function JobDetail({
   stageId,
   job,
@@ -444,7 +495,7 @@ function JobDetail({
   stageId: string;
   job: Job | undefined;
   preflight: PreflightResult | null;
-  plan: DeploymentPlan | null;
+  plan: RunPlan | null;
   approvals: Approval[];
   steps: Step[];
 }) {
