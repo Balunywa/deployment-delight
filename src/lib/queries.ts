@@ -7,6 +7,8 @@ import {
   listAudit,
   listCompliance,
   listCustomers,
+  listFoundations,
+  getFoundation,
   listDeployments,
   listDrift,
   listEstate,
@@ -60,3 +62,12 @@ export const complianceQuery = queryOptions({
 export const driftQuery = queryOptions({ queryKey: ["drift"], queryFn: () => listDrift() });
 export const auditQuery = queryOptions({ queryKey: ["audit"], queryFn: () => listAudit() });
 export const wavesQuery = queryOptions({ queryKey: ["waves"], queryFn: () => listWaves() });
+export const foundationsQuery = queryOptions({
+  queryKey: ["foundations"],
+  queryFn: () => listFoundations(),
+});
+export const foundationQuery = (foundationId: string) =>
+  queryOptions({
+    queryKey: ["foundation", foundationId],
+    queryFn: () => getFoundation({ data: { foundationId } }),
+  });

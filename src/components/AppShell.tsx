@@ -7,6 +7,7 @@ import {
   Cog,
   DollarSign,
   GitBranch,
+  Landmark,
   LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
@@ -38,6 +39,7 @@ type Path =
   | "/products"
   | "/offerings"
   | "/upgrades"
+  | "/foundations"
   | "/onboard"
   | "/customers"
   | "/estate"
@@ -62,6 +64,10 @@ const nav: { label: string; items: NavItem[] }[] = [
       { to: "/offerings", label: "Offerings", icon: Layers },
       { to: "/upgrades", label: "Releases", icon: GitBranch },
     ],
+  },
+  {
+    label: "Platform",
+    items: [{ to: "/foundations", label: "Landing zones", icon: Landmark }],
   },
   {
     label: "Customers",
@@ -109,7 +115,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const isActive = (to: Path) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
   // Canvas-heavy screens default to an icon rail so the workspace gets the full width.
   const rail =
-    railOverride ?? (pathname.startsWith("/offerings") || pathname.startsWith("/deployments/"));
+    railOverride ??
+    (pathname.startsWith("/offerings") ||
+      pathname.startsWith("/deployments/") ||
+      pathname.startsWith("/foundations/"));
 
   return (
     <div className="flex min-h-screen bg-background">

@@ -24,6 +24,8 @@ import { Route as CustomersIndexRouteImport } from './routes/customers.index'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
 import { Route as DeploymentsDeploymentIdRouteImport } from './routes/deployments.$deploymentId'
+import { Route as FoundationsIndexRouteImport } from './routes/foundations.index'
+import { Route as FoundationsFoundationIdRouteImport } from './routes/foundations.$foundationId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -100,6 +102,16 @@ const DeploymentsDeploymentIdRoute = DeploymentsDeploymentIdRouteImport.update({
   path: '/deployments/$deploymentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FoundationsIndexRoute = FoundationsIndexRouteImport.update({
+  id: '/foundations/',
+  path: '/foundations/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FoundationsFoundationIdRoute = FoundationsFoundationIdRouteImport.update({
+  id: '/foundations/$foundationId',
+  path: '/foundations/$foundationId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -115,8 +127,10 @@ export interface FileRoutesByFullPath {
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
+  '/foundations/': typeof FoundationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -132,8 +146,10 @@ export interface FileRoutesByTo {
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/customers': typeof CustomersIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
+  '/foundations': typeof FoundationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -150,8 +166,10 @@ export interface FileRoutesById {
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
+  '/foundations/': typeof FoundationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -169,8 +187,10 @@ export interface FileRouteTypes {
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
+    | '/foundations/$foundationId'
     | '/customers/'
     | '/deployments/'
+    | '/foundations/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -186,8 +206,10 @@ export interface FileRouteTypes {
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
+    | '/foundations/$foundationId'
     | '/customers'
     | '/deployments'
+    | '/foundations'
   id:
     | '__root__'
     | '/'
@@ -203,8 +225,10 @@ export interface FileRouteTypes {
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
+    | '/foundations/$foundationId'
     | '/customers/'
     | '/deployments/'
+    | '/foundations/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -221,8 +245,10 @@ export interface RootRouteChildren {
   ConnectCustomerIdRoute: typeof ConnectCustomerIdRoute
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   DeploymentsDeploymentIdRoute: typeof DeploymentsDeploymentIdRoute
+  FoundationsFoundationIdRoute: typeof FoundationsFoundationIdRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
+  FoundationsIndexRoute: typeof FoundationsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -332,6 +358,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeploymentsDeploymentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/foundations/': {
+      id: '/foundations/'
+      path: '/foundations'
+      fullPath: '/foundations/'
+      preLoaderRoute: typeof FoundationsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/foundations/$foundationId': {
+      id: '/foundations/$foundationId'
+      path: '/foundations/$foundationId'
+      fullPath: '/foundations/$foundationId'
+      preLoaderRoute: typeof FoundationsFoundationIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -349,8 +389,10 @@ const rootRouteChildren: RootRouteChildren = {
   ConnectCustomerIdRoute: ConnectCustomerIdRoute,
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   DeploymentsDeploymentIdRoute: DeploymentsDeploymentIdRoute,
+  FoundationsFoundationIdRoute: FoundationsFoundationIdRoute,
   CustomersIndexRoute: CustomersIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
+  FoundationsIndexRoute: FoundationsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

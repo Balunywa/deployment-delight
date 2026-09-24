@@ -299,3 +299,26 @@ export const listWaves = createServerFn({ method: "GET" }).handler(async () =>
      from public.upgrade_waves w order by w.created_at desc`,
   ),
 );
+
+export type FoundationRow = Row<"foundations"> & {
+  customers: { id: string; name: string; customer_code: string; azure_model: string } | null;
+};
+
+const foundationSelect = `select to_jsonb(f) || jsonb_build_object(
+    'customers', (select jsonb_build_object('id', c.id, 'name', c.name, 'customer_code', c.customer_code, 'azure_model', c.azure_model)
+                  from public.customers c where c.id = f.customer_id)) as r
+  from public.foundations f`;
+
+export const listFoundations = createServerFn({ method: "GET" }).handler(async () =>
+  rows<FoundationRow>(
+    `${foundationSelect} order by f.customer_id is not null, f.mode desc, f.name`,
+  ),
+);
+
+export const getFoundation = createServerFn({ method: "GET" })
+  .inputValidator((d: { foundationId: string }) =>
+    z.object({ foundationId: z.string().uuid() }).parse(d),
+  )
+  .handler(async ({ data }) =>
+    single<FoundationRow>(`${foundationSelect} where f.id = $1`, [data.foundationId]),
+  );

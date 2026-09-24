@@ -45,20 +45,37 @@ export async function migrate(pool: pg.Pool) {
     }
 
     if (/^true$/i.test(process.env["SEED_DEMO_DATA"] ?? "")) {
-      const { rows } = await client.query<{ n: number }>(
-        "select count(*)::int as n from public.organizations",
+      // Each seed runs once, tracked as "seed/<file>". A database seeded before tracking existed already
+      // has the base data, so the first seed is recorded rather than re-run.
+      const seeded = new Set(
+        (
+          await client.query<{ name: string }>(
+            "select name from public.schema_migrations where name like 'seed/%'",
+          )
+        ).rows.map((r) => r.name),
       );
-      if (rows[0]?.n === 0) {
-        for (const file of await sqlFiles(path.join(root, "seed"))) {
-          await client.query("begin");
-          try {
-            await client.query(await readFile(path.join(root, "seed", file), "utf8"));
-            await client.query("commit");
-            console.log(`[db] seeded ${file}`);
-          } catch (err) {
-            await client.query("rollback");
-            throw err;
+      const files = await sqlFiles(path.join(root, "seed"));
+      for (const [i, file] of files.entries()) {
+        const key = `seed/${file}`;
+        if (seeded.has(key)) continue;
+        if (i === 0) {
+          const { rows } = await client.query<{ n: number }>(
+            "select count(*)::int as n from public.organizations",
+          );
+          if ((rows[0]?.n ?? 0) > 0) {
+            await client.query("insert into public.schema_migrations (name) values ($1)", [key]);
+            continue;
           }
+        }
+        await client.query("begin");
+        try {
+          await client.query(await readFile(path.join(root, "seed", file), "utf8"));
+          await client.query("insert into public.schema_migrations (name) values ($1)", [key]);
+          await client.query("commit");
+          console.log(`[db] seeded ${file}`);
+        } catch (err) {
+          await client.query("rollback");
+          throw err;
         }
       }
     }

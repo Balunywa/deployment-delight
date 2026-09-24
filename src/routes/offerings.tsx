@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Check, GitBranch, Lock, Plus, Search, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
 import { PipelineGraph } from "@/components/architecture/PipelineGraph";
+import { CodeBlock } from "@/components/CodeBlock";
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ import {
   slugOf,
   toManifest,
 } from "@/lib/architecture";
+import { LANDING_ZONE_LABEL } from "@/lib/alz/engine";
 import {
   CATEGORIES,
   CUSTOMER_PLATFORM,
@@ -708,6 +710,35 @@ function Inspector({
         </p>
       </div>
 
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-muted-foreground">Landing zone</p>
+        <div className="grid grid-cols-2 gap-1">
+          {(["corp", "online", "local", "sandbox"] as const).map((lz) => (
+            <button
+              key={lz}
+              onClick={() => onChange({ topology: { ...topology, landingZone: lz } })}
+              title={LANDING_ZONE_LABEL[lz]?.body}
+              className={cn(
+                "rounded-sm border px-2 py-1 text-left text-[12px] transition-colors",
+                topology.landingZone === lz
+                  ? "border-primary bg-primary/5 font-medium"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {LANDING_ZONE_LABEL[lz]?.title}
+            </button>
+          ))}
+        </div>
+        <p className="mt-1 text-[11px] text-muted-foreground">
+          {LANDING_ZONE_LABEL[topology.landingZone]?.body} Installs are placed under this management
+          group of the{" "}
+          <Link to="/foundations" className="text-primary hover:underline">
+            platform landing zone
+          </Link>
+          .
+        </p>
+      </div>
+
       <ChipGroup
         label="Supported regions"
         values={REGIONS}
@@ -808,45 +839,6 @@ function KV({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
       <span className={cn("truncate text-right", mono && "font-mono text-[11px]")} title={v}>
         {v}
       </span>
-    </div>
-  );
-}
-
-function CodeBlock({ title, code }: { title: string; code: string }) {
-  const lines = code.split("\n");
-  return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border bg-muted/60 px-3 py-1.5">
-        <span className="font-mono text-[11px] text-muted-foreground">{title}</span>
-        <button
-          onClick={() => {
-            void navigator.clipboard.writeText(code);
-            toast.success("Copied to clipboard");
-          }}
-          className="text-[11px] font-medium text-primary hover:underline"
-        >
-          Copy
-        </button>
-      </div>
-      <pre className="max-h-[60vh] overflow-auto py-2 font-mono text-[11.5px] leading-[1.55]">
-        {lines.map((l, i) => (
-          <div key={i} className="flex">
-            <span className="w-10 shrink-0 pr-3 text-right text-muted-foreground/50 select-none">
-              {i + 1}
-            </span>
-            <span
-              className={cn(
-                "whitespace-pre",
-                l.trimStart().startsWith("//") || l.trimStart().startsWith("#")
-                  ? "text-muted-foreground"
-                  : "",
-              )}
-            >
-              {l}
-            </span>
-          </div>
-        ))}
-      </pre>
     </div>
   );
 }

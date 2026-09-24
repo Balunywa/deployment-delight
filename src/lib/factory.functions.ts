@@ -557,6 +557,7 @@ const blueprintSchema = z.object({
     )
     .optional(),
   overridable: z.array(z.string()).optional(),
+  landingZone: z.object({ archetype: z.enum(["corp", "online", "local", "sandbox"]) }).optional(),
   source: z
     .object({
       repository: z.string().min(3),
@@ -1283,4 +1284,116 @@ export const updateBranding = createServerFn({ method: "POST" })
       new_value: { name: updated.name, portal_title: updated.portal_title },
     });
     return updated;
+  });
+
+/* -------------------------------------------------------------- foundations */
+
+const answersSchema = z.object({
+  intermediateRootId: z
+    .string()
+    .regex(/^[a-z][a-z0-9-]{1,30}$/, "Lowercase letters, numbers and hyphens"),
+  intermediateRootName: z.string().min(2).max(80),
+  primaryRegion: z.string().min(3).max(40),
+  connectivity: z.enum(["hub_and_spoke", "virtual_wan", "none"]),
+  ddosPlan: z.enum(["yes", "no"]),
+  privateDns: z.enum(["platform", "none"]),
+  monitoring: z.enum(["azure_monitor", "third_party"]),
+  siem: z.enum(["sentinel", "other"]),
+  securityContactEmail: z.string().email().or(z.literal("")),
+});
+
+async function managedFoundation(db: Db, id: string) {
+  const f = await db.one<Tables<"foundations">>("select * from public.foundations where id = $1", [
+    id,
+  ]);
+  if (f.mode !== "managed")
+    throw new Error("This landing zone belongs to the customer's platform team and is read-only.");
+  return f;
+}
+
+export const saveFoundationAnswers = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ foundationId: z.string().uuid(), answers: answersSchema }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const f = await managedFoundation(db, data.foundationId);
+    await db.update(
+      "foundations",
+      {
+        answers: data.answers,
+        status: f.status === "deployed" ? "changes_pending" : f.status,
+        updated_at: new Date().toISOString(),
+      },
+      { id: f.id },
+    );
+    await audit(db, {
+      event_type: "foundation.answers_updated",
+      customer_id: f.customer_id,
+      resource_type: "foundation",
+      resource_id: f.name,
+      previous_value: f.answers,
+      new_value: data.answers,
+    });
+    return { ok: true };
+  });
+
+export const pinFoundationLibrary = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        foundationId: z.string().uuid(),
+        libraryRef: z.string().regex(/^platform\/alz\/\d{4}\.\d{2}\.\d+$/),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const f = await managedFoundation(db, data.foundationId);
+    await db.update(
+      "foundations",
+      {
+        library_ref: data.libraryRef,
+        status: f.deployed_ref && f.deployed_ref !== data.libraryRef ? "changes_pending" : f.status,
+        updated_at: new Date().toISOString(),
+      },
+      { id: f.id },
+    );
+    await audit(db, {
+      event_type: "foundation.library_pinned",
+      customer_id: f.customer_id,
+      resource_type: "foundation",
+      resource_id: f.name,
+      previous_value: { libraryRef: f.library_ref },
+      new_value: { libraryRef: data.libraryRef },
+    });
+    return { ok: true };
+  });
+
+/** Demo engine: records a platform landing zone deployment. Real mode runs the generated Terraform. */
+export const deployFoundation = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({ foundationId: z.string().uuid(), approvedBy: z.string().default("Sarah Chen") })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const f = await managedFoundation(db, data.foundationId);
+    const now = new Date().toISOString();
+    await db.update(
+      "foundations",
+      { deployed_ref: f.library_ref, status: "deployed", last_deployed_at: now, updated_at: now },
+      { id: f.id },
+    );
+    await audit(db, {
+      event_type: "foundation.deployed",
+      actor_name: data.approvedBy,
+      customer_id: f.customer_id,
+      resource_type: "foundation",
+      resource_id: f.name,
+      previous_value: { deployedRef: f.deployed_ref },
+      new_value: { deployedRef: f.library_ref, mode: "demo" },
+    });
+    return { deployedRef: f.library_ref };
   });

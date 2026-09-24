@@ -33,6 +33,26 @@ Either way, it's the same product setup, the same deployment process and the sam
 4. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
    versions in stages instead of all at once.
 
+## Platform landing zones
+
+Every customer install lands in a platform landing zone — one per Microsoft Entra tenant: your own hosting tenant,
+customer tenants you build, and customer landing zones you plug into. The **Landing zones** area is built on
+Microsoft's [Azure Landing Zones Library](https://github.com/Azure/Azure-Landing-Zones-Library) (snapshots of pinned
+releases in `src/lib/alz/`):
+
+- The real management group hierarchy (Platform, Management, Connectivity, Identity, Security, Landing zones, Corp,
+  Online, Local, Sandbox, Decommissioned) with the archetype and policy assignments of each group.
+- A few plain questions (connectivity, DDoS plan, private DNS, monitoring, SIEM) instead of "choose your policies".
+  Answers become the customizations Microsoft documents: archetype overrides in a custom library and policy default values.
+- Pinned ALZ Library version per tenant, with a real diff to the next release.
+- Generated Terraform for the official Azure Verified Modules (`Azure/avm-ptn-alz` + `Azure/alz` provider, management,
+  connectivity and subscription vending modules).
+- Each offering declares its landing zone (Corp / Online / Local / Sandbox), so every customer subscription is placed
+  under the right management group.
+
+`.github/workflows/validate-alz.yml` runs `terraform validate` on the generated configuration and composes it with
+Microsoft's `alzlibtool`; the per-management-group assignment counts must match what the app shows.
+
 ## What's in this repo
 
 | Folder                   | What it is                                                                   |

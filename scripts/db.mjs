@@ -80,15 +80,28 @@ async function migrate(client) {
 }
 
 async function seed(client) {
-  const { rows } = await client.query("select count(*)::int as n from public.organizations");
-  if (rows[0].n > 0) {
-    console.log("database already has data — seed skipped");
-    return;
-  }
-  for (const file of await files("db/seed")) {
+  // Each seed runs once, tracked as "seed/<file>"; a database seeded before tracking keeps its base data.
+  const seeded = new Set(
+    (
+      await client.query("select name from public.schema_migrations where name like 'seed/%'")
+    ).rows.map((r) => r.name),
+  );
+  const list = await files("db/seed");
+  for (const [i, file] of list.entries()) {
+    const key = `seed/${file}`;
+    if (seeded.has(key)) continue;
+    if (i === 0) {
+      const { rows } = await client.query("select count(*)::int as n from public.organizations");
+      if (rows[0].n > 0) {
+        await client.query("insert into public.schema_migrations (name) values ($1)", [key]);
+        console.log(`${file}: database already has data — recorded`);
+        continue;
+      }
+    }
     await client.query("begin");
     try {
       await client.query(await readFile(path.join(root, "db/seed", file), "utf8"));
+      await client.query("insert into public.schema_migrations (name) values ($1)", [key]);
       await client.query("commit");
       console.log(`seeded ${file}`);
     } catch (err) {

@@ -3,9 +3,11 @@
  * working model: which services are selected with which settings, and the landing topology.
  */
 import {
+  type LandingZone,
   type Selected,
   type Topology,
   SERVICE_BY_ID,
+  defaultLandingZone,
   inputsFor,
   normalise,
   withDefaults,
@@ -41,8 +43,13 @@ export function fromManifest(offering: OfferingLike, manifestInput: unknown): Ar
     "isv-hosted": "isv-hosted",
   };
   const knownMode = modes.map((x) => alias[x]).find(Boolean);
+  const landing = knownMode ?? landingOf(offering.network_profile);
+  const lz = rec(m["landingZone"])["archetype"];
   const topology: Topology = {
-    landing: knownMode ?? landingOf(offering.network_profile),
+    landing,
+    landingZone: ["corp", "online", "local", "sandbox"].includes(String(lz))
+      ? (lz as LandingZone)
+      : defaultLandingZone(landing),
     publicAccess: network["publicAccess"] === true,
     privateEndpoints: network["privateEndpoints"] !== false,
     regions: (Array.isArray(m["regions"])
@@ -89,6 +96,7 @@ export function toManifest(
       version: SERVICE_BY_ID.get(s.id)?.version ?? "0.0.0",
       settings: s.settings,
     })),
+    landingZone: { archetype: topology.landingZone },
     deploymentOptions: {
       azureModels:
         topology.landing === "existing-customer-hub"

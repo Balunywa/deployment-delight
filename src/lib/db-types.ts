@@ -431,6 +431,47 @@ export type Database = {
           },
         ];
       };
+      foundations: {
+        Row: {
+          answers: Json;
+          created_at: string;
+          customer_id: string | null;
+          deployed_ref: string | null;
+          discovered: Json;
+          id: string;
+          last_deployed_at: string | null;
+          library_ref: string;
+          mode: string;
+          name: string;
+          organization_id: string;
+          status: string;
+          tenant_id: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          answers?: Json;
+          customer_id?: string | null;
+          deployed_ref?: string | null;
+          discovered?: Json;
+          id?: string;
+          last_deployed_at?: string | null;
+          library_ref: string;
+          mode?: string;
+          name: string;
+          organization_id: string;
+          status?: string;
+          tenant_id?: string | null;
+        };
+        Update: {
+          answers?: Json;
+          deployed_ref?: string | null;
+          library_ref?: string;
+          status?: string;
+          last_deployed_at?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       environments: {
         Row: {
           actual_offering_version_id: string | null;

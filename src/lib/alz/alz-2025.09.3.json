@@ -1,0 +1,1467 @@
+{
+ "ref": "platform/alz/2025.09.3",
+ "source": "https://github.com/Azure/Azure-Landing-Zones-Library/tree/platform/alz/2025.09.3/platform/alz",
+ "managementGroups": [
+  {
+   "id": "alz",
+   "displayName": "Azure Landing Zones",
+   "parentId": null,
+   "archetypes": [
+    "root"
+   ]
+  },
+  {
+   "id": "platform",
+   "displayName": "Platform",
+   "parentId": "alz",
+   "archetypes": [
+    "platform"
+   ]
+  },
+  {
+   "id": "landingzones",
+   "displayName": "Landing zones",
+   "parentId": "alz",
+   "archetypes": [
+    "landing_zones"
+   ]
+  },
+  {
+   "id": "corp",
+   "displayName": "Corp",
+   "parentId": "landingzones",
+   "archetypes": [
+    "corp"
+   ]
+  },
+  {
+   "id": "online",
+   "displayName": "Online",
+   "parentId": "landingzones",
+   "archetypes": [
+    "online"
+   ]
+  },
+  {
+   "id": "sandbox",
+   "displayName": "Sandbox",
+   "parentId": "alz",
+   "archetypes": [
+    "sandbox"
+   ]
+  },
+  {
+   "id": "security",
+   "displayName": "Security",
+   "parentId": "platform",
+   "archetypes": [
+    "security"
+   ]
+  },
+  {
+   "id": "management",
+   "displayName": "Management",
+   "parentId": "platform",
+   "archetypes": [
+    "management"
+   ]
+  },
+  {
+   "id": "connectivity",
+   "displayName": "Connectivity",
+   "parentId": "platform",
+   "archetypes": [
+    "connectivity"
+   ]
+  },
+  {
+   "id": "identity",
+   "displayName": "Identity",
+   "parentId": "platform",
+   "archetypes": [
+    "identity"
+   ]
+  },
+  {
+   "id": "decommissioned",
+   "displayName": "Decommissioned",
+   "parentId": "alz",
+   "archetypes": [
+    "decommissioned"
+   ]
+  }
+ ],
+ "archetypes": {
+  "security": {
+   "policyAssignments": [],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "platform": {
+   "policyAssignments": [
+    "DenyAction-DeleteUAMIAMA",
+    "Deploy-GuestAttest",
+    "Deploy-MDFC-DefSQL-AMA",
+    "Deploy-VM-ChangeTrack",
+    "Deploy-VM-Monitoring",
+    "Deploy-VMSS-ChangeTrack",
+    "Deploy-VMSS-Monitoring",
+    "Deploy-vmArc-ChangeTrack",
+    "Deploy-vmHybr-Monitoring",
+    "Enable-AUM-CheckUpdates",
+    "Enforce-ASR",
+    "Enforce-Encrypt-CMK0",
+    "Enforce-GR-APIM0",
+    "Enforce-GR-AppServices0",
+    "Enforce-GR-Automation0",
+    "Enforce-GR-BotService0",
+    "Enforce-GR-CogServ0",
+    "Enforce-GR-Compute0",
+    "Enforce-GR-ContApps0",
+    "Enforce-GR-ContInst0",
+    "Enforce-GR-ContReg0",
+    "Enforce-GR-CosmosDb0",
+    "Enforce-GR-DataExpl0",
+    "Enforce-GR-DataFactory0",
+    "Enforce-GR-EventGrid0",
+    "Enforce-GR-EventHub0",
+    "Enforce-GR-KeyVault",
+    "Enforce-GR-KeyVaultSup0",
+    "Enforce-GR-Kubernetes0",
+    "Enforce-GR-MachLearn0",
+    "Enforce-GR-MySQL0",
+    "Enforce-GR-Network0",
+    "Enforce-GR-OpenAI0",
+    "Enforce-GR-PostgreSQL0",
+    "Enforce-GR-SQL0",
+    "Enforce-GR-ServiceBus0",
+    "Enforce-GR-Storage0",
+    "Enforce-GR-Synapse0",
+    "Enforce-GR-VirtualDesk0",
+    "Enforce-Subnet-Private"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "connectivity": {
+   "policyAssignments": [
+    "Enable-DDoS-VNET"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "landing_zones": {
+   "policyAssignments": [
+    "Audit-AppGW-WAF",
+    "Deny-IP-forwarding",
+    "Deny-MgmtPorts-Internet",
+    "Deny-Priv-Esc-AKS",
+    "Deny-Privileged-AKS",
+    "Deny-Storage-http",
+    "Deny-Subnet-Without-Nsg",
+    "Deploy-AzSqlDb-Auditing",
+    "Deploy-GuestAttest",
+    "Deploy-MDFC-DefSQL-AMA",
+    "Deploy-SQL-TDE",
+    "Deploy-SQL-Threat",
+    "Deploy-VM-Backup",
+    "Deploy-VM-ChangeTrack",
+    "Deploy-VM-Monitoring",
+    "Deploy-VMSS-ChangeTrack",
+    "Deploy-VMSS-Monitoring",
+    "Deploy-vmArc-ChangeTrack",
+    "Deploy-vmHybr-Monitoring",
+    "Enable-AUM-CheckUpdates",
+    "Enable-DDoS-VNET",
+    "Enforce-AKS-HTTPS",
+    "Enforce-ASR",
+    "Enforce-Encrypt-CMK0",
+    "Enforce-GR-APIM0",
+    "Enforce-GR-AppServices0",
+    "Enforce-GR-Automation0",
+    "Enforce-GR-BotService0",
+    "Enforce-GR-CogServ0",
+    "Enforce-GR-Compute0",
+    "Enforce-GR-ContApps0",
+    "Enforce-GR-ContInst0",
+    "Enforce-GR-ContReg0",
+    "Enforce-GR-CosmosDb0",
+    "Enforce-GR-DataExpl0",
+    "Enforce-GR-DataFactory0",
+    "Enforce-GR-EventGrid0",
+    "Enforce-GR-EventHub0",
+    "Enforce-GR-KeyVault",
+    "Enforce-GR-KeyVaultSup0",
+    "Enforce-GR-Kubernetes0",
+    "Enforce-GR-MachLearn0",
+    "Enforce-GR-MySQL0",
+    "Enforce-GR-Network0",
+    "Enforce-GR-OpenAI0",
+    "Enforce-GR-PostgreSQL0",
+    "Enforce-GR-SQL0",
+    "Enforce-GR-ServiceBus0",
+    "Enforce-GR-Storage0",
+    "Enforce-GR-Synapse0",
+    "Enforce-GR-VirtualDesk0",
+    "Enforce-Subnet-Private",
+    "Enforce-TLS-SSL-Q225"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "corp": {
+   "policyAssignments": [
+    "Audit-PeDnsZones",
+    "Deny-HybridNetworking",
+    "Deny-Public-Endpoints",
+    "Deny-Public-IP-On-NIC",
+    "Deploy-Private-DNS-Zones"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "management": {
+   "policyAssignments": [],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "identity": {
+   "policyAssignments": [
+    "Deny-MgmtPorts-Internet",
+    "Deny-Public-IP",
+    "Deny-Subnet-Without-Nsg",
+    "Deploy-VM-Backup"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "root": {
+   "policyAssignments": [
+    "Audit-ResourceRGLocation",
+    "Audit-TrustedLaunch",
+    "Audit-UnusedResources",
+    "Audit-ZoneResiliency",
+    "Deny-Classic-Resources",
+    "Deny-UnmanagedDisk",
+    "Deploy-ASC-Monitoring",
+    "Deploy-AzActivity-Log",
+    "Deploy-Diag-LogsCat",
+    "Deploy-MDEndpoints",
+    "Deploy-MDEndpointsAMA",
+    "Deploy-MDFC-Config-H224",
+    "Deploy-MDFC-OssDb",
+    "Deploy-MDFC-SqlAtp",
+    "Deploy-SvcHealth-BuiltIn",
+    "Enforce-ACSB"
+   ],
+   "policyDefinitions": 160,
+   "policySetDefinitions": 48,
+   "roleDefinitions": [
+    "Application-Owners",
+    "Network-Management",
+    "Network-Subnet-Contributor",
+    "Security-Operations",
+    "Subscription-Owner"
+   ]
+  },
+  "online": {
+   "policyAssignments": [],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "decommissioned": {
+   "policyAssignments": [
+    "Enforce-ALZ-Decomm"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  },
+  "sandbox": {
+   "policyAssignments": [
+    "Enforce-ALZ-Sandbox"
+   ],
+   "policyDefinitions": 0,
+   "policySetDefinitions": 0,
+   "roleDefinitions": []
+  }
+ },
+ "assignments": {
+  "Deploy-MDFC-Config-H224": {
+   "displayName": "Deploy Microsoft Defender for Cloud configuration",
+   "description": "Deploy Microsoft Defender for Cloud and Security Contacts",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Deploy-MDFC-Config_20240319",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "ascExportResourceGroupLocation",
+    "ascExportResourceGroupName",
+    "emailSecurityContact",
+    "enableAscForAppServices",
+    "enableAscForArm",
+    "enableAscForContainers",
+    "enableAscForCosmosDbs",
+    "enableAscForCspm",
+    "enableAscForKeyVault",
+    "enableAscForOssDb",
+    "enableAscForServers",
+    "enableAscForServersVulnerabilityAssessments",
+    "enableAscForSql",
+    "enableAscForSqlOnVm",
+    "enableAscForStorage",
+    "logAnalytics"
+   ]
+  },
+  "Enforce-GR-DataExpl0": {
+   "displayName": "Enforce recommended guardrails for Data Explorer",
+   "description": "This initiative assignment enables additional ALZ guardrails for Data Explorer.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-DataExplorer",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-MDEndpoints": {
+   "displayName": "[Preview]: Deploy Microsoft Defender for Endpoint agent",
+   "description": "Deploy Microsoft Defender for Endpoint agent on applicable images.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "e20d08c5-6d64-656d-6465-ce9e37fd0ebc",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "microsoftDefenderForEndpointLinuxArcAgentDeployEffect",
+    "microsoftDefenderForEndpointLinuxVmAgentDeployEffect",
+    "microsoftDefenderForEndpointWindowsArcAgentDeployEffect",
+    "microsoftDefenderForEndpointWindowsVmAgentDeployEffect"
+   ]
+  },
+  "Deny-Priv-Esc-AKS": {
+   "displayName": "Kubernetes clusters should not allow container privilege escalation",
+   "description": "Do not allow containers to run with privilege escalation to root in a Kubernetes cluster. This recommendation is part of CIS 5.2.5 which is intended to improve the security of your Kubernetes environments. This policy is generally available for Kubernetes Service (AKS), and preview for AKS Engine and Azure Arc enabled Kubernetes. For more information, see https://aka.ms/kubepolicydoc.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "1c6e92c9-99f0-4e55-9cf2-0c234dc48f99",
+   "enforcementMode": "Default",
+   "effect": "Deny",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Audit-UnusedResources": {
+   "displayName": "Unused resources driving cost should be avoided",
+   "description": "This Policy initiative is a group of Policy definitions that help optimize cost by detecting unused but chargeable resources. Leverage this Policy initiative as a cost control to reveal orphaned resources that are driving cost.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Audit-UnusedResourcesCostOptimization",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "EffectDisks",
+    "EffectPublicIpAddresses",
+    "EffectServerFarms"
+   ]
+  },
+  "Deploy-MDFC-OssDb": {
+   "displayName": "Configure Advanced Threat Protection to be enabled on open-source relational databases",
+   "description": "Enable Advanced Threat Protection on your non-Basic tier open-source relational databases to detect anomalous activities indicating unusual and potentially harmful attempts to access or exploit databases. See https://aka.ms/AzDforOpenSourceDBsDocu.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "e77fc0b3-f7e9-4c58-bc13-cb753ed8e46e",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-ASR": {
+   "displayName": "Enforce enhanced recovery and backup policies",
+   "description": "This initiative assignment enables recommended ALZ guardrails for Azure Recovery Services.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Backup",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-MachLearn0": {
+   "displayName": "Enforce recommended guardrails for Machine Learning",
+   "description": "This initiative assignment enables additional ALZ guardrails for Machine Learning.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-MachineLearning",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Audit-ResourceRGLocation": {
+   "displayName": "Resource Group and Resource locations should match",
+   "description": "Resource Group and Resource locations should match.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "0a914e76-4921-4c19-b460-a2d36003525a",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-TLS-SSL-Q225": {
+   "displayName": "Deny or Deploy and append TLS requirements and SSL enforcement on resources without Encryption in transit",
+   "description": "Choose either Deploy if not exist and append in combination with audit or Select Deny in the Policy effect. Deny polices shift left. Deploy if not exist and append enforce but can be changed, and because missing existence condition require then the combination of Audit.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-EncryptTransit_20241211",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-OpenAI0": {
+   "displayName": "Enforce recommended guardrails for OpenAI",
+   "description": "This initiative assignment enables additional ALZ guardrails for OpenAI.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-OpenAI",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-EventHub0": {
+   "displayName": "Enforce recommended guardrails for Event Hub",
+   "description": "This initiative assignment enables additional ALZ guardrails for Event Hub.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-EventHub",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-SvcHealth-BuiltIn": {
+   "displayName": "Configure subscriptions to enable service health alert monitoring rule",
+   "description": "Assignable at the subscription or management group level, this policy ensures that each subscription has a service health alert rule configured with alert conditions and mapping to action groups as specified in the policy parameters. By default creates a resource group, alert rule and action group configured to send emails to subscription owners for all service health events.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "98903777-a9f6-47f5-90a9-acaf62ab01a8",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "actionGroupResources",
+    "actionGroupRoleIds",
+    "resourceGroupLocation"
+   ]
+  },
+  "Deploy-AzSqlDb-Auditing": {
+   "displayName": "Configure SQL servers to have auditing enabled to Log Analytics workspace",
+   "description": "To ensure the operations performed against your SQL assets are captured, SQL servers should have auditing enabled. If auditing is not enabled, this policy will configure auditing events to flow to the specified Log Analytics workspace.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "25da7dfb-0666-4a15-a8f5-402127efd8bb",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "logAnalyticsWorkspaceId"
+   ]
+  },
+  "Enforce-ALZ-Sandbox": {
+   "displayName": "Enforce ALZ Sandbox Guardrails",
+   "description": "This initiative will help enforce and govern subscriptions that are placed within the Sandbox Management Group. See https://aka.ms/alz/policies for more information.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-ALZ-Sandbox",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "listOfResourceTypesNotAllowed"
+   ]
+  },
+  "Enforce-GR-Compute0": {
+   "displayName": "Enforce recommended guardrails for Compute",
+   "description": "This initiative assignment enables additional ALZ guardrails for Compute.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-Compute",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Audit-ZoneResiliency": {
+   "displayName": "Resources should be Zone Resilient",
+   "description": "Resources should be Zone Resilient.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "130fb88f-0fc9-4678-bfe1-31022d71c7d5",
+   "enforcementMode": "Default",
+   "effect": "Audit",
+   "parameters": [
+    "allow",
+    "effect"
+   ]
+  },
+  "Deny-HybridNetworking": {
+   "displayName": "Deny the deployment of vWAN/ER/VPN gateway resources",
+   "description": "Denies deployment of vWAN/ER/VPN gateway resources in the Corp landing zone.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "6c112d4e-5bc7-47ae-a041-ea2d9dccd749",
+   "enforcementMode": "Default",
+   "effect": "Deny",
+   "parameters": [
+    "effect",
+    "listOfResourceTypesNotAllowed"
+   ]
+  },
+  "Enforce-GR-CosmosDb0": {
+   "displayName": "Enforce recommended guardrails for Cosmos DB",
+   "description": "This initiative assignment enables additional ALZ guardrails for Cosmos DB.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-CosmosDb",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-VM-ChangeTrack": {
+   "displayName": "Enable ChangeTracking and Inventory for virtual machines",
+   "description": "Enable ChangeTracking and Inventory for virtual machines. Takes Data Collection Rule ID as parameter and asks for an option to input applicable locations and user-assigned identity for Azure Monitor Agent.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "92a36f05-ebc9-4bba-9128-b47ad2ea3354",
+   "enforcementMode": "Default",
+   "effect": "DeployIfNotExists",
+   "parameters": [
+    "bringYourOwnUserAssignedManagedIdentity",
+    "dcrResourceId",
+    "effect",
+    "restrictBringYourOwnUserAssignedIdentityToSubscription",
+    "userAssignedIdentityResourceId"
+   ]
+  },
+  "Deny-IP-forwarding": {
+   "displayName": "Network interfaces should disable IP forwarding",
+   "description": "This policy denies the network interfaces which enabled IP forwarding. The setting of IP forwarding disables Azure's check of the source and destination for a network interface. This should be reviewed by the network security team.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "88c0b9da-ce96-4b03-9635-f29a937e2900",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Audit-TrustedLaunch": {
+   "displayName": "Audit virtual machines for Trusted Launch support",
+   "description": "Trusted Launch improves security of a Virtual Machine which requires VM SKU, OS Disk & OS Image to support it (Gen 2). To learn more about Trusted Launch, visit https://aka.ms/trustedlaunch.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Audit-TrustedLaunch",
+   "enforcementMode": "Default",
+   "effect": "Audit",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Deploy-AzActivity-Log": {
+   "displayName": "Configure Azure Activity logs to stream to specified Log Analytics workspace",
+   "description": "Deploys the diagnostic settings for Azure Activity to stream subscriptions audit logs to a Log Analytics workspace to monitor subscription-level events",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "2465583e-4e78-4c15-b6be-a36cbc7c8b0f",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "logAnalytics",
+    "logsEnabled"
+   ]
+  },
+  "Audit-PeDnsZones": {
+   "displayName": "Audit Private Link Private DNS Zone resources",
+   "description": "Audits the deployment of Private Link Private DNS Zone resources in the Corp landing zone.",
+   "kind": "policy",
+   "source": "alz",
+   "definition": "Audit-PrivateLinkDnsZones",
+   "enforcementMode": "Default",
+   "effect": "Audit",
+   "parameters": [
+    "effect",
+    "privateLinkDnsZones"
+   ]
+  },
+  "Deny-Public-IP-On-NIC": {
+   "displayName": "Deny network interfaces having a public IP associated",
+   "description": "This policy denies network interfaces from having a public IP associated to it under the assigned scope.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "83a86a26-fd1f-447c-b59d-e51f44264114",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-AppServices0": {
+   "displayName": "Enforce recommended guardrails for App Services",
+   "description": "This initiative assignment enables additional ALZ guardrails for App Services.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-AppServices",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-Network0": {
+   "displayName": "Enforce recommended guardrails for Network and Networking services",
+   "description": "This initiative assignment enables additional ALZ guardrails for Network and Networking services.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-Network_20250326",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": [
+    "ddosPlanResourceId"
+   ]
+  },
+  "Audit-AppGW-WAF": {
+   "displayName": "Web Application Firewall (WAF) should be enabled for Application Gateway",
+   "description": "Assign the WAF should be enabled for Application Gateway audit policy.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "564feb30-bf6a-4854-b4bb-0d2d2d1e6c66",
+   "enforcementMode": "Default",
+   "effect": "Audit",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Enforce-GR-PostgreSQL0": {
+   "displayName": "Enforce recommended guardrails for PostgreSQL",
+   "description": "This initiative assignment enables additional ALZ guardrails for PostgreSQL.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-PostgreSQL",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-GuestAttest": {
+   "displayName": "Configure prerequisites to enable Guest Attestation on Trusted Launch enabled VMs",
+   "description": "Configure the Trusted Launch enabled virtual machines to automatically install the Guest Attestation extension and enable system-assigned managed identity to allow Azure Security Center to proactively attest and monitor the boot integrity. Boot integrity is attested via Remote Attestation. For more details, please refer to the following link - https://aka.ms/trustedlaunch.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "281d9e47-d14d-4f05-b8eb-18f2c4a034ff",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "attestationEndpoint"
+   ]
+  },
+  "Deny-Classic-Resources": {
+   "displayName": "Deny the deployment of classic resources",
+   "description": "Denies deployment of classic resource types under the assigned scope.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "6c112d4e-5bc7-47ae-a041-ea2d9dccd749",
+   "enforcementMode": "Default",
+   "effect": "Deny",
+   "parameters": [
+    "effect",
+    "listOfResourceTypesNotAllowed"
+   ]
+  },
+  "Deploy-SQL-TDE": {
+   "displayName": "Deploy TDE on SQL servers",
+   "description": "This policy ensures that Transparent Data Encryption is enabled on SQL Servers.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "86a912f6-9a06-4e26-b447-11b16ba8659f",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-ServiceBus0": {
+   "displayName": "Enforce recommended guardrails for Service Bus",
+   "description": "This initiative assignment enables additional ALZ guardrails for Service Bus.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-ServiceBus",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-KeyVaultSup0": {
+   "displayName": "Enforce recommended guardrails for Key Vault Supplementary",
+   "description": "This initiative assignment enables additional ALZ guardrails for Key Vault Supplementary.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-KeyVault-Sup",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-ContInst0": {
+   "displayName": "Enforce recommended guardrails for Container Instance",
+   "description": "This initiative assignment enables additional ALZ guardrails for Container Instance.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-ContainerInstance",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deny-Storage-http": {
+   "displayName": "Secure transfer to storage accounts should be enabled",
+   "description": "Audit requirement of Secure transfer in your storage account. Secure transfer is an option that forces your storage account to accept requests only from secure connections (HTTPS). Use of HTTPS ensures authentication between the server and the service and protects data in transit from network layer attacks such as man-in-the-middle, eavesdropping, and session-hijacking",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "404c3081-a854-4457-ae30-26a93ef643f9",
+   "enforcementMode": "Default",
+   "effect": "Deny",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Deny-Privileged-AKS": {
+   "displayName": "Kubernetes cluster should not allow privileged containers",
+   "description": "Do not allow privileged containers creation in a Kubernetes cluster. This recommendation is part of CIS 5.2.1 which is intended to improve the security of your Kubernetes environments. This policy is generally available for Kubernetes Service (AKS), and preview for AKS Engine and Azure Arc enabled Kubernetes. For more information, see https://aka.ms/kubepolicydoc.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "95edb821-ddaf-4404-9732-666045e056b4",
+   "enforcementMode": "Default",
+   "effect": "deny",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Deploy-MDFC-DefSQL-AMA": {
+   "displayName": "Enable Defender for SQL on SQL VMs and Arc-enabled SQL Servers",
+   "description": "Microsoft Defender for SQL collects events from the agents and uses them to provide security alerts and tailored hardening tasks (recommendations).",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "de01d381-bae9-4670-8870-786f89f49e26",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "bringYourOwnDcr",
+    "bringYourOwnUserAssignedManagedIdentity",
+    "dcrResourceId",
+    "enableCollectionOfSqlQueriesForSecurityResearch",
+    "userAssignedIdentityResourceId",
+    "userWorkspaceResourceId",
+    "workspaceRegion"
+   ]
+  },
+  "Deny-Public-IP": {
+   "displayName": "Deny the creation of public IP",
+   "description": "This policy denies creation of Public IPs under the assigned scope.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "6c112d4e-5bc7-47ae-a041-ea2d9dccd749",
+   "enforcementMode": "Default",
+   "effect": "Deny",
+   "parameters": [
+    "effect",
+    "listOfResourceTypesNotAllowed"
+   ]
+  },
+  "Enforce-GR-ContReg0": {
+   "displayName": "Enforce recommended guardrails for Container Registry",
+   "description": "This initiative assignment enables additional ALZ guardrails for Container Registry.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-ContainerRegistry",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-Kubernetes0": {
+   "displayName": "Enforce recommended guardrails for Kubernetes",
+   "description": "This initiative assignment enables additional ALZ guardrails for Kubernetes.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-Kubernetes",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-VM-Backup": {
+   "displayName": "Configure backup on virtual machines without a given tag to a new recovery services vault with a default policy",
+   "description": "Enforce backup for all virtual machines by deploying a recovery services vault in the same location and resource group as the virtual machine. Doing this is useful when different application teams in your organization are allocated separate resource groups and need to manage their own backups and restores. You can optionally exclude virtual machines containing a specified tag to control the scope ",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "98d0b9f8-fd90-49c9-88e2-d3baf3b0dd86",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enable-DDoS-VNET": {
+   "displayName": "Virtual networks should be protected by Azure DDoS Network Protection",
+   "description": "Protect your virtual networks against volumetric and protocol attacks with Azure DDoS Network Protection. For more information, visit https://aka.ms/ddosprotectiondocs.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "94de2ad3-e0c1-4caf-ad78-5d47bbc83d3d",
+   "enforcementMode": "Default",
+   "effect": "Modify",
+   "parameters": [
+    "ddosPlan",
+    "effect"
+   ]
+  },
+  "Enforce-GR-Synapse0": {
+   "displayName": "Enforce recommended guardrails for Synapse",
+   "description": "This initiative assignment enables additional ALZ guardrails for Synapse.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-Synapse",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-KeyVault": {
+   "displayName": "Enforce recommended guardrails for Azure Key Vault",
+   "description": "This initiative assignment enables recommended ALZ guardrails for Azure Key Vault.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-KeyVault",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-Diag-LogsCat": {
+   "displayName": "Enable category group resource logging for supported resources to Log Analytics",
+   "description": "Resource logs should be enabled to track activities and events that take place on your resources and give you visibility and insights into any changes that occur. This initiative deploys diagnostic setting using the allLogs category group to route logs to an Event Hub for all supported resources.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "f5b29bc4-feca-4cc6-a58a-772dd5e290a5",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "logAnalytics"
+   ]
+  },
+  "Enforce-GR-CogServ0": {
+   "displayName": "Enforce recommended guardrails for Cognitive Services",
+   "description": "This initiative assignment enables additional ALZ guardrails for Cognitive Services.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-CognitiveServices",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-MDEndpointsAMA": {
+   "displayName": "Configure multiple Microsoft Defender for Endpoint integration settings with Microsoft Defender for Cloud",
+   "description": "Configure the multiple Microsoft Defender for Endpoint integration settings with Microsoft Defender for Cloud (WDATP, WDATP_EXCLUDE_LINUX_PUBLIC_PREVIEW, WDATP_UNIFIED_SOLUTION etc.). See: https://learn.microsoft.com/azure/defender-for-cloud/integration-defender-for-endpoint for more information.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "77b391e3-2d5d-40c3-83bf-65c846b3c6a3",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enable-AUM-CheckUpdates": {
+   "displayName": "Configure periodic checking for missing system updates on azure virtual machines and Arc-enabled virtual machines.",
+   "description": "Configure auto-assessment (every 24 hours) for OS updates. You can control the scope of assignment according to machine subscription, resource group, location or tag. Learn more about this for Windows: https://aka.ms/computevm-windowspatchassessmentmode, for Linux: https://aka.ms/computevm-linuxpatchassessmentmode.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Deploy-AUM-CheckUpdates",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "assessmentMode",
+    "locations",
+    "tagOperator",
+    "tagValues"
+   ]
+  },
+  "Deploy-vmArc-ChangeTrack": {
+   "displayName": "Enable ChangeTracking and Inventory for Arc-enabled virtual machines",
+   "description": "Enable ChangeTracking and Inventory for Arc-enabled virtual machines. Takes Data Collection Rule ID as parameter and asks for an option to input applicable locations.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "53448c70-089b-4f52-8f38-89196d7f2de1",
+   "enforcementMode": "Default",
+   "effect": "DeployIfNotExists",
+   "parameters": [
+    "dcrResourceId",
+    "effect"
+   ]
+  },
+  "Deploy-vmHybr-Monitoring": {
+   "displayName": "Enable Azure Monitor for Hybrid Virtual Machines",
+   "description": "Enable Azure Monitor for Hybrid Virtual Machines in the specified scope (Management group, Subscription or resource group).",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "2b00397d-c309-49c4-aa5a-f0b2c5bc6321",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "dcrResourceId",
+    "enableProcessesAndDependencies"
+   ]
+  },
+  "Enforce-GR-SQL0": {
+   "displayName": "Enforce recommended guardrails for SQL",
+   "description": "This initiative assignment enables additional ALZ guardrails for SQL.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-SQL",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-MySQL0": {
+   "displayName": "Enforce recommended guardrails for MySQL",
+   "description": "This initiative assignment enables additional ALZ guardrails for MySQL.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-MySQL",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-Encrypt-CMK0": {
+   "displayName": "Enforce recommended guardrails for Customer Managed Keys",
+   "description": "This initiative assignment enables additional ALZ guardrails for Customer Managed Keys.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Encryption-CMK_20250218",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deny-UnmanagedDisk": {
+   "displayName": "Deny virtual machines and virtual machine scale sets that do not use managed disk",
+   "description": "Deny virtual machines that do not use managed disk. It checks the managed disk property on virtual machine OS Disk fields.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "06a78e20-9358-41c9-923c-fb736d382a4d",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-Automation0": {
+   "displayName": "Enforce recommended guardrails for Automation Accounts",
+   "description": "This initiative assignment enables additional ALZ guardrails for Automation Accounts.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-Automation",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-APIM0": {
+   "displayName": "Enforce recommended guardrails for API Management",
+   "description": "This initiative assignment enables additional ALZ guardrails for API Management.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-APIM",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "DenyAction-DeleteUAMIAMA": {
+   "displayName": "Do not allow deletion of the User Assigned Managed Identity used by AMA",
+   "description": "This policy provides a safeguard against accidental removal of the User Assigned Managed Identity used by AMA by blocking delete calls using deny action effect.",
+   "kind": "policy",
+   "source": "alz",
+   "definition": "DenyAction-DeleteResources",
+   "enforcementMode": "Default",
+   "effect": "DenyAction",
+   "parameters": [
+    "effect",
+    "resourceName",
+    "resourceType"
+   ]
+  },
+  "Deny-Subnet-Without-Nsg": {
+   "displayName": "Subnets should have a Network Security Group",
+   "description": "This policy denies the creation of a subnet without a Network Security Group to protect traffic across subnets.",
+   "kind": "policy",
+   "source": "alz",
+   "definition": "Deny-Subnet-Without-Nsg",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-MDFC-SqlAtp": {
+   "displayName": "Configure Azure Defender to be enabled on SQL Servers and SQL Managed Instances",
+   "description": "Enable Azure Defender on your SQL Servers and SQL Managed Instances to detect anomalous activities indicating unusual and potentially harmful attempts to access or exploit databases.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "9cb3cc7a-b39b-4b82-bc89-e5a5d9ff7b97",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-Subnet-Private": {
+   "displayName": "Subnets should be private",
+   "description": "Ensure your subnets are secure by default by preventing default outbound access. For more information go to https://aka.ms/defaultoutboundaccessretirement",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "7bca8353-aa3b-429b-904a-9229c4385837",
+   "enforcementMode": "DoNotEnforce",
+   "effect": "Audit",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Enforce-GR-VirtualDesk0": {
+   "displayName": "Enforce recommended guardrails for Virtual Desktop",
+   "description": "This initiative assignment enables additional ALZ guardrails for Virtual Desktop.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-VirtualDesktop",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-EventGrid0": {
+   "displayName": "Enforce recommended guardrails for Event Grid",
+   "description": "This initiative assignment enables additional ALZ guardrails for Event Grid.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-EventGrid",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-AKS-HTTPS": {
+   "displayName": "Kubernetes clusters should be accessible only over HTTPS",
+   "description": "Use of HTTPS ensures authentication and protects data in transit from network layer eavesdropping attacks. This capability is currently generally available for Kubernetes Service (AKS), and in preview for AKS Engine and Azure Arc enabled Kubernetes. For more info, visit https://aka.ms/kubepolicydoc",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "1a5b4dca-0b6f-4cf5-907c-56316bc1bf3d",
+   "enforcementMode": "Default",
+   "effect": "deny",
+   "parameters": [
+    "effect"
+   ]
+  },
+  "Deploy-ASC-Monitoring": {
+   "displayName": "Microsoft Cloud Security Benchmark",
+   "description": "Microsoft Cloud Security Benchmark policy initiative.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "1f3afdf9-d0c9-4c3d-847f-89da613e70a8",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-ContApps0": {
+   "displayName": "Enforce recommended guardrails for Container Apps",
+   "description": "This initiative assignment enables additional ALZ guardrails for Container Apps.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-ContainerApps",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-ACSB": {
+   "displayName": "Enforce Azure Compute Security Baseline compliance auditing",
+   "description": "This initiative assignment enables Azure Compute Security Baseline compliance auditing for Windows and Linux virtual machines.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-ACSB",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-DataFactory0": {
+   "displayName": "Enforce recommended guardrails for Data Factory",
+   "description": "This initiative assignment enables additional ALZ guardrails for Data Factory.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-DataFactory",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-VMSS-Monitoring": {
+   "displayName": "Enable Azure Monitor for Virtual Machine Scale Sets",
+   "description": "Enable Azure Monitor for the Virtual Machine Scale Sets in the specified scope (Management group, Subscription or resource group). Takes Log Analytics workspace as parameter. Note: if your scale set upgradePolicy is set to Manual, you need to apply the extension to the all VMs in the set by calling upgrade on them. In CLI this would be az vmss update-instances.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "f5bf694c-cca7-4033-b883-3a23327d5485",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "bringYourOwnUserAssignedManagedIdentity",
+    "dcrResourceId",
+    "enableProcessesAndDependencies",
+    "restrictBringYourOwnUserAssignedIdentityToSubscription",
+    "scopeToSupportedImages",
+    "userAssignedIdentityResourceId"
+   ]
+  },
+  "Enforce-GR-Storage0": {
+   "displayName": "Enforce recommended guardrails for Storage",
+   "description": "This initiative assignment enables additional ALZ guardrails for Storage.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-Storage",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-VM-Monitoring": {
+   "displayName": "Enable Azure Monitor for VMs",
+   "description": "Enable Azure Monitor for the virtual machines (VMs) in the specified scope (management group, subscription or resource group). Takes Log Analytics workspace as parameter.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "924bfe3a-762f-40e7-86dd-5c8b95eb09e6",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "bringYourOwnUserAssignedManagedIdentity",
+    "dcrResourceId",
+    "enableProcessesAndDependencies",
+    "restrictBringYourOwnUserAssignedIdentityToSubscription",
+    "scopeToSupportedImages",
+    "userAssignedIdentityResourceId"
+   ]
+  },
+  "Deploy-SQL-Threat": {
+   "displayName": "Deploy Threat Detection on SQL servers",
+   "description": "This policy ensures that Threat Detection is enabled on SQL Servers.",
+   "kind": "policy",
+   "source": "builtin",
+   "definition": "36d49e87-48c4-4f2e-beed-ba4ed02b71f5",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-ALZ-Decomm": {
+   "displayName": "Enforce ALZ Decommissioned Guardrails",
+   "description": "This initiative will help enforce and govern subscriptions that are placed within the decommissioned Management Group as part of your Subscription decommissioning process. See https://aka.ms/alz/policies for more information.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-ALZ-Decomm",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "listOfResourceTypesAllowed"
+   ]
+  },
+  "Deny-Public-Endpoints": {
+   "displayName": "Public network access should be disabled for PaaS services",
+   "description": "This policy initiative is a group of policies that prevents creation of Azure PaaS services with exposed public endpoints",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Deny-PublicPaaSEndpoints",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  },
+  "Enforce-GR-BotService0": {
+   "displayName": "Enforce recommended guardrails for Bot Service",
+   "description": "This initiative assignment enables additional ALZ guardrails for Bot Service.",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Enforce-Guardrails-BotService",
+   "enforcementMode": "DoNotEnforce",
+   "effect": null,
+   "parameters": []
+  },
+  "Deploy-Private-DNS-Zones": {
+   "displayName": "Configure Azure PaaS services to use private DNS zones",
+   "description": "This policy initiative is a group of policies that ensures private endpoints to Azure PaaS services are integrated with Azure Private DNS zones",
+   "kind": "initiative",
+   "source": "alz",
+   "definition": "Deploy-Private-DNS-Zones",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": [
+    "azureAcrPrivateDnsZoneId",
+    "azureAppPrivateDnsZoneId",
+    "azureAppServicesPrivateDnsZoneId",
+    "azureArcGuestconfigurationPrivateDnsZoneId",
+    "azureArcHybridResourceProviderPrivateDnsZoneId",
+    "azureArcKubernetesConfigurationPrivateDnsZoneId",
+    "azureAsrPrivateDnsZoneId",
+    "azureAutomationDSCHybridPrivateDnsZoneId",
+    "azureAutomationWebhookPrivateDnsZoneId",
+    "azureBatchPrivateDnsZoneId",
+    "azureBotServicePrivateDnsZoneId",
+    "azureCognitiveSearchPrivateDnsZoneId",
+    "azureCognitiveServicesPrivateDnsZoneId",
+    "azureCosmosCassandraPrivateDnsZoneId",
+    "azureCosmosGremlinPrivateDnsZoneId",
+    "azureCosmosMongoPrivateDnsZoneId",
+    "azureCosmosSQLPrivateDnsZoneId",
+    "azureCosmosTablePrivateDnsZoneId",
+    "azureDataFactoryPortalPrivateDnsZoneId",
+    "azureDataFactoryPrivateDnsZoneId",
+    "azureDatabricksPrivateDnsZoneId",
+    "azureDiskAccessPrivateDnsZoneId",
+    "azureEventGridDomainsPrivateDnsZoneId",
+    "azureEventGridTopicsPrivateDnsZoneId",
+    "azureEventHubNamespacePrivateDnsZoneId",
+    "azureFilePrivateDnsZoneId",
+    "azureHDInsightPrivateDnsZoneId",
+    "azureIotCentralPrivateDnsZoneId",
+    "azureIotDeviceupdatePrivateDnsZoneId",
+    "azureIotHubsPrivateDnsZoneId",
+    "azureIotPrivateDnsZoneId",
+    "azureKeyVaultPrivateDnsZoneId",
+    "azureMachineLearningWorkspacePrivateDnsZoneId",
+    "azureMachineLearningWorkspaceSecondPrivateDnsZoneId",
+    "azureManagedGrafanaWorkspacePrivateDnsZoneId",
+    "azureMediaServicesKeyPrivateDnsZoneId",
+    "azureMediaServicesLivePrivateDnsZoneId",
+    "azureMediaServicesStreamPrivateDnsZoneId",
+    "azureMigratePrivateDnsZoneId",
+    "azureMonitorPrivateDnsZoneId1",
+    "azureMonitorPrivateDnsZoneId2",
+    "azureMonitorPrivateDnsZoneId3",
+    "azureMonitorPrivateDnsZoneId4",
+    "azureMonitorPrivateDnsZoneId5",
+    "azureRedisCachePrivateDnsZoneId",
+    "azureServiceBusNamespacePrivateDnsZoneId",
+    "azureSignalRPrivateDnsZoneId",
+    "azureSiteRecoveryBackupPrivateDnsZoneId",
+    "azureSiteRecoveryBlobPrivateDnsZoneId",
+    "azureSiteRecoveryQueuePrivateDnsZoneId",
+    "azureStorageBlobPrivateDnsZoneId",
+    "azureStorageBlobSecPrivateDnsZoneId",
+    "azureStorageDFSPrivateDnsZoneId",
+    "azureStorageDFSSecPrivateDnsZoneId",
+    "azureStorageFilePrivateDnsZoneId",
+    "azureStorageQueuePrivateDnsZoneId",
+    "azureStorageQueueSecPrivateDnsZoneId",
+    "azureStorageStaticWebPrivateDnsZoneId",
+    "azureStorageStaticWebSecPrivateDnsZoneId",
+    "azureStorageTablePrivateDnsZoneId",
+    "azureStorageTableSecondaryPrivateDnsZoneId",
+    "azureSynapseDevPrivateDnsZoneId",
+    "azureSynapseSQLODPrivateDnsZoneId",
+    "azureSynapseSQLPrivateDnsZoneId",
+    "azureVirtualDesktopHostpoolPrivateDnsZoneId",
+    "azureVirtualDesktopWorkspacePrivateDnsZoneId",
+    "azureWebPrivateDnsZoneId"
+   ]
+  },
+  "Deploy-VMSS-ChangeTrack": {
+   "displayName": "Enable ChangeTracking and Inventory for virtual machine scale sets",
+   "description": "Enable ChangeTracking and Inventory for virtual machine scale sets. Takes Data Collection Rule ID as parameter and asks for an option to input applicable locations and user-assigned identity for Azure Monitor Agent.",
+   "kind": "initiative",
+   "source": "builtin",
+   "definition": "c4a70814-96be-461c-889f-2b27429120dc",
+   "enforcementMode": "Default",
+   "effect": "DeployIfNotExists",
+   "parameters": [
+    "bringYourOwnUserAssignedManagedIdentity",
+    "dcrResourceId",
+    "effect",
+    "restrictBringYourOwnUserAssignedIdentityToSubscription",
+    "userAssignedIdentityResourceId"
+   ]
+  },
+  "Deny-MgmtPorts-Internet": {
+   "displayName": "Management port access from the Internet should be blocked",
+   "description": "This policy denies any network security rule that allows management port access from the Internet",
+   "kind": "policy",
+   "source": "alz",
+   "definition": "Deny-MgmtPorts-From-Internet",
+   "enforcementMode": "Default",
+   "effect": null,
+   "parameters": []
+  }
+ },
+ "defaults": [
+  {
+   "name": "private_dns_zone_subscription_id",
+   "description": "The subscription id that hosts the private link DNS zones.",
+   "assignments": [
+    {
+     "assignment": "Deploy-Private-DNS-Zones",
+     "parameters": [
+      "dnsZoneSubscriptionId"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "private_dns_zone_resource_group_name",
+   "description": "The resource group name that hosts the private link DNS zones.",
+   "assignments": [
+    {
+     "assignment": "Deploy-Private-DNS-Zones",
+     "parameters": [
+      "dnsZoneResourceGroupName"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "private_dns_zone_region",
+   "description": "The region short name (e.g. `westus`) that should be used for the region specific private link DNS zones.",
+   "assignments": [
+    {
+     "assignment": "Deploy-Private-DNS-Zones",
+     "parameters": [
+      "dnsZoneRegion"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ama_user_assigned_managed_identity_id",
+   "description": "The user assigned managed identity id that should be used for the AMA deployment.",
+   "assignments": [
+    {
+     "assignment": "Deploy-VM-ChangeTrack",
+     "parameters": [
+      "userAssignedIdentityResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-VMSS-ChangeTrack",
+     "parameters": [
+      "userAssignedIdentityResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-VM-Monitoring",
+     "parameters": [
+      "userAssignedIdentityResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-VMSS-Monitoring",
+     "parameters": [
+      "userAssignedIdentityResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-MDFC-DefSQL-AMA",
+     "parameters": [
+      "userAssignedIdentityResourceId"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ama_user_assigned_managed_identity_name",
+   "description": "The user assigned managed identity name that is used for the deny action policy to prevent the accidental deletion of the AMA identity.",
+   "assignments": [
+    {
+     "assignment": "DenyAction-DeleteUAMIAMA",
+     "parameters": [
+      "resourceName"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ama_vm_insights_data_collection_rule_id",
+   "description": "The data collection rule id that should be used for the VM Insights deployment.",
+   "assignments": [
+    {
+     "assignment": "Deploy-VM-Monitoring",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-VMSS-Monitoring",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-vmHybr-Monitoring",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ama_mdfc_sql_data_collection_rule_id",
+   "description": "The data collection rule id that should be used for the SQL MDFC deployment.",
+   "assignments": [
+    {
+     "assignment": "Deploy-MDFC-DefSQL-AMA",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ama_change_tracking_data_collection_rule_id",
+   "description": "The data collection rule id that should be used for the change tracking deployment.",
+   "assignments": [
+    {
+     "assignment": "Deploy-VM-ChangeTrack",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-vmArc-ChangeTrack",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-VMSS-ChangeTrack",
+     "parameters": [
+      "dcrResourceId"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "ddos_protection_plan_id",
+   "description": "The DDoS protection plan id that should be used for the DDoS protection plan deployment. If this is invalid or you do not use DDoS protection, make sure to change the enforcement mode of the Enable-DDoS-VNET policy to 'DoNotEnforce'.",
+   "assignments": [
+    {
+     "assignment": "Enable-DDoS-VNET",
+     "parameters": [
+      "ddosPlan"
+     ]
+    }
+   ]
+  },
+  {
+   "name": "log_analytics_workspace_id",
+   "description": "The Log Analytics workspace id that should be used for centralized log collection.",
+   "assignments": [
+    {
+     "assignment": "Deploy-AzActivity-Log",
+     "parameters": [
+      "logAnalytics"
+     ]
+    },
+    {
+     "assignment": "Deploy-AzSqlDb-Auditing",
+     "parameters": [
+      "logAnalyticsWorkspaceId"
+     ]
+    },
+    {
+     "assignment": "Deploy-Diag-LogsCat",
+     "parameters": [
+      "logAnalytics"
+     ]
+    },
+    {
+     "assignment": "Deploy-MDFC-Config-H224",
+     "parameters": [
+      "logAnalytics"
+     ]
+    },
+    {
+     "assignment": "Deploy-MDFC-DefSQL-AMA",
+     "parameters": [
+      "userWorkspaceResourceId"
+     ]
+    }
+   ]
+  }
+ ]
+}

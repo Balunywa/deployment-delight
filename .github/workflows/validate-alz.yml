@@ -1,0 +1,86 @@
+name: Validate platform landing zone generation
+
+# Proves the Terraform Cloud Delivery generates for platform landing zones is correct:
+#   1. terraform init + validate against the real Azure Verified Modules and Azure/alz provider
+#   2. Microsoft's alzlibtool composes the generated custom library (archetype overrides + architecture) on top of
+#      the pinned ALZ Library; per-management-group assignment counts must match what the app shows
+# Built-in policy definitions come from scripts/alz-cache (alzlibtool cache create), so no Azure credentials are needed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/alz/**"
+      - "scripts/alz-generate.ts"
+      - ".github/workflows/validate-alz.yml"
+  pull_request:
+    paths:
+      - "src/lib/alz/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Install alzlibtool
+        run: |
+          curl -sL -o alzlibtool.tgz https://github.com/Azure/alzlib/releases/download/v0.32.0/alzlibtool_linux_amd64.tar.gz
+          mkdir -p "$RUNNER_TEMP/alz" && tar -xzf alzlibtool.tgz -C "$RUNNER_TEMP/alz"
+          echo "$RUNNER_TEMP/alz" >> "$GITHUB_PATH"
+
+      - name: Generate configurations
+        run: bun scripts/alz-generate.ts "$RUNNER_TEMP/out"
+
+      - name: terraform fmt, init and validate
+        run: |
+          set -euo pipefail
+          for dir in "$RUNNER_TEMP"/out/*/*/; do
+            echo "::group::$dir"
+            terraform -chdir="$dir" fmt -check -recursive
+            terraform -chdir="$dir" init -backend=false -input=false >/dev/null
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done
+
+      - name: Compose with alzlibtool and compare with the app
+        run: |
+          set -euo pipefail
+          python3 - "$RUNNER_TEMP/out" <<'PY'
+          import json, os, subprocess, sys
+          out = sys.argv[1]
+          expected = json.load(open(f"{out}/expected.json"))
+          failures = []
+          for key, counts in expected.items():
+              lib = f"{out}/{key}/lib"
+              if not os.path.isdir(lib):
+                  print(f"{key}: reference architecture, no custom library")
+                  continue
+              os.rename(f"{lib}/alz_library_metadata.json.check", f"{lib}/alz_library_metadata.json")
+              ref = key.split("/")[0]
+              cache = os.path.abspath(f"scripts/alz-cache/builtins-{ref}.json")
+              gen = f"{out}/{key}/composed"
+              r = subprocess.run(["alzlibtool", "generate", "architecture", lib, "custom", "--from-cache", cache, "-o", gen],
+                                 capture_output=True, text=True, cwd=out)
+              if r.returncode:
+                  failures.append(f"{key}: alzlibtool could not compose the library: {(r.stdout + r.stderr)[-500:]}")
+                  continue
+              actual = {}
+              for d, _, files in os.walk(gen):
+                  actual[os.path.basename(d)] = len([f for f in files if f.endswith(".alz_policy_assignment.json")])
+              for mg, n in counts.items():
+                  if actual.get(mg) != n:
+                      failures.append(f"{key}: {mg} expected {n}, alzlibtool composed {actual.get(mg)}")
+              print(f"{key}: {len(counts)} management groups match")
+          if failures:
+              print("\n".join(failures))
+              sys.exit(1)
+          PY

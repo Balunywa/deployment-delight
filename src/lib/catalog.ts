@@ -554,7 +554,15 @@ export type Topology = {
   privateEndpoints: boolean;
   regions: string[];
   environments: string[];
+  /** ALZ landing zone management group the installs are placed under. */
+  landingZone: LandingZone;
 };
+
+export type LandingZone = "corp" | "online" | "local" | "sandbox";
+
+/** Default placement: installs peered to a corporate hub go to Corp; everything else is Online. */
+export const defaultLandingZone = (landing: Topology["landing"]): LandingZone =>
+  landing === "existing-customer-hub" ? "corp" : "online";
 
 /** Resources the product consumes from the customer's platform instead of creating them. */
 export const CUSTOMER_PLATFORM = [
