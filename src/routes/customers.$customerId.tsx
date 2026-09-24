@@ -44,12 +44,12 @@ type Env = {
     resource_id: string;
     severity: string;
     status: string;
-    expected_state: Record<string, unknown>;
-    actual_state: Record<string, unknown>;
+    expected_json: unknown;
+    actual_json: unknown;
     detected_at: string;
     recommended_remediation: string | null;
   }[];
-  compliance_checks: { id: string; control_id: string; control_name: string; result: string; evidence: string | null; policy_pack_name: string | null }[];
+  compliance_checks: { id: string; control_key: string; control_name: string; result: string; evidence_json: unknown }[];
   deployments: { id: string; status: string; deployment_type: string; desired_version: string | null; requested_at: string; correlation_id: string }[];
 };
 
@@ -83,8 +83,8 @@ function CustomerDetail() {
   });
   const drift = useMutation({
     mutationFn: useServerFn(detectDrift),
-    onSuccess: (r: { created: number }) => {
-      toast.success(r.created ? `${r.created} new drift finding(s) recorded.` : "No new drift detected.");
+    onSuccess: (r: { newFindings: number }) => {
+      toast.success(r.newFindings ? `${r.newFindings} new drift finding(s) recorded.` : "No new drift detected.");
       invalidate();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -110,7 +110,7 @@ function CustomerDetail() {
   if (!customer.data) return <EmptyState title="Customer not found." />;
 
   const c = customer.data;
-  const envs = ((c.environments ?? []) as Env[]).sort((a, b) => a.environment_type.localeCompare(b.environment_type));
+  const envs = ((c.environments ?? []) as unknown as Env[]).sort((a, b) => a.environment_type.localeCompare(b.environment_type));
   const prod = envs.find((e) => e.environment_type === "production") ?? envs[0];
   const connections = (c.customer_connections ?? []) as {
     id: string;
@@ -192,10 +192,10 @@ function CustomerDetail() {
                   <p className="font-mono text-[11px] break-all text-muted-foreground">{f.resource_id}</p>
                   <div className="mt-1.5 grid gap-1 text-[11px] sm:grid-cols-2">
                     <span className="rounded-sm bg-muted px-2 py-1 text-muted-foreground">
-                      expected {JSON.stringify(f.expected_state)}
+                      expected {JSON.stringify(f.expected_json)}
                     </span>
                     <span className="rounded-sm bg-warning/10 px-2 py-1 text-warning">
-                      actual {JSON.stringify(f.actual_state)}
+                      actual {JSON.stringify(f.actual_json)}
                     </span>
                   </div>
                   <p className="mt-1.5 text-xs text-muted-foreground">{f.recommended_remediation}</p>
@@ -310,12 +310,11 @@ function CustomerDetail() {
                   <li key={check.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
                     <div className="min-w-0">
                       <p className="text-[13px] font-medium">
-                        <span className="mono-num mr-2 text-muted-foreground">{check.control_id}</span>
+                        <span className="mono-num mr-2 text-muted-foreground">{check.control_key}</span>
                         {check.control_name}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {check.evidence ?? "No evidence recorded"}
-                        {check.policy_pack_name ? ` · ${check.policy_pack_name}` : ""}
+                        {check.evidence_json ? JSON.stringify(check.evidence_json) : "No evidence recorded"}
                       </p>
                     </div>
                     <ResultPill result={check.result} />

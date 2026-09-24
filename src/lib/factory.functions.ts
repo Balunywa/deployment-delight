@@ -541,7 +541,13 @@ Never invent Azure credentials, subscriptions or resource IDs.`;
     const manifest = (parsed.success ? parsed.data : parsedUnknown) as Record<string, unknown>;
     const policyIssues = architecturePolicyCheck(manifest);
 
-    return { manifest, validation, policyIssues, offeringId: data.offeringId, aiGenerated: true };
+    return {
+      manifestJson: JSON.stringify(manifest),
+      validation,
+      policyIssues,
+      offeringId: data.offeringId,
+      aiGenerated: true,
+    };
   });
 
 function architecturePolicyCheck(manifest: Record<string, unknown>) {
@@ -567,29 +573,41 @@ function architecturePolicyCheck(manifest: Record<string, unknown>) {
 }
 
 export const validateBlueprint = createServerFn({ method: "POST" })
-  .inputValidator((d: { manifest: unknown }) => z.object({ manifest: z.unknown() }).parse(d))
+  .inputValidator((d: { manifestJson: string }) => z.object({ manifestJson: z.string().max(60000) }).parse(d))
   .handler(async ({ data }) => {
-    const parsed = blueprintSchema.safeParse(data.manifest);
+    let manifest: unknown;
+    try {
+      manifest = JSON.parse(data.manifestJson);
+    } catch {
+      throw new Error("The blueprint is not valid JSON.");
+    }
+    const parsed = blueprintSchema.safeParse(manifest);
     return {
       schema: parsed.success ? ("PASS" as const) : ("BLOCKING" as const),
       issues: parsed.success ? [] : parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`),
-      policyIssues: architecturePolicyCheck((data.manifest ?? {}) as Record<string, unknown>),
+      policyIssues: architecturePolicyCheck((manifest ?? {}) as Record<string, unknown>),
     };
   });
 
 export const createOfferingVersion = createServerFn({ method: "POST" })
-  .inputValidator((d: { offeringId: string; manifest: unknown; releaseNotes?: string; aiGenerated?: boolean }) =>
+  .inputValidator((d: { offeringId: string; manifestJson: string; releaseNotes?: string; aiGenerated?: boolean }) =>
     z
       .object({
         offeringId: z.string().uuid(),
-        manifest: z.unknown(),
+        manifestJson: z.string().max(60000),
         releaseNotes: z.string().max(4000).optional(),
         aiGenerated: z.boolean().default(false),
       })
       .parse(d),
   )
   .handler(async ({ data }) => {
-    const parsed = blueprintSchema.safeParse(data.manifest);
+    let manifestInput: unknown;
+    try {
+      manifestInput = JSON.parse(data.manifestJson);
+    } catch {
+      throw new Error("The blueprint is not valid JSON.");
+    }
+    const parsed = blueprintSchema.safeParse(manifestInput);
     if (!parsed.success) throw new Error("Blueprint failed schema validation; fix the issues before saving a version.");
     const db = await admin();
     const { data: version, error } = await db

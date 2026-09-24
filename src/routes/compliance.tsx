@@ -57,7 +57,7 @@ function Compliance() {
                 </div>
                 <p className="text-xs text-muted-foreground">{p.description}</p>
                 <p className="mt-1 text-[11px] text-muted-foreground">
-                  {titleize(p.scope ?? "customer")} · {(p.controls_json as unknown[] | null)?.length ?? 0} controls
+                  {((p.policy_manifest_json as { controls?: unknown[] } | null)?.controls ?? []).length} controls
                 </p>
               </li>
             ))}
@@ -103,11 +103,11 @@ function Compliance() {
                         </td>
                         <td className="text-muted-foreground">{env?.name}</td>
                         <td>
-                          <span className="mono-num mr-2 text-muted-foreground">{c.control_id}</span>
+                          <span className="mono-num mr-2 text-muted-foreground">{c.control_key}</span>
                           {c.control_name}
                         </td>
-                        <td className="max-w-[320px] truncate text-muted-foreground" title={c.evidence ?? ""}>
-                          {c.evidence ?? "—"}
+                        <td className="max-w-[320px] truncate text-muted-foreground" title={evidenceText(c.evidence_json)}>
+                          {evidenceText(c.evidence_json)}
                         </td>
                         <td>
                           <ResultPill result={c.result} />
@@ -159,4 +159,12 @@ function Compliance() {
       </div>
     </>
   );
+}
+
+function evidenceText(evidence: unknown): string {
+  if (!evidence) return "—";
+  if (typeof evidence === "string") return evidence;
+  const record = evidence as Record<string, unknown>;
+  const note = record["evidence"] ?? record["detail"] ?? record["note"];
+  return typeof note === "string" ? note : JSON.stringify(evidence);
 }

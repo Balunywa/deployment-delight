@@ -44,11 +44,13 @@ function DeploymentDetail() {
     queryClient.invalidateQueries({ queryKey: ["audit"] });
   };
 
+  const decideFn = useServerFn(decideApproval);
   const decide = useMutation({
-    mutationFn: useServerFn(decideApproval),
+    mutationFn: (input: { approvalId: string; decision: "approved" | "rejected"; comments?: string; decidedBy?: string }) =>
+      decideFn({ data: input }),
     onSuccess: (_r, vars) => {
       toast.success(
-        vars.data.decision === "approved" ? "Approved. Deployment queued for the central pipeline." : "Deployment rejected and cancelled.",
+        vars.decision === "approved" ? "Approved. Deployment queued for the central pipeline." : "Deployment rejected and cancelled.",
       );
       invalidate();
     },
@@ -82,19 +84,19 @@ function DeploymentDetail() {
   };
   const preflight = (d.preflight_json ?? null) as PreflightResult | null;
   const plan = (d.plan_json ?? null) as DeploymentPlan | null;
-  const steps = ((d.deployment_steps ?? []) as {
+  const steps = ((d.deployment_steps ?? []) as unknown as {
     id: string;
     sequence: number;
     name: string;
     module_name: string | null;
     status: string;
-    log_output: string | null;
+    log_text: string | null;
   }[]).sort((a, b) => a.sequence - b.sequence);
-  const approvals = (d.approvals ?? []) as {
+  const approvals = (d.approvals ?? []) as unknown as {
     id: string;
     approval_type: string;
     status: string;
-    approver_role: string | null;
+    requested_from: string | null;
     decided_by: string | null;
     comments: string | null;
     decided_at: string | null;
@@ -134,9 +136,7 @@ function DeploymentDetail() {
                   variant="outline"
                   disabled={decide.isPending}
                   onClick={() =>
-                    decide.mutate({
-                      data: { approvalId: pending.id, decision: "rejected", decidedBy: "Sarah Chen", comments: "Rejected from the run view." },
-                    })
+                    decide.mutate({ approvalId: pending.id, decision: "rejected", decidedBy: "Sarah Chen", comments: "Rejected from the run view." })
                   }
                 >
                   Reject
@@ -144,7 +144,7 @@ function DeploymentDetail() {
                 <Button
                   size="sm"
                   disabled={decide.isPending}
-                  onClick={() => decide.mutate({ data: { approvalId: pending.id, decision: "approved", decidedBy: "Sarah Chen" } })}
+                  onClick={() => decide.mutate({ approvalId: pending.id, decision: "approved", decidedBy: "Sarah Chen" })}
                 >
                   Approve plan
                 </Button>
@@ -252,7 +252,7 @@ function DeploymentDetail() {
                     </Pill>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {a.approver_role ?? "Approver"}
+                    {a.requested_from ?? "Approver"}
                     {a.decided_by ? ` · ${a.decided_by}` : ""}
                     {a.decided_at ? ` · ${dateTime(a.decided_at)}` : " · awaiting decision"}
                   </p>
@@ -268,7 +268,7 @@ function DeploymentDetail() {
       </div>
 
       <div className="mt-4">
-        <Panel title="Execution timeline" description={d.error_summary ?? undefined} bodyClassName="p-0">
+        <Panel title="Execution timeline" description={d.error_json ? JSON.stringify(d.error_json) : undefined} bodyClassName="p-0">
           <ol className="divide-y divide-border">
             {steps.map((s) => (
               <li key={s.id} className="px-4 py-3">
@@ -282,9 +282,9 @@ function DeploymentDetail() {
                     {s.status}
                   </Pill>
                 </div>
-                {s.log_output && (
+                {s.log_text && (
                   <pre className="mt-1.5 overflow-x-auto rounded-sm bg-muted px-2 py-1.5 font-mono text-[11px] whitespace-pre-wrap text-muted-foreground">
-                    {s.log_output}
+                    {s.log_text}
                   </pre>
                 )}
               </li>
