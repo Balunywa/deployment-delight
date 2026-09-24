@@ -357,7 +357,8 @@ function Releases() {
               <ReleaseItem
                 key={v.id}
                 v={v}
-                prev={versions[i + 1]}
+                // Diff against the previous published release, never against a draft.
+                prev={versions.slice(i + 1).find((x) => x.status !== "draft")}
                 tone={releaseLabel(v.version, v.status, preferred)}
                 installs={mine.filter((x) => x.actual === v.version)}
                 offeringId={offering.id}
