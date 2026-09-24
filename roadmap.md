@@ -10,6 +10,7 @@
 - Acceptance path verified: Metro Energy preflight returns 17 PASS / 2 WARNING / 0 BLOCKING.
 
 ## Open (needs owner decision or external access)
+- Product and UX direction audit: compare the current experience with the original brief and leading infrastructure deployment platforms (including Massdriver), then reframe the interface around the productized deployment lifecycle.
 - Real Azure execution mode: Container Apps Job running Bicep/Terraform, per-customer federated identity, GitHub/ADO reusable workflow dispatch. Blocked on an Azure tenant + pipeline credentials; the provider interfaces are already in place.
 - Actual cost ingestion from Azure Cost Management (estimates only today).
 - Entra sign-in and role enforcement per user: authorization rules are modelled, but sign-in is not wired because no identity provider has been chosen yet.

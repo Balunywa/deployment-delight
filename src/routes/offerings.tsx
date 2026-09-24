@@ -67,8 +67,8 @@ function Offerings() {
   return (
     <>
       <PageHeader
-        title="Offerings catalog"
-        description="Every offering is a deployable product line with a versioned blueprint: modules, network model, security profile, policy pack and supported regions. Published versions are immutable."
+        title="Deployment Offerings"
+        description="Managed deployment flavors with versioned blueprints. Every offering is a deployable product line with a versioned blueprint: modules, network model, security profile, policy pack and supported regions. Published versions are immutable."
         meta={<Pill tone="neutral">{modules.data?.length ?? 0} infrastructure modules registered</Pill>}
       />
 

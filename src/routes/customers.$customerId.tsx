@@ -161,12 +161,10 @@ function CustomerDetail() {
         <TabsList className="flex-wrap">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="environments">Environments</TabsTrigger>
-          <TabsTrigger value="architecture">Architecture</TabsTrigger>
-          <TabsTrigger value="deployments">Deployments</TabsTrigger>
-          <TabsTrigger value="compliance">Compliance</TabsTrigger>
-          <TabsTrigger value="costs">Costs</TabsTrigger>
-          <TabsTrigger value="audit">Audit</TabsTrigger>
-          <TabsTrigger value="connection">Connection</TabsTrigger>
+          <TabsTrigger value="deployments">History</TabsTrigger>
+          <TabsTrigger value="governance">Governance</TabsTrigger>
+          <TabsTrigger value="finops">FinOps</TabsTrigger>
+          <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="mt-4 grid gap-4 lg:grid-cols-2">
@@ -266,17 +264,56 @@ function CustomerDetail() {
           ))}
         </TabsContent>
 
-        <TabsContent value="architecture" className="mt-4">
+        <TabsContent value="governance" className="mt-4 space-y-4">
           <Panel
             title={`Blueprint manifest · v${prod?.desired?.version ?? "—"}`}
             description="The declarative manifest for this environment. No per-customer IaC repository exists."
           >
-            <pre className="max-h-[560px] overflow-auto rounded-sm bg-muted p-3 font-mono text-[11px] text-muted-foreground">
+            <pre className="max-h-[320px] overflow-auto rounded-sm bg-muted p-3 font-mono text-[11px] text-muted-foreground">
               {JSON.stringify(manifest, null, 2)}
             </pre>
           </Panel>
+
+          {envs.map((e) => (
+            <Panel key={e.id} title={`${e.name} · Compliance checks`} bodyClassName="p-0">
+              <ul className="divide-y divide-border">
+                {e.compliance_checks.map((check) => (
+                  <li key={check.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium">
+                        <span className="mono-num mr-2 text-muted-foreground">{check.control_key}</span>
+                        {check.control_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {check.evidence_json ? JSON.stringify(check.evidence_json) : "No evidence recorded"}
+                      </p>
+                    </div>
+                    <ResultPill result={check.result} />
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          ))}
+
+          <Panel bodyClassName="p-0" title="Audit trail" description="Immutable records of all platform actions.">
+            <ul className="divide-y divide-border">
+              {events.map((e) => (
+                <li key={e.id} className="px-4 py-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="font-mono text-[12px] font-medium">{e.event_type}</p>
+                    <span className="text-[11px] text-muted-foreground">{dateTime(e.timestamp)}</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {e.actor_name ?? "system"} · {e.result ?? e.resource_type ?? "recorded"}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </Panel>
         </TabsContent>
 
+        <TabsContent value="deployments" className="mt-4">
+        </TabsContent>
         <TabsContent value="deployments" className="mt-4">
           <Panel bodyClassName="p-0" title="Deployment history">
             <ul className="divide-y divide-border">
@@ -302,33 +339,7 @@ function CustomerDetail() {
           </Panel>
         </TabsContent>
 
-        <TabsContent value="compliance" className="mt-4 space-y-3">
-          {envs.map((e) => (
-            <Panel key={e.id} title={`${e.name} · ${e.compliance_score}%`} bodyClassName="p-0">
-              <ul className="divide-y divide-border">
-                {e.compliance_checks.map((check) => (
-                  <li key={check.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-                    <div className="min-w-0">
-                      <p className="text-[13px] font-medium">
-                        <span className="mono-num mr-2 text-muted-foreground">{check.control_key}</span>
-                        {check.control_name}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {check.evidence_json ? JSON.stringify(check.evidence_json) : "No evidence recorded"}
-                      </p>
-                    </div>
-                    <ResultPill result={check.result} />
-                  </li>
-                ))}
-                {!e.compliance_checks.length && (
-                  <li className="px-4 py-5 text-xs text-muted-foreground">No evidence collected yet.</li>
-                )}
-              </ul>
-            </Panel>
-          ))}
-        </TabsContent>
-
-        <TabsContent value="costs" className="mt-4">
+        <TabsContent value="finops" className="mt-4">
           <Panel title="Estimated consumption" description="ESTIMATE from the offering cost model. Actuals require Azure Cost Management ingestion.">
             <table className="data-table">
               <thead>
@@ -349,9 +360,7 @@ function CustomerDetail() {
                   </tr>
                 ))}
                 <tr>
-                  <td className="font-semibold" colSpan={2}>
-                    Total
-                  </td>
+                  <td className="font-semibold" colSpan={2}>Total</td>
                   <td className="mono-num text-right font-semibold">{currency(cost)}</td>
                   <td className="mono-num text-right font-semibold">{currency(cost * 12)}</td>
                 </tr>
@@ -360,54 +369,33 @@ function CustomerDetail() {
           </Panel>
         </TabsContent>
 
-        <TabsContent value="audit" className="mt-4">
-          <Panel bodyClassName="p-0" title="Audit trail" description="Immutable — records cannot be edited or deleted from this portal.">
-            <ul className="divide-y divide-border">
-              {events.map((e) => (
-                <li key={e.id} className="px-4 py-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-mono text-[12px] font-medium">{e.event_type}</p>
-                    <span className="text-[11px] text-muted-foreground">{dateTime(e.timestamp)}</span>
+        <TabsContent value="settings" className="mt-4">
+          <Panel title="Azure connection" description="Connection to the customer's Entra tenant and Azure subscription.">
+            <div className="space-y-4">
+              {connections.map((conn) => (
+                <div key={conn.id} className="rounded-md border border-border p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold">{titleize(conn.connection_type)}</p>
+                    <Pill tone={conn.status === "validated" ? "success" : "warning"}>{conn.status}</Pill>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {e.actor_name ?? "system"} · {e.resource_type ?? ""} {e.resource_id ?? ""} · {e.result ?? "success"}
-                  </p>
-                </li>
-              ))}
-              {!events.length && <li className="px-4 py-6 text-sm text-muted-foreground">No audit events for this customer.</li>}
-            </ul>
-          </Panel>
-        </TabsContent>
-
-        <TabsContent value="connection" className="mt-4 space-y-3">
-          {connections.map((conn) => (
-            <Panel
-              key={conn.id}
-              title={titleize(conn.connection_type)}
-              description="No Azure secrets are stored — only a reference to the customer's Key Vault secret or federated identity."
-              actions={
-                <div className="flex items-center gap-2">
-                  <Pill tone={conn.status === "validated" ? "success" : "warning"}>
-                    <Dot tone={conn.status === "validated" ? "success" : "warning"} />
-                    {conn.status}
-                  </Pill>
-                  <Button size="sm" variant="outline" disabled={validate.isPending} onClick={() => validate.mutate({ data: { connectionId: conn.id } })}>
-                    Validate connection
-                  </Button>
+                  <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                    <KV label="Tenant ID" value={conn.tenant_id ?? "—"} />
+                    <KV label="Subscription ID" value={conn.subscription_id ?? "—"} />
+                    <KV label="Resource group" value={conn.resource_group_id ?? "—"} />
+                    <KV label="Credential" value={conn.credential_reference ?? "managed_identity"} />
+                  </dl>
+                  <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+                    <p className="text-[11px] text-muted-foreground">
+                      Last validated {conn.last_validated_at ? relative(conn.last_validated_at) : "never"}
+                    </p>
+                    <Button size="sm" variant="outline" disabled={validate.isPending} onClick={() => validate.mutate({ data: { connectionId: conn.id } })}>
+                      Test connection
+                    </Button>
+                  </div>
                 </div>
-              }
-            >
-              <dl className="grid gap-1.5 text-xs sm:grid-cols-2">
-                <KV label="Tenant" value={conn.tenant_id ?? "—"} />
-                <KV label="Subscription" value={conn.subscription_id ?? "—"} />
-                <KV label="Resource group" value={conn.resource_group_id ?? "—"} />
-                <KV label="Management group" value={conn.management_group_id ?? "not supplied"} />
-                <KV label="Credential reference" value={conn.credential_reference ?? "—"} />
-                <KV label="Last validated" value={conn.last_validated_at ? dateTime(conn.last_validated_at) : "never"} />
-              </dl>
-            </Panel>
-          ))}
-          {!connections.length && <EmptyState title="No Azure connection configured for this customer." />}
+              ))}
+            </div>
+          </Panel>
         </TabsContent>
       </Tabs>
     </>

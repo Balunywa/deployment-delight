@@ -13,24 +13,56 @@ import {
   ScrollText,
   ShieldCheck,
 } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { type ReactNode } from "react";
 
 import { Pill } from "@/components/Primitives";
 import { cn } from "@/lib/utils";
 
+type NavItem = {
+  to: "/" | "/estate" | "/customers" | "/deployments" | "/products" | "/offerings" | "/upgrades" | "/compliance" | "/costs" | "/audit" | "/settings";
+  label: string;
+  icon: LucideIcon;
+};
+
+type NavGroup = {
+  label: string;
+  items: readonly NavItem[];
+};
+
 const nav = [
-  { to: "/", label: "Overview", icon: LayoutDashboard },
-  { to: "/products", label: "Products", icon: Boxes },
-  { to: "/offerings", label: "Offerings", icon: Layers },
-  { to: "/customers", label: "Customers", icon: Building2 },
-  { to: "/deployments", label: "Deployments", icon: Rocket },
-  { to: "/estate", label: "Estate", icon: Activity },
-  { to: "/compliance", label: "Compliance", icon: ShieldCheck },
-  { to: "/upgrades", label: "Upgrades", icon: BadgeCheck },
-  { to: "/costs", label: "Costs", icon: DollarSign },
-  { to: "/audit", label: "Audit", icon: ScrollText },
-  { to: "/settings", label: "Settings", icon: Cog },
-] as const;
+  {
+    label: "Inventory",
+    items: [
+      { to: "/", label: "Overview", icon: LayoutDashboard },
+      { to: "/estate", label: "Estate Fleet", icon: Activity },
+      { to: "/customers", label: "Customers", icon: Building2 },
+      { to: "/deployments", label: "Deployments", icon: Rocket },
+    ],
+  },
+  {
+    label: "Catalog",
+    items: [
+      { to: "/products", label: "Products", icon: Boxes },
+      { to: "/offerings", label: "Offerings", icon: Layers },
+    ],
+  },
+  {
+    label: "Governance",
+    items: [
+      { to: "/upgrades", label: "Rollouts", icon: BadgeCheck },
+      { to: "/compliance", label: "Compliance", icon: ShieldCheck },
+      { to: "/costs", label: "Cost Management", icon: DollarSign },
+      { to: "/audit", label: "Audit Logs", icon: ScrollText },
+    ],
+  },
+  {
+    label: "System",
+    items: [{ to: "/settings", label: "Settings", icon: Cog }],
+  },
+] as const satisfies readonly NavGroup[];
+
+const mobileNav: readonly NavItem[] = nav.flatMap((group) => [...group.items]);
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -43,22 +75,29 @@ export function AppShell({ children }: { children: ReactNode }) {
           <p className="mt-0.5 text-[11px] text-nav-muted">Cloud Deployment Portal</p>
         </div>
         <nav className="flex-1 overflow-y-auto p-2">
-          {nav.map((item) => {
-            const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                className={cn(
-                  "mb-0.5 flex items-center gap-2.5 rounded-sm px-2.5 py-2 text-[13px] text-nav-muted transition-colors hover:bg-nav-active hover:text-nav-foreground",
-                  active && "bg-nav-active font-medium text-nav-foreground",
-                )}
-              >
-                <item.icon className="size-4" />
-                {item.label}
-              </Link>
-            );
-          })}
+          {nav.map((group) => (
+            <div key={group.label} className="mb-4">
+              <p className="mb-1 px-2.5 text-[10px] font-bold tracking-wider text-nav-muted uppercase">
+                {group.label}
+              </p>
+              {group.items.map((item) => {
+                const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    className={cn(
+                      "mb-0.5 flex items-center gap-2.5 rounded-sm px-2.5 py-1.5 text-[13px] text-nav-muted transition-colors hover:bg-nav-active hover:text-nav-foreground",
+                      active && "bg-nav-active font-medium text-nav-foreground",
+                    )}
+                  >
+                    <item.icon className="size-4" />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="border-t border-nav-active p-3">
           <Link
@@ -88,7 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card px-2 py-1.5 lg:hidden">
-          {nav.map((item) => (
+          {mobileNav.map((item) => (
             <Link
               key={item.to}
               to={item.to}
