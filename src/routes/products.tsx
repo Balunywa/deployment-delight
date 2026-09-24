@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { ArrowUpRight } from "lucide-react";
 
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
 import { EmptyState } from "@/components/Primitives";
@@ -248,15 +249,20 @@ function ProductCard({
   const meta = PRODUCT_BY_NAME.get(product.name);
   const installs = product.offerings.reduce((n, o) => n + Number(o.installs), 0);
   const color = index % 2 === 0 ? "#2f7c83" : ACCENT;
+  // The card opens the product's most-used offering; the others are one click away on the Offerings page.
+  const main = [...product.offerings].sort((a, b) => Number(b.installs) - Number(a.installs))[0];
   return (
-    <article
-      className="flex flex-col rounded-md border bg-white p-4"
+    <Link
+      to="/offerings"
+      search={main ? { offering: main.id } : {}}
+      className="group flex flex-col rounded-md border bg-white p-4 transition-shadow hover:shadow-md"
       style={{ borderColor: "#e6dcc8", borderLeft: `3px solid ${color}` }}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[15px] font-bold" style={{ color: INK }}>
+          <p className="flex items-center gap-1 text-[15px] font-bold" style={{ color: INK }}>
             {product.name}
+            <ArrowUpRight className="size-3.5 opacity-0 transition-opacity group-hover:opacity-60" />
           </p>
           {meta?.audience && (
             <p className="text-[10px] font-semibold tracking-wider text-[#8a8070] uppercase">
@@ -305,11 +311,9 @@ function ProductCard({
         </p>
         <div className="flex flex-wrap gap-1.5">
           {product.offerings.map((o) => (
-            <Link
+            <span
               key={o.id}
-              to="/offerings"
-              search={{ offering: o.id }}
-              className="rounded-sm border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-[#f6f1e7]"
+              className="rounded-sm border px-2 py-1 text-[11px] font-medium"
               style={{ borderColor: "#d9ccb4", color: INK }}
               title={`${o.installs} installs · ${o.version ? `v${o.version}` : "not published"}`}
             >
@@ -317,10 +321,10 @@ function ProductCard({
               <span className="ml-1.5 font-mono text-[10px] text-[#8a8070]">
                 {o.version ? `v${o.version}` : "draft"} · {o.installs}
               </span>
-            </Link>
+            </span>
           ))}
         </div>
       </div>
-    </article>
+    </Link>
   );
 }
