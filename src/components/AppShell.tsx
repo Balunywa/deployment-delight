@@ -13,10 +13,22 @@ import {
   ScrollText,
   ShieldCheck,
 } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { type ReactNode } from "react";
 
 import { Pill } from "@/components/Primitives";
 import { cn } from "@/lib/utils";
+
+type NavItem = {
+  to: "/" | "/estate" | "/customers" | "/deployments" | "/products" | "/offerings" | "/upgrades" | "/compliance" | "/costs" | "/audit" | "/settings";
+  label: string;
+  icon: LucideIcon;
+};
+
+type NavGroup = {
+  label: string;
+  items: readonly NavItem[];
+};
 
 const nav = [
   {
@@ -48,7 +60,9 @@ const nav = [
     label: "System",
     items: [{ to: "/settings", label: "Settings", icon: Cog }],
   },
-] as const;
+] as const satisfies readonly NavGroup[];
+
+const mobileNav: readonly NavItem[] = nav.flatMap((group) => [...group.items]);
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -113,7 +127,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-border bg-card px-2 py-1.5 lg:hidden">
-          {nav.flatMap((g) => g.items).map((item) => (
+          {mobileNav.map((item) => (
             <Link
               key={item.to}
               to={item.to}
