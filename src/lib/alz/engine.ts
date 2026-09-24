@@ -77,6 +77,12 @@ export type Answers = {
   logRetentionDays: number;
   siem: "sentinel" | "other";
   identity: YesNo;
+  /** Second hub region ("" for none). Hubs peer to each other automatically. */
+  secondaryRegion: string;
+  defender: YesNo;
+  updateManager: YesNo;
+  serviceHealth: YesNo;
+  vmBackup: YesNo;
   landingZones: OptionalGroup[];
   /** Per-assignment decisions, keyed `<library management group id>/<assignment name>`. */
   policyOverrides: Record<string, "audit" | "remove">;
@@ -98,6 +104,11 @@ export const DEFAULT_ANSWERS: Answers = {
   logRetentionDays: 30,
   siem: "sentinel",
   identity: "no",
+  secondaryRegion: "",
+  defender: "yes",
+  updateManager: "yes",
+  serviceHealth: "yes",
+  vmBackup: "yes",
   landingZones: ["corp", "online", "local", "sandbox"],
   policyOverrides: {},
   securityContactEmail: "",
@@ -172,6 +183,34 @@ export function changesFor(library: AlzLibrary, answers: Answers): Change[] {
         a,
         "A third-party monitoring tool is used. Microsoft advises removing the Azure Monitor Agent deployment assignments.",
       );
+  if (answers.defender === "no")
+    for (const a of [
+      "Deploy-MDFC-Config-H224",
+      "Deploy-MDEndpoints",
+      "Deploy-MDEndpointsAMA",
+      "Deploy-MDFC-OssDb",
+      "Deploy-MDFC-SqlAtp",
+      "Deploy-MDFC-DefSQL-AMA",
+    ])
+      removeWherever(
+        a,
+        "Microsoft Defender for Cloud plans aren't used (another security tool covers this), so the assignments that enable them are removed.",
+      );
+  if (answers.updateManager === "no")
+    removeWherever(
+      "Enable-AUM-CheckUpdates",
+      "Patching is handled outside Azure Update Manager, so periodic update assessment is not configured by policy.",
+    );
+  if (answers.serviceHealth === "no")
+    removeWherever(
+      "Deploy-SvcHealth-BuiltIn",
+      "Service Health alerts are handled elsewhere, so the built-in alert rules and action groups are not deployed.",
+    );
+  if (answers.vmBackup === "no")
+    removeWherever(
+      "Deploy-VM-Backup",
+      "VM backup is handled outside Azure Backup, so VMs are not enrolled in a Recovery Services vault by policy.",
+    );
   for (const [key, action] of Object.entries(answers.policyOverrides)) {
     const [mgId, assignment] = key.split("/");
     const mg = groups.find((m) => m.id === mgId);
@@ -392,10 +431,28 @@ export function platformResources(answers: Answers): PlatformResource[] {
       subscription: "management",
       terraform: "module.management.sentinel_onboarding",
     });
-  if (hub) conn("hubvnet", "Hub virtual network", "10.0.0.0/16", ccfg);
+  const second =
+    hasHub(answers) &&
+    !!answers.secondaryRegion &&
+    answers.secondaryRegion !== answers.primaryRegion;
+  if (hub) conn("hubvnet", "Hub virtual network", `${answers.primaryRegion} · 10.0.0.0/16`, ccfg);
+  if (hub && second)
+    conn(
+      "hubvnet2",
+      "Hub virtual network (second region)",
+      `${answers.secondaryRegion} · 10.1.0.0/16, peered to the primary hub`,
+      "hub_virtual_networks.secondary",
+    );
   if (wan) {
     conn("vwan", "Virtual WAN", "Standard", "virtual_wan_settings.virtual_wan");
-    conn("vhub", "Virtual hub", "Microsoft-managed routing", ccfg);
+    conn("vhub", "Virtual hub", `${answers.primaryRegion} · Microsoft-managed routing`, ccfg);
+    if (second)
+      conn(
+        "vhub2",
+        "Virtual hub (second region)",
+        `${answers.secondaryRegion} · hubs mesh automatically`,
+        "virtual_hubs.secondary",
+      );
   }
   if (hasFirewall(answers))
     conn(
@@ -550,14 +607,15 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
   const ama = answers.monitoring === "azure_monitor";
   const b = (v: boolean) => String(v);
 
-  const enabledResources = (extra: string[]) => [
+  const second = hasHub(answers) && !!answers.secondaryRegion && answers.secondaryRegion !== region;
+  const enabledResources = (extra: string[], zones = dns) => [
     `      enabled_resources = {`,
     `        firewall                              = ${b(fw)}`,
     `        firewall_policy                       = ${b(fw)}`,
     `        bastion                               = ${b(on(answers.bastion))}`,
     `        virtual_network_gateway_express_route = ${b(on(answers.expressRoute))}`,
     `        virtual_network_gateway_vpn           = ${b(on(answers.vpnGateway))}`,
-    `        private_dns_zones                     = ${b(dns)}`,
+    `        private_dns_zones                     = ${b(zones)}`,
     `        private_dns_resolver                  = ${b(dns)}`,
     ...extra,
     `      }`,
@@ -658,6 +716,21 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         ...enabledResources([`        dns_resolver_policy                   = ${b(dns)}`]),
         ...firewallSku,
         `    }`,
+        ...(second
+          ? [
+              `    secondary = {`,
+              `      location                  = ${q(answers.secondaryRegion)}`,
+              `      default_parent_id         = azurerm_resource_group.connectivity.id`,
+              `      default_hub_address_space = "10.1.0.0/16"`,
+              `      # Private DNS zones are global and live with the primary hub.`,
+              ...enabledResources(
+                [`        dns_resolver_policy                   = ${b(dns)}`],
+                false,
+              ),
+              ...firewallSku,
+              `    }`,
+            ]
+          : []),
         `  }`,
         `}`,
         ``,
@@ -704,6 +777,23 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
           ]),
           ...firewallSku,
           `    }`,
+          ...(second
+            ? [
+                `    secondary = {`,
+                `      location                  = ${q(answers.secondaryRegion)}`,
+                `      default_parent_id         = azurerm_resource_group.connectivity.id`,
+                `      default_hub_address_space = "10.1.0.0/16"`,
+                `      # Private DNS zones are global and live with the primary hub.`,
+                ...enabledResources(
+                  [
+                    `        sidecar_virtual_network               = ${b(on(answers.bastion) || dns)}`,
+                  ],
+                  false,
+                ),
+                ...firewallSku,
+                `    }`,
+              ]
+            : []),
           `  }`,
           `}`,
           ``,

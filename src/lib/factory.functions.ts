@@ -1305,6 +1305,11 @@ const answersSchema = z.object({
   logRetentionDays: z.number().int().min(30).max(730),
   siem: z.enum(["sentinel", "other"]),
   identity: z.enum(["yes", "no"]),
+  secondaryRegion: z.string().max(40),
+  defender: z.enum(["yes", "no"]),
+  updateManager: z.enum(["yes", "no"]),
+  serviceHealth: z.enum(["yes", "no"]),
+  vmBackup: z.enum(["yes", "no"]),
   landingZones: z.array(z.enum(["corp", "online", "local", "sandbox"])),
   policyOverrides: z.record(
     z.string().regex(/^[a-z_]+\/[A-Za-z0-9-]+$/),

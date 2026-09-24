@@ -19,7 +19,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { IsoStage, type PolicyBadge } from "@/components/lz/IsoStage";
+import { ArchitectureDiagram } from "@/components/lz/ArchitectureDiagram";
 import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,10 +44,10 @@ import {
   shortRef,
 } from "@/lib/alz/engine";
 import type { Placement } from "@/lib/alz/placement";
-import { type Flow, type Sel, buildScene, flowsFor, shortName } from "@/lib/alz/scene";
+import { type Flow, type Sel, type Spoke, flowsFor, spokesFor } from "@/lib/alz/scene";
 import { cn } from "@/lib/utils";
 
-type Lens = "build" | "traffic" | "policy";
+type Lens = "build" | "traffic";
 
 /** What each platform resource is, in plain words, and the ALZ assignments that act on or depend on it. */
 const RESOURCE_INFO: Record<string, { what: string; policies: string[] }> = {
@@ -113,6 +113,14 @@ const RESOURCE_INFO: Record<string, { what: string; policies: string[] }> = {
   },
 };
 
+const NAMES: Record<string, string> = {
+  sidecar: "Sidecar virtual network",
+  hubvnet: "Hub virtual network",
+  hubvnet2: "Hub virtual network (second region)",
+  vhub: "Virtual hub",
+  vhub2: "Virtual hub (second region)",
+};
+
 const REGIONS = [
   "eastus",
   "eastus2",
@@ -160,28 +168,35 @@ export function LandingZoneDesigner({
   readOnlyOwner?: string | undefined;
 }) {
   const editable = !!setAnswers && !readOnlyOwner;
-  const [lens, setLens] = useState<Lens>("build");
+  const [panel, setPanel] = useState<"design" | "details" | "traffic">(
+    editable ? "design" : "details",
+  );
   const [sel, setSel] = useState<Sel | null>(null);
-  const [flowId, setFlowId] = useState<string>("egress");
+  const [flowId, setFlowId] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(true);
   const [full, setFull] = useState(false);
-  const [panel, setPanel] = useState<"design" | "inspect">(
-    setAnswers && !readOnlyOwner ? "design" : "inspect",
-  );
+  const [open, setOpen] = useState(true);
 
   const tree = useMemo(() => hierarchy(lib, answers), [lib, answers]);
-  const scene = useMemo(() => buildScene(tree, answers, placed), [tree, answers, placed]);
-  const flows = useMemo(() => flowsFor(scene, answers), [scene, answers]);
+  const spokes = useMemo(
+    () =>
+      spokesFor(
+        ["corp", "online", "local", "sandbox"].filter((g) => tree.some((t) => t.libraryId === g)),
+        placed,
+      ),
+    [tree, placed],
+  );
+  const flows = useMemo(() => flowsFor({ spokes }, answers), [spokes, answers]);
   const changes = useMemo(() => changesFor(lib, answers), [lib, answers]);
-  const flow = flows.find((f) => f.id === flowId) ?? flows[0] ?? null;
+  const flow = panel === "traffic" ? (flows.find((f) => f.id === flowId) ?? null) : null;
 
   useEffect(() => setStep(0), [flowId, answers]);
   useEffect(() => {
-    if (lens !== "traffic" || !playing || !flow?.available) return;
-    const t = setInterval(() => setStep((s) => (s + 1) % flow.steps.length), 2400);
+    if (!playing || !flow?.available) return;
+    const t = setInterval(() => setStep((s) => (s + 1) % flow.steps.length), 2600);
     return () => clearInterval(t);
-  }, [lens, playing, flow]);
+  }, [playing, flow]);
   useEffect(() => {
     if (!full) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setFull(false);
@@ -190,195 +205,69 @@ export function LandingZoneDesigner({
   }, [full]);
 
   const set = (patch: Partial<Answers>) => setAnswers?.({ ...answers, ...patch });
-
-  const policyMg =
-    lens === "policy"
-      ? sel?.kind === "mg"
-        ? sel.id
-        : sel?.kind === "spoke"
-          ? (scene.spokes.find((s) => s.id === sel.id)?.group ?? null)
-          : sel?.kind === "sub"
-            ? sel.id
-            : null
-      : null;
-  const policyChain = useMemo(() => {
-    if (!policyMg) return [];
-    const chain: string[] = [];
-    let n = tree.find((t) => t.libraryId === policyMg);
-    while (n) {
-      chain.unshift(n.libraryId);
-      n = tree.find((t) => t.id === n?.parentId);
-    }
-    return chain;
-  }, [tree, policyMg]);
-  const badges: PolicyBadge[] = tree.map((n) => ({ mg: n.libraryId, here: n.enforced }));
-
-  const total = tree.reduce((a, n) => a + n.enforced, 0);
-  const resources = platformResources(answers);
-  const subs = platformSubscriptions(answers).filter((s) => s.created);
-  const omitted = lib.managementGroups.length - includedGroups(lib, answers).length;
-
   const select = (s: Sel | null) => {
     setSel(s);
-    if (s) setPanel("inspect");
+    if (s) {
+      setPanel("details");
+      setOpen(true);
+    }
   };
-  const switchLens = (l: Lens) => {
-    setLens(l);
-    if (l !== "build") setPanel("inspect");
-  };
-  const target = tree.find((t) => t.libraryId === policyChain[policyChain.length - 1]);
+  const omitted = lib.managementGroups.length - includedGroups(lib, answers).length;
+  const changeCount =
+    groupChanges(changes.filter((c) => c.action === "remove")).length +
+    changes.filter((c) => c.action === "audit").length +
+    omitted;
+  const topology =
+    answers.connectivity === "virtual_wan"
+      ? "Virtual WAN"
+      : answers.connectivity === "hub_and_spoke"
+        ? "Hub & spoke"
+        : "No central network";
 
-  const caption =
-    lens === "traffic" && flow ? (
-      <StageCard>
-        <p className="flex items-center gap-1.5 text-[12.5px] font-semibold text-white">
-          <span className="size-2 rounded-full" style={{ background: flow.color }} />
-          {flow.title}
+  const header = (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-card px-4 py-2">
+      <div>
+        <p className="text-[13px] font-semibold">
+          Azure landing zone — {topology}
+          <span className="ml-2 font-normal text-muted-foreground">
+            ALZ {shortRef(lib.ref)} ·{" "}
+            {changeCount
+              ? `${changeCount} change${changeCount === 1 ? "" : "s"} from Microsoft's reference`
+              : "Microsoft's reference, unchanged"}
+          </span>
         </p>
-        {flow.available ? (
-          <p className="mt-1 text-[11.5px] leading-snug text-[#b9c4da]">
-            <b className="text-white">
-              {step + 1}. {flow.steps[step]?.title}
-            </b>{" "}
-            {flow.steps[step]?.body}
-          </p>
-        ) : (
-          <p className="mt-1 text-[11.5px] text-[#f3c24f]">{flow.reason}</p>
-        )}
-      </StageCard>
-    ) : lens === "policy" ? (
-      <StageCard>
-        {target ? (
-          <>
-            <p className="text-[11px] text-[#9fb0cc]">Policy that reaches</p>
-            <p className="text-[13px] font-semibold text-white">{target.displayName}</p>
-            <ol className="mt-2 space-y-0.5">
-              {policyChain.map((id, i) => {
-                const n = tree.find((t) => t.libraryId === id)!;
-                return (
-                  <li key={id}>
-                    <button
-                      onClick={() => select({ kind: "mg", id })}
-                      className="flex w-full items-center justify-between rounded px-1.5 py-0.5 text-left text-[11.5px] text-[#dfe6f3] hover:bg-white/10"
-                      style={{ paddingLeft: 6 + i * 8 }}
-                    >
-                      <span>{n.displayName}</span>
-                      <span
-                        className={cn(
-                          "font-mono",
-                          n.enforced ? "text-[#f3c24f]" : "text-[#7d8aa6]",
-                        )}
-                      >
-                        +{n.enforced}
-                      </span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ol>
-            <p className="mt-1.5 flex justify-between border-t border-white/10 px-1.5 pt-1.5 text-[11.5px] font-semibold text-white">
-              <span>Applies here</span>
-              <span className="font-mono">{target.enforced + target.inherited}</span>
-            </p>
-          </>
-        ) : (
-          <p className="text-[11.5px] text-[#b9c4da]">
-            Numbers show assignments made at each management group. Click one to trace everything
-            that flows down to it.
-          </p>
-        )}
-      </StageCard>
-    ) : null;
-
-  const stage = (
-    <IsoStage
-      scene={scene}
-      lens={lens}
-      selected={sel}
-      onSelect={select}
-      flow={lens === "traffic" ? flow : null}
-      activeStep={step}
-      onStep={(i) => {
-        setStep(i);
-        setPlaying(false);
-      }}
-      policyBadges={badges}
-      policyChain={policyChain}
-      height={full ? "calc(100vh - 49px)" : 640}
-    >
-      {caption}
-    </IsoStage>
-  );
-
-  const lensBar = (
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 bg-[#0e172b] px-3 py-2">
-      <div className="flex rounded-md bg-white/5 p-0.5">
-        {(
-          [
-            ["build", "Architecture", Boxes],
-            ["traffic", "Traffic flows", Route],
-            ["policy", "Policy flow", ShieldCheck],
-          ] as const
-        ).map(([id, label, Icon]) => (
-          <button
-            key={id}
-            onClick={() => switchLens(id)}
-            className={cn(
-              "flex items-center gap-1.5 rounded px-3 py-1 text-[12.5px] font-medium transition-colors",
-              lens === id ? "bg-white text-[#0b1324]" : "text-[#b9c4da] hover:text-white",
-            )}
-          >
-            <Icon className="size-3.5" />
-            {label}
-          </button>
-        ))}
       </div>
-      <div className="flex items-center gap-3 text-[11.5px] text-[#9fb0cc]">
-        {(
-          [
-            [tree.length, "management group"],
-            [subs.length, "platform subscription"],
-            [resources.length, "platform resource"],
-            [total, "policy assignment"],
-          ] as const
-        ).map(([n, label]) => (
-          <span key={label} className="hidden 2xl:inline">
-            <b className="text-white">{n}</b> {label}
-            {n === 1 ? "" : "s"}
-          </span>
-        ))}
+      <div className="flex items-center gap-2 text-[12px]">
         {editable && dirty && (
-          <span className="flex items-center gap-1.5">
-            <span className="text-[#f3c24f]">Unsaved</span>
-            <button
-              onClick={onDiscard}
-              className="rounded px-2 py-1 text-[#b9c4da] hover:bg-white/10 hover:text-white"
-            >
+          <>
+            <span className="text-warning">Unsaved changes</span>
+            <Button size="sm" variant="ghost" className="h-7" onClick={onDiscard}>
               Discard
-            </button>
-            <button
-              onClick={onSave}
-              disabled={saving}
-              className="rounded bg-white px-2.5 py-1 font-medium text-[#0b1324] hover:bg-white/90"
-            >
+            </Button>
+            <Button size="sm" className="h-7" disabled={saving} onClick={onSave}>
               {saving ? "Saving…" : "Save design"}
-            </button>
-          </span>
+            </Button>
+          </>
         )}
-        <button
+        <Button size="sm" variant="outline" className="h-7" onClick={() => setOpen((o) => !o)}>
+          {open ? "Hide panel" : "Show panel"}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7"
           onClick={() => setFull((f) => !f)}
-          className="rounded p-1 text-[#b9c4da] hover:bg-white/10 hover:text-white"
           aria-label={full ? "Exit full screen" : "Full screen"}
         >
-          {full ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-        </button>
+          {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+        </Button>
       </div>
     </div>
   );
 
   const inspector = (
     <Inspector
-      lens={lens}
+      lens={panel === "traffic" ? "traffic" : "build"}
       sel={sel}
       setSel={select}
       lib={lib}
@@ -392,7 +281,7 @@ export function LandingZoneDesigner({
       setFlowId={(id) => {
         setFlowId(id);
         setPlaying(true);
-        setLens("traffic");
+        setPanel("traffic");
       }}
       step={step}
       setStep={(i) => {
@@ -401,43 +290,60 @@ export function LandingZoneDesigner({
       }}
       playing={playing}
       setPlaying={setPlaying}
-      scene={scene}
+      spokes={spokes}
       omitted={omitted}
     />
   );
 
-  const inspectLabel =
-    lens === "traffic" ? "Traffic" : lens === "policy" ? "Policy" : sel ? "Details" : "Overview";
-
   return (
     <div
       className={cn(
-        "grid overflow-hidden border-border bg-card",
-        full
-          ? "fixed inset-0 z-50 grid-cols-[minmax(0,1fr)_372px]"
-          : "rounded-md border xl:grid-cols-[minmax(0,1fr)_372px]",
+        "grid border-border bg-card",
+        full ? "fixed inset-0 z-50" : "rounded-md border",
+        open && (full ? "grid-cols-[minmax(0,1fr)_340px]" : "xl:grid-cols-[minmax(0,1fr)_340px]"),
       )}
     >
-      <section className="min-w-0 bg-[#0b1324]">
-        {lensBar}
-        {stage}
+      <section className={cn("flex min-w-0 flex-col", full && "h-screen")}>
+        {header}
+        <div
+          className={cn("overflow-x-auto", full && "min-h-0 flex-1 overflow-y-auto")}
+          onClick={() => setSel(null)}
+        >
+          <ArchitectureDiagram
+            lib={lib}
+            tree={tree}
+            answers={answers}
+            set={editable ? set : undefined}
+            spokes={spokes}
+            sel={sel}
+            onSelect={select}
+            flow={flow}
+            step={step}
+          />
+        </div>
       </section>
       <aside
         className={cn(
           "flex min-h-0 flex-col border-t border-border xl:border-t-0 xl:border-l",
-          full ? "h-screen" : "xl:h-[689px]",
+          !open && "hidden",
+          full ? "h-screen" : "self-start xl:sticky xl:top-0 xl:h-[calc(100vh-1rem)]",
         )}
       >
         <div className="flex border-b border-border px-2 pt-2">
           {(
             [
               ["design", editable ? "Design" : "About"],
-              ["inspect", inspectLabel],
+              ["details", "Details"],
+              ["traffic", "Traffic flows"],
             ] as const
           ).map(([id, label]) => (
             <button
               key={id}
-              onClick={() => setPanel(id)}
+              onClick={() => {
+                setPanel(id);
+                if (id === "traffic" && !flowId)
+                  setFlowId(flows.find((f) => f.available)?.id ?? null);
+              }}
               className={cn(
                 "-mb-px border-b-2 px-3 pb-2 text-[12.5px] transition-colors",
                 panel === id
@@ -464,11 +370,7 @@ export function LandingZoneDesigner({
                 onSave={onSave}
                 onDiscard={onDiscard}
                 saving={saving}
-                changes={
-                  groupChanges(changes.filter((c) => c.action === "remove")).length +
-                  changes.filter((c) => c.action === "audit").length +
-                  omitted
-                }
+                changes={changeCount}
               />
             ) : (
               <ReadOnlyPanel owner={readOnlyOwner ?? "the customer"} placed={placed} />
@@ -478,18 +380,6 @@ export function LandingZoneDesigner({
           <div className="min-h-0 flex-1 overflow-y-auto">{inspector}</div>
         )}
       </aside>
-    </div>
-  );
-}
-
-function StageCard({ children }: { children: ReactNode }) {
-  return (
-    <div
-      className="absolute top-3 right-3 w-[270px] rounded-md border border-white/10 bg-[#0b1324]/90 p-3 shadow-lg backdrop-blur"
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      {children}
     </div>
   );
 }
@@ -740,7 +630,38 @@ function Palette({
                 onCheckedChange={(v) => set({ ddosPlan: yn(v) })}
               />
             </Row>
+            <Row label="Second hub region" hint="Region N hub, peered to region 1">
+              <select
+                className="h-7 max-w-[130px] rounded-md border border-input bg-background px-1.5 font-mono text-xs"
+                value={answers.secondaryRegion}
+                onChange={(e) => set({ secondaryRegion: e.target.value })}
+              >
+                <option value="">None</option>
+                {REGIONS.filter((r) => r !== answers.primaryRegion).map((r) => (
+                  <option key={r}>{r}</option>
+                ))}
+              </select>
+            </Row>
           </div>
+        </Section>
+
+        <Section title="In every subscription">
+          {(
+            [
+              [
+                "defender",
+                "Defender for Cloud",
+                "Plans, security contact, export to the workspace",
+              ],
+              ["updateManager", "Azure Update Manager", "Periodic assessment of missing updates"],
+              ["vmBackup", "VM backup", "Enroll VMs in a Recovery Services vault"],
+              ["serviceHealth", "Service Health alerts", "Alert rules and action groups"],
+            ] as const
+          ).map(([key, label, hint]) => (
+            <Row key={key} label={label} hint={hint}>
+              <Switch checked={on(answers[key])} onCheckedChange={(v) => set({ [key]: yn(v) })} />
+            </Row>
+          ))}
         </Section>
 
         <Section title="Operations">
@@ -866,12 +787,11 @@ function Inspector(props: {
   setStep: (i: number) => void;
   playing: boolean;
   setPlaying: (v: boolean) => void;
-  scene: ReturnType<typeof buildScene>;
+  spokes: Spoke[];
   omitted: number;
 }) {
   const { lens, sel } = props;
   if (lens === "traffic") return <TrafficPanel {...props} />;
-  if (lens === "policy") return <PolicyPanel {...props} />;
   if (!sel) return <Overview {...props} />;
   return (
     <div>
@@ -895,7 +815,12 @@ function Inspector(props: {
           <X className="size-3.5" />
         </button>
       </div>
-      {sel.kind === "mg" && <MgDetail id={sel.id} {...props} />}
+      {sel.kind === "mg" && (
+        <>
+          <MgDetail id={sel.id} {...props} />
+          <PolicyPanel {...props} />
+        </>
+      )}
       {sel.kind === "sub" && <SubDetail id={sel.id} {...props} />}
       {sel.kind === "res" && <ResourceDetail id={sel.id} {...props} />}
       {sel.kind === "spoke" && <SpokeDetail id={sel.id} {...props} />}
@@ -1185,7 +1110,7 @@ function ResourceDetail({ id, answers, set, tree, lib, flows, setFlowId }: IP & 
     }
   })();
   const related = flows.filter((f) => f.available && f.steps.some((s) => s.at === id));
-  const name = r?.name ?? (id === "sidecar" ? "Sidecar virtual network" : shortName(id));
+  const name = r?.name ?? (id === "sidecar" ? "Sidecar virtual network" : (NAMES[id] ?? id));
   return (
     <div className="space-y-3 p-4">
       <div>
@@ -1275,8 +1200,8 @@ function MgDetail({ id, tree, answers, set, placed, lib }: IP & { id: string }) 
         </p>
       )}
       <p className="text-[11.5px] text-muted-foreground">
-        From Microsoft's ALZ {shortRef(lib.ref)}. Switch to the <b>Policy flow</b> lens to see every
-        assignment that applies here.
+        From Microsoft's ALZ {shortRef(lib.ref)}. Every assignment that applies here is listed below
+        — keep it, set it to audit only, or remove it.
       </p>
     </div>
   );
@@ -1367,8 +1292,8 @@ function SubDetail({ id, answers, set, setSel }: IP & { id: string }) {
   );
 }
 
-function SpokeDetail({ id, scene, tree, answers, flows, setFlowId }: IP & { id: string }) {
-  const s = scene.spokes.find((x) => x.id === id);
+function SpokeDetail({ id, spokes, tree, answers, flows, setFlowId }: IP & { id: string }) {
+  const s = spokes.find((x) => x.id === id);
   if (!s) return null;
   const n = tree.find((t) => t.libraryId === s.group);
   const eff = effectivePolicies(tree, s.group).filter((e) => e.item.change?.action !== "remove");
@@ -1376,7 +1301,7 @@ function SpokeDetail({ id, scene, tree, answers, flows, setFlowId }: IP & { id: 
     (e.item.assignment?.effect ?? "").toLowerCase().startsWith("deny"),
   );
   const related = flows.filter((f) => f.available && f.steps.some((st) => st.at === `spoke:${id}`));
-  const more = placedCount(scene, s.group);
+  const more = spokes.filter((x) => x.group === s.group && x.placement).length;
   return (
     <div className="space-y-3 p-4">
       <div>
@@ -1422,9 +1347,6 @@ function SpokeDetail({ id, scene, tree, answers, flows, setFlowId }: IP & { id: 
     </div>
   );
 }
-
-const placedCount = (scene: ReturnType<typeof buildScene>, group: string) =>
-  scene.spokes.filter((s) => s.group === group && s.placement).length;
 
 function ExtDetail({ id }: IP & { id: string }) {
   const text: Record<string, [string, string]> = {
@@ -1626,14 +1548,14 @@ const effectTone = (effect: string | null | undefined) => {
   return "neutral" as const;
 };
 
-function PolicyPanel({ sel, tree, answers, set, setSel, scene }: IP) {
+function PolicyPanel({ sel, tree, answers, set, setSel, spokes }: IP) {
   const [q, setQ] = useState("");
   const [effect, setEffect] = useState<"all" | "deny" | "deploy" | "audit">("all");
   const mgId =
     sel?.kind === "mg" || sel?.kind === "sub"
       ? sel.id
       : sel?.kind === "spoke"
-        ? (scene.spokes.find((s) => s.id === sel.id)?.group ?? null)
+        ? (spokes.find((s) => s.id === sel.id)?.group ?? null)
         : null;
   const target = tree.find((t) => t.libraryId === (mgId ?? "")) ?? null;
   if (!target)

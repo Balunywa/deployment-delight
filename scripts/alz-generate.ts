@@ -18,7 +18,13 @@ const out = process.argv[2] ?? "alz-out";
 const cases: { name: string; answers: Partial<Answers> }[] = [
   {
     name: "reference",
-    answers: { ddosPlan: "yes", vpnGateway: "yes", expressRoute: "yes", identity: "yes" },
+    answers: {
+      ddosPlan: "yes",
+      vpnGateway: "yes",
+      expressRoute: "yes",
+      identity: "yes",
+      secondaryRegion: "westus2",
+    },
   },
   {
     name: "no-ddos-prefixed",
@@ -26,11 +32,25 @@ const cases: { name: string; answers: Partial<Answers> }[] = [
   },
   {
     name: "third-party-monitoring",
-    answers: { monitoring: "third_party", privateDns: "none", firewall: "Premium", bastion: "no" },
+    answers: {
+      monitoring: "third_party",
+      privateDns: "none",
+      firewall: "Premium",
+      bastion: "no",
+      defender: "no",
+      updateManager: "no",
+      serviceHealth: "no",
+      vmBackup: "no",
+    },
   },
   {
     name: "virtual-wan",
-    answers: { connectivity: "virtual_wan", ddosPlan: "yes", vpnGateway: "yes" },
+    answers: {
+      connectivity: "virtual_wan",
+      ddosPlan: "yes",
+      vpnGateway: "yes",
+      secondaryRegion: "westeurope",
+    },
   },
   {
     name: "cloud-only",
