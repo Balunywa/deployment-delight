@@ -19,14 +19,27 @@ async function connect() {
   const host = url ? new URL(url).hostname : (process.env.PGHOST ?? "localhost");
   const azure = host.endsWith(".postgres.database.azure.com");
   let password;
-  if (process.env.AZURE_POSTGRES_ENTRA_AUTH === "true") {
+  if (/^true$/i.test(process.env.AZURE_POSTGRES_ENTRA_AUTH ?? "")) {
     const { DefaultAzureCredential } = await import("@azure/identity");
     const credential = new DefaultAzureCredential();
     password = async () =>
       (await credential.getToken("https://ossrdbms-aad.database.windows.net/.default")).token;
   }
+  // Discrete fields, not connectionString: pg would let the URL override the Entra token callback.
+  const fields = url
+    ? (() => {
+        const u = new URL(url);
+        return {
+          host: u.searchParams.get("host") ?? u.hostname,
+          port: u.port ? Number(u.port) : 5432,
+          user: decodeURIComponent(u.username),
+          database: decodeURIComponent(u.pathname.replace(/^\//, "")) || "postgres",
+          ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
+        };
+      })()
+    : {};
   const client = new pg.Client({
-    ...(url ? { connectionString: url } : {}),
+    ...fields,
     ...(password ? { password } : {}),
     ssl:
       process.env.PGSSLMODE === "disable"

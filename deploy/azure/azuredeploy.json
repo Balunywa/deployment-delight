@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.44.1.10279",
-      "templateHash": "9028012010397067037"
+      "templateHash": "3277497462129256511"
     }
   },
   "parameters": {
@@ -236,7 +236,7 @@
           "ftpsState": "Disabled",
           "http20Enabled": true,
           "healthCheckPath": "/",
-          "appSettings": "[concat(createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('packageUrl')), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false'), createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'PORT', 'value', '8080'), createObject('name', 'WEBSITES_PORT', 'value', '8080'), createObject('name', 'AUTO_MIGRATE', 'value', 'true'), createObject('name', 'SEED_DEMO_DATA', 'value', string(parameters('seedDemoData'))), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('insightsName')), '2020-02-02').ConnectionString), createObject('name', 'ApplicationInsightsAgent_EXTENSION_VERSION', 'value', '~3')), if(variables('useEntra'), createArray(createObject('name', 'DATABASE_URL', 'value', format('postgres://{0}@{1}:5432/{2}', variables('webAppName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName, variables('databaseName'))), createObject('name', 'AZURE_POSTGRES_ENTRA_AUTH', 'value', 'true')), createArray(createObject('name', 'DATABASE_URL', 'value', format('@Microsoft.KeyVault(SecretUri=https://{0}{1}/secrets/database-url)', variables('keyVaultName'), environment().suffixes.keyvaultDns)))))]"
+          "appSettings": "[concat(createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('packageUrl')), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false'), createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'PORT', 'value', '8080'), createObject('name', 'WEBSITES_PORT', 'value', '8080'), createObject('name', 'AUTO_MIGRATE', 'value', 'true'), createObject('name', 'SEED_DEMO_DATA', 'value', if(parameters('seedDemoData'), 'true', 'false')), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('insightsName')), '2020-02-02').ConnectionString), createObject('name', 'ApplicationInsightsAgent_EXTENSION_VERSION', 'value', '~3')), if(variables('useEntra'), createArray(createObject('name', 'DATABASE_URL', 'value', format('postgres://{0}@{1}:5432/{2}', variables('webAppName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName, variables('databaseName'))), createObject('name', 'AZURE_POSTGRES_ENTRA_AUTH', 'value', 'true')), createArray(createObject('name', 'DATABASE_URL', 'value', format('@Microsoft.KeyVault(SecretUri=https://{0}{1}/secrets/database-url)', variables('keyVaultName'), environment().suffixes.keyvaultDns)))))]"
         }
       },
       "dependsOn": [

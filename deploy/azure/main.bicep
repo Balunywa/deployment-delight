@@ -180,7 +180,7 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
           { name: 'PORT', value: '8080' }
           { name: 'WEBSITES_PORT', value: '8080' }
           { name: 'AUTO_MIGRATE', value: 'true' }
-          { name: 'SEED_DEMO_DATA', value: string(seedDemoData) }
+          { name: 'SEED_DEMO_DATA', value: seedDemoData ? 'true' : 'false' }
           { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: insights.properties.ConnectionString }
           { name: 'ApplicationInsightsAgent_EXTENSION_VERSION', value: '~3' }
         ],

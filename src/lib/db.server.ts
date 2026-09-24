@@ -35,9 +35,9 @@ async function entraPassword() {
 /** Returns the shared pool; with AUTO_MIGRATE=true the schema (and optional demo seed) is applied first. */
 export function db(): Promise<pg.Pool> {
   ready ??= (async () => {
-    if (process.env["AUTO_MIGRATE"] === "true") await ensureDatabase();
+    if (/^true$/i.test(process.env["AUTO_MIGRATE"] ?? "")) await ensureDatabase();
     const p = await createPool();
-    if (process.env["AUTO_MIGRATE"] === "true") {
+    if (/^true$/i.test(process.env["AUTO_MIGRATE"] ?? "")) {
       const { migrate } = await import("./migrate.server");
       await migrate(p);
     }
@@ -73,13 +73,29 @@ async function ensureDatabase() {
   }
 }
 
+/**
+ * Builds discrete connection fields from DATABASE_URL. pg lets a connection string override an explicit
+ * password, which would silently drop the Entra token callback — so the URL is never passed as-is.
+ */
+function fromUrl(url: string): pg.ClientConfig {
+  const u = new URL(url);
+  const socketHost = u.searchParams.get("host");
+  return {
+    host: socketHost ?? u.hostname,
+    port: u.port ? Number(u.port) : 5432,
+    user: decodeURIComponent(u.username),
+    database: decodeURIComponent(u.pathname.replace(/^\//, "")) || "postgres",
+    ...(u.password ? { password: decodeURIComponent(u.password) } : {}),
+  };
+}
+
 async function connectionConfig(url: string | undefined): Promise<pg.ClientConfig> {
   const host = url ? new URL(url).hostname : (process.env["PGHOST"] ?? "localhost");
   const azure = host.endsWith(".postgres.database.azure.com");
   const sslDisabled = process.env["PGSSLMODE"] === "disable";
-  const entra = process.env["AZURE_POSTGRES_ENTRA_AUTH"] === "true";
+  const entra = /^true$/i.test(process.env["AZURE_POSTGRES_ENTRA_AUTH"] ?? "");
   return {
-    ...(url ? { connectionString: url } : {}),
+    ...(url ? fromUrl(url) : {}),
     ...(entra ? { password: await entraPassword() } : {}),
     ssl: sslDisabled ? false : azure ? { rejectUnauthorized: true } : undefined,
   };

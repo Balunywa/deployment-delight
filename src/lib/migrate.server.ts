@@ -44,7 +44,7 @@ export async function migrate(pool: pg.Pool) {
       }
     }
 
-    if (process.env["SEED_DEMO_DATA"] === "true") {
+    if (/^true$/i.test(process.env["SEED_DEMO_DATA"] ?? "")) {
       const { rows } = await client.query<{ n: number }>(
         "select count(*)::int as n from public.organizations",
       );
