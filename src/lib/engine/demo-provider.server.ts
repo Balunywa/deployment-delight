@@ -124,6 +124,12 @@ export const demoProvider: InfrastructureProvider = {
       },
       { key: "skus", name: "Supported SKUs", level: "PASS", detail: "All requested SKUs are available." },
       {
+        key: "identity_objects",
+        name: "Entra identity objects",
+        level: "PASS",
+        detail: "Managed identities and Entra groups required by the blueprint resolve in the customer tenant.",
+      },
+      {
         key: "offering_compat",
         name: "Offering compatibility",
         level: "PASS",
