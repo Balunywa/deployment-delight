@@ -10,12 +10,43 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AuditRouteImport } from './routes/audit'
+import { Route as ComplianceRouteImport } from './routes/compliance'
+import { Route as CostsRouteImport } from './routes/costs'
+import { Route as EstateRouteImport } from './routes/estate'
 import { Route as OfferingsRouteImport } from './routes/offerings'
+import { Route as OnboardRouteImport } from './routes/onboard'
 import { Route as ProductsRouteImport } from './routes/products'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as UpgradesRouteImport } from './routes/upgrades'
+import { Route as CustomersIndexRouteImport } from './routes/customers.index'
+import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
+import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
+import { Route as DeploymentsDeploymentIdRouteImport } from './routes/deployments.$deploymentId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuditRoute = AuditRouteImport.update({
+  id: '/audit',
+  path: '/audit',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ComplianceRoute = ComplianceRouteImport.update({
+  id: '/compliance',
+  path: '/compliance',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CostsRoute = CostsRouteImport.update({
+  id: '/costs',
+  path: '/costs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EstateRoute = EstateRouteImport.update({
+  id: '/estate',
+  path: '/estate',
   getParentRoute: () => rootRouteImport,
 } as any)
 const OfferingsRoute = OfferingsRouteImport.update({
@@ -23,40 +54,162 @@ const OfferingsRoute = OfferingsRouteImport.update({
   path: '/offerings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardRoute = OnboardRouteImport.update({
+  id: '/onboard',
+  path: '/onboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProductsRoute = ProductsRouteImport.update({
   id: '/products',
   path: '/products',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UpgradesRoute = UpgradesRouteImport.update({
+  id: '/upgrades',
+  path: '/upgrades',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomersIndexRoute = CustomersIndexRouteImport.update({
+  id: '/customers/',
+  path: '/customers/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CustomersCustomerIdRoute = CustomersCustomerIdRouteImport.update({
+  id: '/customers/$customerId',
+  path: '/customers/$customerId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeploymentsIndexRoute = DeploymentsIndexRouteImport.update({
+  id: '/deployments/',
+  path: '/deployments/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeploymentsDeploymentIdRoute = DeploymentsDeploymentIdRouteImport.update({
+  id: '/deployments/$deploymentId',
+  path: '/deployments/$deploymentId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/audit': typeof AuditRoute
+  '/compliance': typeof ComplianceRoute
+  '/costs': typeof CostsRoute
+  '/estate': typeof EstateRoute
   '/offerings': typeof OfferingsRoute
+  '/onboard': typeof OnboardRoute
   '/products': typeof ProductsRoute
+  '/settings': typeof SettingsRoute
+  '/upgrades': typeof UpgradesRoute
+  '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/customers/': typeof CustomersIndexRoute
+  '/deployments/': typeof DeploymentsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/audit': typeof AuditRoute
+  '/compliance': typeof ComplianceRoute
+  '/costs': typeof CostsRoute
+  '/estate': typeof EstateRoute
   '/offerings': typeof OfferingsRoute
+  '/onboard': typeof OnboardRoute
   '/products': typeof ProductsRoute
+  '/settings': typeof SettingsRoute
+  '/upgrades': typeof UpgradesRoute
+  '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/customers': typeof CustomersIndexRoute
+  '/deployments': typeof DeploymentsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/audit': typeof AuditRoute
+  '/compliance': typeof ComplianceRoute
+  '/costs': typeof CostsRoute
+  '/estate': typeof EstateRoute
   '/offerings': typeof OfferingsRoute
+  '/onboard': typeof OnboardRoute
   '/products': typeof ProductsRoute
+  '/settings': typeof SettingsRoute
+  '/upgrades': typeof UpgradesRoute
+  '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/customers/': typeof CustomersIndexRoute
+  '/deployments/': typeof DeploymentsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/offerings' | '/products'
+  fullPaths:
+    | '/'
+    | '/audit'
+    | '/compliance'
+    | '/costs'
+    | '/estate'
+    | '/offerings'
+    | '/onboard'
+    | '/products'
+    | '/settings'
+    | '/upgrades'
+    | '/customers/$customerId'
+    | '/deployments/$deploymentId'
+    | '/customers/'
+    | '/deployments/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/offerings' | '/products'
-  id: '__root__' | '/' | '/offerings' | '/products'
+  to:
+    | '/'
+    | '/audit'
+    | '/compliance'
+    | '/costs'
+    | '/estate'
+    | '/offerings'
+    | '/onboard'
+    | '/products'
+    | '/settings'
+    | '/upgrades'
+    | '/customers/$customerId'
+    | '/deployments/$deploymentId'
+    | '/customers'
+    | '/deployments'
+  id:
+    | '__root__'
+    | '/'
+    | '/audit'
+    | '/compliance'
+    | '/costs'
+    | '/estate'
+    | '/offerings'
+    | '/onboard'
+    | '/products'
+    | '/settings'
+    | '/upgrades'
+    | '/customers/$customerId'
+    | '/deployments/$deploymentId'
+    | '/customers/'
+    | '/deployments/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuditRoute: typeof AuditRoute
+  ComplianceRoute: typeof ComplianceRoute
+  CostsRoute: typeof CostsRoute
+  EstateRoute: typeof EstateRoute
   OfferingsRoute: typeof OfferingsRoute
+  OnboardRoute: typeof OnboardRoute
   ProductsRoute: typeof ProductsRoute
+  SettingsRoute: typeof SettingsRoute
+  UpgradesRoute: typeof UpgradesRoute
+  CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
+  DeploymentsDeploymentIdRoute: typeof DeploymentsDeploymentIdRoute
+  CustomersIndexRoute: typeof CustomersIndexRoute
+  DeploymentsIndexRoute: typeof DeploymentsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -68,11 +221,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/audit': {
+      id: '/audit'
+      path: '/audit'
+      fullPath: '/audit'
+      preLoaderRoute: typeof AuditRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/compliance': {
+      id: '/compliance'
+      path: '/compliance'
+      fullPath: '/compliance'
+      preLoaderRoute: typeof ComplianceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/costs': {
+      id: '/costs'
+      path: '/costs'
+      fullPath: '/costs'
+      preLoaderRoute: typeof CostsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/estate': {
+      id: '/estate'
+      path: '/estate'
+      fullPath: '/estate'
+      preLoaderRoute: typeof EstateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/offerings': {
       id: '/offerings'
       path: '/offerings'
       fullPath: '/offerings'
       preLoaderRoute: typeof OfferingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboard': {
+      id: '/onboard'
+      path: '/onboard'
+      fullPath: '/onboard'
+      preLoaderRoute: typeof OnboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/products': {
@@ -82,13 +270,66 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/upgrades': {
+      id: '/upgrades'
+      path: '/upgrades'
+      fullPath: '/upgrades'
+      preLoaderRoute: typeof UpgradesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customers/': {
+      id: '/customers/'
+      path: '/customers'
+      fullPath: '/customers/'
+      preLoaderRoute: typeof CustomersIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/customers/$customerId': {
+      id: '/customers/$customerId'
+      path: '/customers/$customerId'
+      fullPath: '/customers/$customerId'
+      preLoaderRoute: typeof CustomersCustomerIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deployments/': {
+      id: '/deployments/'
+      path: '/deployments'
+      fullPath: '/deployments/'
+      preLoaderRoute: typeof DeploymentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deployments/$deploymentId': {
+      id: '/deployments/$deploymentId'
+      path: '/deployments/$deploymentId'
+      fullPath: '/deployments/$deploymentId'
+      preLoaderRoute: typeof DeploymentsDeploymentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuditRoute: AuditRoute,
+  ComplianceRoute: ComplianceRoute,
+  CostsRoute: CostsRoute,
+  EstateRoute: EstateRoute,
   OfferingsRoute: OfferingsRoute,
+  OnboardRoute: OnboardRoute,
   ProductsRoute: ProductsRoute,
+  SettingsRoute: SettingsRoute,
+  UpgradesRoute: UpgradesRoute,
+  CustomersCustomerIdRoute: CustomersCustomerIdRoute,
+  DeploymentsDeploymentIdRoute: DeploymentsDeploymentIdRoute,
+  CustomersIndexRoute: CustomersIndexRoute,
+  DeploymentsIndexRoute: DeploymentsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

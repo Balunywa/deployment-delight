@@ -54,7 +54,7 @@ function Offerings() {
 
   const publish = useMutation({
     mutationFn: useServerFn(publishOfferingVersion),
-    onSuccess: (v) => {
+    onSuccess: (v: { version: string }) => {
       toast.success(`Published version ${v.version}. It is now immutable.`);
       queryClient.invalidateQueries({ queryKey: ["offerings"] });
     },
@@ -76,7 +76,7 @@ function Offerings() {
 
       <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
         {list.map((offering) => {
-          const versions = ((offering.offering_versions ?? []) as OfferingVersion[]).sort((a, b) =>
+          const versions = ((offering.offering_versions ?? []) as unknown as OfferingVersion[]).sort((a, b) =>
             b.version.localeCompare(a.version),
           );
           const current = versions.find((v) => v.status === "published");
@@ -135,7 +135,7 @@ function Offerings() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {((active?.offering_versions ?? []) as OfferingVersion[])
+            {((active?.offering_versions ?? []) as unknown as OfferingVersion[])
               .sort((a, b) => b.version.localeCompare(a.version))
               .map((v) => (
                 <div key={v.id} className="rounded-md border border-border p-3">
@@ -201,8 +201,12 @@ function IntakeDialog({
 
   const generate = useMutation({
     mutationFn: useServerFn(draftBlueprintFromDescription),
-    onSuccess: (result) => {
-      setDraft(result);
+    onSuccess: (result: { manifestJson: string; validation: { schema: string; issues: string[] }; policyIssues: { level: string; message: string }[] }) => {
+      setDraft({
+        manifest: JSON.parse(result.manifestJson) as Record<string, unknown>,
+        validation: result.validation,
+        policyIssues: result.policyIssues,
+      });
       toast.info("Draft blueprint generated. It must pass validation and human review before publishing.");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -210,8 +214,8 @@ function IntakeDialog({
 
   const revalidate = useMutation({
     mutationFn: useServerFn(validateBlueprint),
-    onSuccess: (result) => {
-      setDraft((d) => (d ? { ...d, validation: result, policyIssues: result.policyIssues } : d));
+    onSuccess: (result: { schema: string; issues: string[]; policyIssues: { level: string; message: string }[] }) => {
+      setDraft((d) => (d ? { ...d, validation: { schema: result.schema, issues: result.issues }, policyIssues: result.policyIssues } : d));
       toast.success(result.schema === "PASS" ? "Schema validation passed." : "Schema validation found issues.");
     },
     onError: (e: Error) => toast.error(e.message),
@@ -219,7 +223,7 @@ function IntakeDialog({
 
   const save = useMutation({
     mutationFn: useServerFn(createOfferingVersion),
-    onSuccess: (v) => {
+    onSuccess: (v: { version: string }) => {
       toast.success(`Draft version ${v.version} saved. Review and publish it from the version list.`);
       queryClient.invalidateQueries({ queryKey: ["offerings"] });
       setDraft(null);
@@ -309,7 +313,7 @@ function IntakeDialog({
                   size="sm"
                   variant="outline"
                   disabled={revalidate.isPending}
-                  onClick={() => revalidate.mutate({ data: { manifest: draft.manifest } })}
+                  onClick={() => revalidate.mutate({ data: { manifestJson: JSON.stringify(draft.manifest) } })}
                 >
                   Re-run validation
                 </Button>
@@ -321,7 +325,7 @@ function IntakeDialog({
                     save.mutate({
                       data: {
                         offeringId: offering.id,
-                        manifest: draft.manifest,
+                        manifestJson: JSON.stringify(draft.manifest),
                         releaseNotes: "Drafted from natural-language architecture intake.",
                         aiGenerated: true,
                       },

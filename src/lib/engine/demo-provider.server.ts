@@ -90,7 +90,15 @@ export const demoProvider: InfrastructureProvider = {
             ? "Customer-supplied spoke range overlaps a reserved range by 1 subnet; confirm with the network approver."
             : "Dedicated spoke range is free.",
       },
-      { key: "dns", name: "Private DNS requirements", level: "PASS", detail: "Private DNS zones resolvable via customer resolver." },
+      {
+        key: "dns",
+        name: "Private DNS requirements",
+        level: network["mode"] === "existing-customer-hub" ? "WARNING" : "PASS",
+        detail:
+          network["mode"] === "existing-customer-hub"
+            ? "Private DNS zones are managed by the customer; zone links must be approved by their network owner."
+            : "Private DNS zones resolvable via the deployed resolver.",
+      },
       {
         key: "private_endpoints",
         name: "Private endpoint requirements",
@@ -115,6 +123,12 @@ export const demoProvider: InfrastructureProvider = {
         detail: isProd ? "Budget and action group configured." : "No budget configured for non-production environment.",
       },
       { key: "skus", name: "Supported SKUs", level: "PASS", detail: "All requested SKUs are available." },
+      {
+        key: "identity_objects",
+        name: "Entra identity objects",
+        level: "PASS",
+        detail: "Managed identities and Entra groups required by the blueprint resolve in the customer tenant.",
+      },
       {
         key: "offering_compat",
         name: "Offering compatibility",
