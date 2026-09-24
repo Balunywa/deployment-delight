@@ -304,7 +304,7 @@ function CustomerDetail() {
                     <span className="text-[11px] text-muted-foreground">{dateTime(e.timestamp)}</span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {e.actor} · {e.action_details}
+                    {e.actor_name ?? "system"} · {e.result ?? e.resource_type ?? "recorded"}
                   </p>
                 </li>
               ))}
