@@ -7,6 +7,8 @@ It is deployed separately from the console so ISV installs of the product never 
 - `config.js` — where the buttons point (`consoleUrl`, `repoUrl`); set per environment
 - `staticwebapp.config.json` — Azure Static Web Apps settings
 
+Live at **https://balunywa.github.io/deployment-delight/** — `.github/workflows/pages.yml` publishes `site/` to GitHub Pages on every change.
+
 Preview locally:
 
 ```sh

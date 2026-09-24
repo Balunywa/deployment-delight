@@ -8,7 +8,7 @@ and pipelines. Cloud Delivery lets you do that work once.
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2FcreateUiDefinition.json)
 
-Deploy the Cloud Delivery console into any Azure tenant in one click — see [deploy/azure](deploy/azure/README.md).
+Deploy the Cloud Delivery console into any Azure tenant in one click — see [deploy/azure](deploy/azure/README.md). Product overview: **https://balunywa.github.io/deployment-delight/**
 
 ## Two ways to run it
 
