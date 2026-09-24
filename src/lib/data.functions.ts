@@ -75,13 +75,13 @@ export type OfferingVersionRow = Pick<
 export const listOfferings = createServerFn({ method: "GET" }).handler(async () =>
   rows<
     Row<"offerings"> & {
-      products: { name: string } | null;
+      products: { name: string; category: string | null } | null;
       offering_versions: OfferingVersionRow[];
       environments: { id: string }[];
     }
   >(
     `select to_jsonb(o) || jsonb_build_object(
-       'products', (select jsonb_build_object('name', p.name) from public.products p where p.id = o.product_id),
+       'products', (select jsonb_build_object('name', p.name, 'category', p.category) from public.products p where p.id = o.product_id),
        'offering_versions', ${agg(`select jsonb_agg(jsonb_build_object('id', v.id, 'version', v.version, 'status', v.status, 'release_notes', v.release_notes,
            'published_at', v.published_at, 'manifest_json', v.manifest_json, 'ai_generated', v.ai_generated, 'created_by', v.created_by, 'created_at', v.created_at))
          from public.offering_versions v where v.offering_id = o.id`)},

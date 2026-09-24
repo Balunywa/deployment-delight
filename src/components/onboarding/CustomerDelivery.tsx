@@ -14,7 +14,6 @@ import {
   namesFor,
   regionLabel,
   ringsFor,
-  sortEnvs,
   triggersFor,
 } from "@/lib/onboarding";
 
@@ -24,6 +23,7 @@ type EnvLike = {
   region: string;
   configuration_json: Record<string, unknown> | null;
   actual?: unknown;
+  offerings?: { name: string } | null;
 };
 
 /** How a customer's environments are delivered: targets, placement, pipeline environments, triggers. */
@@ -38,8 +38,8 @@ export function CustomerDelivery({
   subscriptionId: string | null;
   hosted: boolean;
 }) {
-  const rows = sortEnvs(envs.map((e) => e.environment_type)).map((t) => {
-    const e = envs.find((x) => x.environment_type === t)!;
+  const rows = envs.map((e) => {
+    const t = e.environment_type;
     const target = (e.configuration_json?.["target"] ?? {}) as Partial<
       EnvPlan & { managementGroup: string | null }
     >;
@@ -64,6 +64,7 @@ export function CustomerDelivery({
     };
   });
   const delivery = rows[0]?.delivery ?? DEFAULT_DELIVERY;
+  const multi = new Set(envs.map((e) => e.offerings?.name)).size > 1;
   const plans = rows.map((r) => r.plan);
   const gh = delivery.tool === "github-actions";
   const live = rows.filter((r) => !!r.e.actual);
@@ -102,7 +103,14 @@ export function CustomerDelivery({
           <tbody className="divide-y divide-border">
             {rows.map(({ e, plan, names, mg }) => (
               <tr key={e.id}>
-                <td className="px-4 py-2 font-medium">{ENV_META[plan.env]?.label ?? plan.env}</td>
+                <td className="px-4 py-2 font-medium">
+                  {ENV_META[plan.env]?.label ?? plan.env}
+                  {multi && e.offerings?.name && (
+                    <span className="block text-[10.5px] font-normal text-muted-foreground">
+                      {e.offerings.name}
+                    </span>
+                  )}
+                </td>
                 <td className="px-3 py-2">{regionLabel(plan.region)}</td>
                 <td className="px-3 py-2">
                   {TARGET_META[plan.target].title}

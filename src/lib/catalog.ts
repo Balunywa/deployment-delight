@@ -20,7 +20,14 @@ export type ServiceDef = {
   name: string;
   short: string;
   category:
-    "Compute" | "Data" | "Messaging" | "Networking" | "Security" | "Observability" | "Governance";
+    | "Compute"
+    | "AI + analytics"
+    | "Data"
+    | "Messaging"
+    | "Networking"
+    | "Security"
+    | "Observability"
+    | "Governance";
   zone: Zone;
   resourceType: string;
   avm: string;
@@ -377,6 +384,94 @@ export const SERVICES: ServiceDef[] = [
     monthly: 420,
     blurb: "Session and query cache.",
   },
+  // AI + analytics
+  {
+    id: "ai-foundry",
+    name: "Azure AI Foundry",
+    short: "AI Foundry",
+    category: "AI + analytics",
+    zone: "data",
+    resourceType: "Microsoft.CognitiveServices/accounts",
+    avm: "avm/res/cognitive-services/account",
+    version: "0.19.1",
+    wave: 2,
+    privateLink: true,
+    options: [
+      {
+        key: "models",
+        label: "Model deployments",
+        choices: ["gpt-4.1 + gpt-4.1-mini", "gpt-4.1-mini", "gpt-4.1 + text-embedding-3-large"],
+        default: "gpt-4.1 + gpt-4.1-mini",
+      },
+      {
+        key: "deployment",
+        label: "Deployment type",
+        choices: ["Data zone standard", "Global standard", "Provisioned (PTU)"],
+        default: "Data zone standard",
+      },
+    ],
+    monthly: 3200,
+    blurb: "Models and agents for the product's AI features, keyless via managed identity.",
+  },
+  {
+    id: "ai-search",
+    name: "Azure AI Search",
+    short: "AI Search",
+    category: "AI + analytics",
+    zone: "data",
+    resourceType: "Microsoft.Search/searchServices",
+    avm: "avm/res/search/search-service",
+    version: "0.13.0",
+    wave: 2,
+    privateLink: true,
+    options: [
+      {
+        key: "sku",
+        label: "Tier",
+        choices: ["standard", "standard2", "basic"],
+        default: "standard",
+      },
+    ],
+    monthly: 750,
+    blurb: "Retrieval over manuals, procedures and records for grounded answers.",
+  },
+  {
+    id: "data-explorer",
+    name: "Azure Data Explorer",
+    short: "Data Explorer",
+    category: "AI + analytics",
+    zone: "data",
+    resourceType: "Microsoft.Kusto/clusters",
+    avm: "avm/res/kusto/cluster",
+    version: "0.11.0",
+    wave: 2,
+    privateLink: true,
+    options: [
+      {
+        key: "sku",
+        label: "Cluster",
+        choices: ["Standard_E8ads_v5 × 2", "Standard_E16ads_v5 × 2", "Dev(No SLA)_Standard_E2a_v4"],
+        default: "Standard_E8ads_v5 × 2",
+      },
+    ],
+    monthly: 4100,
+    blurb: "Time-series analytics over sensor and operational telemetry.",
+  },
+  {
+    id: "iot-hub",
+    name: "IoT Hub",
+    short: "IoT Hub",
+    category: "AI + analytics",
+    zone: "integration",
+    resourceType: "Microsoft.Devices/IotHubs",
+    avm: "avm/res/devices/iot-hub",
+    version: "0.3.0",
+    wave: 2,
+    privateLink: true,
+    options: [{ key: "sku", label: "Tier", choices: ["S1", "S2", "S3"], default: "S2" }],
+    monthly: 1250,
+    blurb: "Secure device and edge gateway connectivity for field assets.",
+  },
   // messaging / integration
   {
     id: "event-hubs",
@@ -537,6 +632,7 @@ export const SERVICES: ServiceDef[] = [
 export const SERVICE_BY_ID = new Map(SERVICES.map((s) => [s.id, s]));
 export const CATEGORIES = [
   "Compute",
+  "AI + analytics",
   "Data",
   "Messaging",
   "Networking",
@@ -626,7 +722,7 @@ export function edgesFor(selected: Selected[], topology: Topology): Edge[] {
   const compute = ids("app");
   const data = ids("data");
   const messaging = selected
-    .filter((s) => ["event-hubs", "service-bus"].includes(s.id))
+    .filter((s) => ["event-hubs", "service-bus", "iot-hub"].includes(s.id))
     .map((s) => s.id);
   const edges: Edge[] = [];
 

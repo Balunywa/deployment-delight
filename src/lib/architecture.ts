@@ -134,7 +134,10 @@ export const semverBump = (v: string) => {
 };
 
 export const slugOf = (name: string) =>
-  `grid-analytics-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
 
 /** Where an offering runs: in the ISV's own Azure, or inside the customer's Azure tenant. */
 export const LANDING_LABEL: Record<

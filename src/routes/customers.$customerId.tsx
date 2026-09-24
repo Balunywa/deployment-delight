@@ -32,6 +32,7 @@ import {
 } from "@/lib/factory.functions";
 import { currency, dateTime, describe, relative, titleize } from "@/lib/format";
 import { auditQuery, customerQuery } from "@/lib/queries";
+import { productOf } from "@/lib/product-catalog";
 import { useFleet } from "@/lib/use-fleet";
 import { CustomerDelivery } from "@/components/onboarding/CustomerDelivery";
 
@@ -171,11 +172,14 @@ function CustomerDetail() {
       ((c?.environments ?? []) as unknown as Env[])
         .slice()
         .sort(
-          (a, b) => ENV_ORDER.indexOf(a.environment_type) - ENV_ORDER.indexOf(b.environment_type),
+          (a, b) =>
+            (a.offerings?.name ?? "").localeCompare(b.offerings?.name ?? "") ||
+            ENV_ORDER.indexOf(a.environment_type) - ENV_ORDER.indexOf(b.environment_type),
         ),
     [c],
   );
   const env = envs.find((e) => e.id === envId) ?? envs[0];
+  const multiProduct = new Set(envs.map((e) => e.offerings?.name)).size > 1;
   const arch = useMemo(() => {
     if (!env?.offerings) return null;
     const a = fromManifest(env.offerings, env.desired?.manifest_json);
@@ -255,14 +259,22 @@ function CustomerDetail() {
             </span>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex max-w-[60%] flex-wrap justify-end gap-2">
           {envs.map((e) => (
             <button
               key={e.id}
               onClick={() => setEnvId(e.id)}
-              className={`w-24 rounded-md border p-1.5 text-left transition-colors ${e.id === env?.id ? "border-primary ring-1 ring-primary/30" : "border-border hover:border-border-strong"}`}
+              className={`${multiProduct ? "w-44" : "w-24"} rounded-md border p-1.5 text-left transition-colors ${e.id === env?.id ? "border-primary ring-1 ring-primary/30" : "border-border hover:border-border-strong"}`}
             >
-              <p className="mb-1 text-[11px] font-medium">{e.name}</p>
+              <p className="mb-1 truncate text-[11px] font-medium" title={e.offerings?.name}>
+                {e.name}
+                {multiProduct && e.offerings?.name ? (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    · {productOf(e.offerings.name) || e.offerings.name}
+                  </span>
+                ) : null}
+              </p>
               <VersionCell install={fc?.installs.find((i) => i.id === e.id)} />
             </button>
           ))}

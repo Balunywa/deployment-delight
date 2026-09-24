@@ -38,7 +38,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -79,6 +81,7 @@ import {
   unsupportedIn,
   verdict,
 } from "@/lib/onboarding";
+import { BUSINESS_LINES, PRODUCT_BY_NAME, modelOf } from "@/lib/product-catalog";
 import { customersQuery, foundationsQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -177,10 +180,33 @@ function Onboard() {
         .filter((x): x is NonNullable<typeof x> => !!x),
     [offerings.data, hostingAnswers],
   );
+  const [productId, setProductId] = useState<string>("");
+  const defaultPick =
+    published
+      .filter((p) => p.offering.offering_type === "enterprise_private")
+      .sort(
+        (a, b) =>
+          ((b.offering.environments ?? []) as unknown[]).length -
+          ((a.offering.environments ?? []) as unknown[]).length,
+      )[0] ?? published[0];
+  const currentProduct = productId || defaultPick?.offering.product_id || "";
+  const models = published.filter((p) => p.offering.product_id === currentProduct);
   const pick =
-    published.find((p) => p.offering.id === offeringId) ??
-    published.find((p) => p.offering.offering_type === "enterprise_private") ??
-    published[0];
+    models.find((p) => p.offering.id === offeringId) ??
+    models.find((p) => p.offering.offering_type === "enterprise_private") ??
+    models[0] ??
+    defaultPick;
+  const productGroups = BUSINESS_LINES.map((l) => ({
+    line: l.name,
+    products: [
+      ...new Map(
+        published
+          .filter((p) => p.offering.products?.category === l.name)
+          .map((p) => [p.offering.product_id, p.offering.products?.name ?? ""]),
+      ).entries(),
+    ],
+  })).filter((g) => g.products.length);
+  const productMeta = PRODUCT_BY_NAME.get(pick?.offering.products?.name ?? "");
   const arch = pick?.arch;
   const offeredEnvs = useMemo(
     () =>
@@ -733,12 +759,49 @@ function Onboard() {
                     />
                   </div>
                 </Card>
+                <Card title="Product" subtitle="The software service the customer is buying.">
+                  <Select
+                    value={currentProduct}
+                    onValueChange={(v) => {
+                      setProductId(v);
+                      setOfferingId("");
+                    }}
+                  >
+                    <SelectTrigger className="max-w-md">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {productGroups.map((g) => (
+                        <SelectGroup key={g.line}>
+                          <SelectLabel className="text-[10px] tracking-wider uppercase">
+                            {g.line}
+                          </SelectLabel>
+                          {g.products.map(([id, name]) => (
+                            <SelectItem key={id} value={id}>
+                              {name}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {pick.offering.products && (
+                    <p className="mt-2 max-w-2xl text-xs text-muted-foreground">
+                      <b className="font-medium text-foreground">
+                        {pick.offering.products.category}
+                      </b>
+                      {productMeta
+                        ? ` · for ${productMeta.audience.toLowerCase()} · ${productMeta.pitch}`
+                        : ""}
+                    </p>
+                  )}
+                </Card>
                 <Card
-                  title="Offering"
-                  subtitle="Published versions only — each one passed architecture review and is immutable."
+                  title="How it's delivered"
+                  subtitle="Offerings of this product. Published versions only — each one passed architecture review and is immutable."
                 >
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {published.map((p) => {
+                    {models.map((p) => {
                       const v = verdict(p.review);
                       return (
                         <button
@@ -752,7 +815,7 @@ function Onboard() {
                           )}
                         >
                           <div className="flex items-center justify-between gap-2">
-                            <p className="text-[13px] font-semibold">{p.offering.name}</p>
+                            <p className="text-[13px] font-semibold">{modelOf(p.offering.name)}</p>
                             <span className="font-mono text-[11px] text-muted-foreground">
                               v{p.version.version}
                             </span>

@@ -1,6 +1,10 @@
 import {
   Activity,
+  BrainCircuit,
   BrickWall,
+  ChartLine,
+  RadioTower,
+  ScanSearch,
   Cable,
   Container,
   Cylinder,
@@ -55,6 +59,10 @@ const ICON: Record<string, LucideIcon> = {
   monitoring: Activity,
   "app-insights": Gauge,
   budget: Wallet,
+  "ai-foundry": BrainCircuit,
+  "ai-search": ScanSearch,
+  "data-explorer": ChartLine,
+  "iot-hub": RadioTower,
   hub: Network,
   firewall: BrickWall,
   dns: Globe,
@@ -64,6 +72,7 @@ const ICON: Record<string, LucideIcon> = {
 
 export const CATEGORY_TILE: Record<ServiceDef["category"] | "Customer", string> = {
   Compute: "bg-cat-compute",
+  "AI + analytics": "bg-[#6b4fbb]",
   Data: "bg-cat-data",
   Messaging: "bg-cat-messaging",
   Networking: "bg-cat-networking",

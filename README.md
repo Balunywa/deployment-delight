@@ -23,6 +23,12 @@ Either way, it's the same product setup, the same deployment process and the sam
 
 ## How it works
 
+0. **Products and offerings.** A product is the software service a customer buys (for example "Pipeline
+   integrity agent"), grouped by business line. An offering is that product delivered one way on Azure —
+   Hosted by you, Customer Hosted, Enterprise Private (plugged into the customer's landing zone) or
+   Regulated — each with its own architecture, landing zone and guardrails. Customers are onboarded to an
+   offering. The demo catalog lives in `src/lib/product-catalog.ts`; `bun scripts/gen-product-seed.ts`
+   regenerates `db/seed/0005_product_catalog.sql` from it.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.

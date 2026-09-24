@@ -23,7 +23,9 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -59,6 +61,7 @@ import { semverCompare } from "@/lib/fleet";
 import { currency, shortDate } from "@/lib/format";
 import { bicepFor, pipelineFor, workflowFor } from "@/lib/pipeline";
 import { verdict, reviewOffering, ENV_KEYS, ENV_META, type EnvKey } from "@/lib/onboarding";
+import { BUSINESS_LINES, modelOf, productOf } from "@/lib/product-catalog";
 import { foundationsQuery, offeringsQuery } from "@/lib/queries";
 import {
   NewOfferingDialog,
@@ -114,7 +117,9 @@ function Designer() {
   const list = offerings.data ?? [];
   const offering =
     list.find((o) => o.id === search.offering) ??
-    list.find((o) => o.offering_type === "enterprise_private") ??
+    list
+      .filter((o) => o.offering_type === "enterprise_private")
+      .sort((a, b) => (b.environments ?? []).length - (a.environments ?? []).length)[0] ??
     list[0];
   const view: View = search.view ?? "architecture";
 
@@ -187,6 +192,17 @@ function Designer() {
   const monthly = monthlyEstimate(selected);
   const privateCount = selected.filter((s) => SERVICE_BY_ID.get(s.id)?.privateLink).length;
   const maxVersion = versions[0]?.version ?? "1.0.0";
+  const siblings = list.filter((o) => o.product_id === offering.product_id);
+  const productOptions = BUSINESS_LINES.map((l) => ({
+    line: l.name,
+    products: [
+      ...new Map(
+        list
+          .filter((o) => o.products?.category === l.name)
+          .map((o) => [o.product_id, { id: o.product_id, name: o.products?.name ?? "" }]),
+      ).values(),
+    ],
+  })).filter((g) => g.products.length);
   const review = reviewOffering({ selected, topology, hostingAnswers });
   const reviewState = verdict(review);
   const templates = list.flatMap((o) => {
@@ -202,11 +218,48 @@ function Designer() {
       <div className="border-b border-border bg-card px-4 pt-4 lg:px-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-xs text-muted-foreground">
-              {(offering.products as { name?: string } | null)?.name ?? "Product"} / Offerings
-            </p>
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <Link to="/products" className="hover:underline">
+                {offering.products?.category ?? "Products"}
+              </Link>
+              <span>/</span>
+              <Select
+                value={offering.product_id}
+                onValueChange={(pid) => {
+                  const first =
+                    list.find(
+                      (o) => o.product_id === pid && o.offering_type === offering.offering_type,
+                    ) ?? list.find((o) => o.product_id === pid);
+                  if (first) void navigate({ search: { offering: first.id, view } });
+                }}
+              >
+                <SelectTrigger className="h-6 w-auto gap-1 border-none px-1 text-xs shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {productOptions.map((g) => (
+                    <SelectGroup key={g.line}>
+                      <SelectLabel className="text-[10px] tracking-wider uppercase">
+                        {g.line}
+                      </SelectLabel>
+                      {g.products.map((p) => (
+                        <SelectItem key={p.id} value={p.id} className="text-xs">
+                          {p.name}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
-              <h1 className="text-[20px] font-semibold">{offering.name}</h1>
+              <h1 className="text-[20px] font-semibold">
+                {productOf(offering.name) || offering.products?.name}
+                <span className="font-normal text-muted-foreground">
+                  {" "}
+                  · {modelOf(offering.name)}
+                </span>
+              </h1>
               <Select value={base.id} onValueChange={setVersionId}>
                 <SelectTrigger className="h-7 w-auto gap-2 font-mono text-xs">
                   <SelectValue />
@@ -309,8 +362,9 @@ function Designer() {
               </button>
             ))}
           </nav>
-          <div className="-mb-px flex gap-1 pb-1.5">
-            {list.map((o) => (
+          <div className="-mb-px flex flex-wrap items-center gap-1 pb-1.5">
+            <span className="mr-1 text-[11px] text-muted-foreground">Delivered as</span>
+            {siblings.map((o) => (
               <button
                 key={o.id}
                 onClick={() => navigate({ search: { offering: o.id, view } })}
@@ -321,7 +375,7 @@ function Designer() {
                     : "text-muted-foreground hover:bg-muted hover:text-foreground",
                 )}
               >
-                {o.name}
+                {modelOf(o.name)}
               </button>
             ))}
           </div>
