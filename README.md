@@ -40,13 +40,23 @@ customer tenants you build, and customer landing zones you plug into. The **Land
 Microsoft's [Azure Landing Zones Library](https://github.com/Azure/Azure-Landing-Zones-Library) (snapshots of pinned
 releases in `src/lib/alz/`):
 
-- The real management group hierarchy (Platform, Management, Connectivity, Identity, Security, Landing zones, Corp,
-  Online, Local, Sandbox, Decommissioned) with the archetype and policy assignments of each group.
-- A few plain questions (connectivity, DDoS plan, private DNS, monitoring, SIEM) instead of "choose your policies".
-  Answers become the customizations Microsoft documents: archetype overrides in a custom library and policy default values.
+- **A landing zone designer.** An interactive 3D (isometric) view of the tenant: management groups as nested
+  plates, subscriptions as slabs, platform resources as blocks and every customer install as its own spoke
+  subscription. Switch things on and off — hub-and-spoke or Virtual WAN, Azure Firewall tier, Bastion, VPN and
+  ExpressRoute gateways, DDoS protection, private DNS, monitoring, Sentinel, which landing zone groups exist — and
+  the picture, the policy set and the Terraform all change with it.
+- **Traffic flows.** Hop-by-hop animated paths that exist in the design (users → Online install, Corp egress through
+  the firewall, office → Corp over VPN/ExpressRoute, spoke-to-spoke, private endpoint DNS, Bastion, logs to Sentinel),
+  each step naming the ALZ policy that enforces it. Paths the design can't support say what's missing and offer the fix.
+- **Policy flow.** Pick any management group to see the chain it inherits from and every assignment that reaches it,
+  with the real effect. Any assignment can be kept, set to audit only (`DoNotEnforce`) or removed.
+- Design choices become the customizations Microsoft documents: archetype overrides and a custom architecture
+  definition in a small custom library, `policy_assignments_to_modify`, and policy default values wired to the
+  outputs of the management and connectivity modules.
 - Pinned ALZ Library version per tenant, with a real diff to the next release.
-- Generated Terraform for the official Azure Verified Modules (`Azure/avm-ptn-alz` + `Azure/alz` provider, management,
-  connectivity and subscription vending modules).
+- Generated Terraform for the official Azure Verified Modules (`Azure/avm-ptn-alz` + `Azure/alz` provider,
+  `avm-ptn-alz-management`, `avm-ptn-alz-connectivity-hub-and-spoke-vnet` or `avm-ptn-alz-connectivity-virtual-wan`,
+  and subscription vending), with each platform module deployed into its own subscription.
 - Each offering declares its landing zone (Corp / Online / Local / Sandbox), so every customer subscription is placed
   under the right management group.
 

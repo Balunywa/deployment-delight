@@ -3,14 +3,7 @@ import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowUpCircle, Building2, Eye, Server } from "lucide-react";
 
 import { EmptyState, Pill } from "@/components/Primitives";
-import {
-  type Answers,
-  DEFAULT_ANSWERS,
-  LATEST_REF,
-  hierarchy,
-  libraryFor,
-  shortRef,
-} from "@/lib/alz/engine";
+import { withDefaults, LATEST_REF, hierarchy, libraryFor, shortRef } from "@/lib/alz/engine";
 import { placements, placementsFor } from "@/lib/alz/placement";
 import { relative } from "@/lib/format";
 import type { FoundationRow } from "@/lib/data.functions";
@@ -121,7 +114,7 @@ function Group({
       </div>
       <div className="grid gap-3 lg:grid-cols-2">
         {items.map((f) => {
-          const answers = { ...DEFAULT_ANSWERS, ...((f.answers ?? {}) as Partial<Answers>) };
+          const answers = withDefaults(f.answers);
           const lib = libraryFor(f.library_ref);
           const tree = hierarchy(lib, answers);
           const placed = placementsOf(f);

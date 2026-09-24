@@ -1,33 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowRight, Check, Lock, Minus, Plus, RefreshCw } from "lucide-react";
+import { ArrowRight, Minus, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { type JobStatus, PipelineGraph } from "@/components/architecture/PipelineGraph";
 import { CodeBlock } from "@/components/CodeBlock";
+import { LandingZoneDesigner } from "@/components/lz/Designer";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   type Answers,
-  DEFAULT_ANSWERS,
   LANDING_ZONE_LABEL,
   LATEST_REF,
   LIBRARIES,
+  MG_PURPOSE,
   type MgNode,
-  QUESTIONS,
-  changesFor,
   diffLibraries,
   hierarchy,
   libraryFor,
   platformSubscriptions,
-  requiredDefaults,
   shortRef,
   terraformFor,
   vendingFor,
+  withDefaults,
 } from "@/lib/alz/engine";
 import { type Placement, placements, placementsFor } from "@/lib/alz/placement";
 import {
@@ -40,75 +38,64 @@ import type { Stage } from "@/lib/pipeline";
 import { customersQuery, foundationQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type View = "hierarchy" | "setup" | "policies" | "version" | "iac" | "deploy";
+type View = "design" | "policies" | "version" | "iac" | "deploy";
 
 export const Route = createFileRoute("/foundations/$foundationId")({
-  validateSearch: (s: Record<string, unknown>): { view?: View } =>
-    typeof s["view"] === "string" ? { view: s["view"] as View } : {},
+  validateSearch: (s: Record<string, unknown>): { view?: View } => {
+    const v = s["view"];
+    if (v === "hierarchy" || v === "setup") return { view: "design" };
+    return typeof v === "string" ? { view: v as View } : {};
+  },
   head: () => ({ meta: [{ title: "Landing zone · Cloud Delivery" }] }),
   component: FoundationDetail,
 });
-
-/** What each management group is for, from Microsoft's Cloud Adoption Framework. */
-const PURPOSE: Record<string, string> = {
-  alz: "Intermediate root under the tenant root group. Parent of everything below; only truly universal policy lives here.",
-  platform:
-    "Parent of the shared platform subscriptions. Common platform policy and platform-team access.",
-  management: "Central monitoring and operations — the Log Analytics workspace and its solutions.",
-  connectivity:
-    "Networking the platform owns: hub or Virtual WAN, Azure Firewall, private DNS zones, gateways.",
-  identity:
-    "Identity infrastructure such as domain controllers or Entra Domain Services, when workloads need it.",
-  security: "Security and SIEM tooling, such as Microsoft Sentinel.",
-  landingzones:
-    "Parent of all workload subscriptions. Workload-agnostic guardrails every landing zone inherits.",
-  corp: "Workloads that connect to the corporate network through the hub. Public endpoints are denied.",
-  online: "Workloads that serve the internet directly or don't need a virtual network.",
-  local: "Workloads on Azure Local clusters, and the clusters themselves. Different policy needs.",
-  sandbox: "Isolated experimentation with a lighter set of policies.",
-  decommissioned: "Cancelled subscriptions waiting to be deleted after 30–60 days.",
-};
 
 function FoundationDetail() {
   const { foundationId } = Route.useParams();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
+  const queryClient = useQueryClient();
   const foundation = useQuery(foundationQuery(foundationId));
   const customers = useQuery(customersQuery);
   const offerings = useQuery(offeringsQuery);
   const f = foundation.data;
-  const saved = useMemo(
-    () => ({ ...DEFAULT_ANSWERS, ...((f?.answers ?? {}) as Partial<Answers>) }),
-    [f],
-  );
+  const saved = useMemo(() => withDefaults(f?.answers), [f]);
   const [answers, setAnswers] = useState<Answers>(saved);
   useEffect(() => setAnswers(saved), [saved]);
-  const [focus, setFocus] = useState<string | null>(null);
+  const save = useMutation({
+    mutationFn: useServerFn(saveFoundationAnswers),
+    onSuccess: () => {
+      toast.success("Design saved. Review the Terraform, then deploy.");
+      void queryClient.invalidateQueries({ queryKey: ["foundation", foundationId] });
+      void queryClient.invalidateQueries({ queryKey: ["foundations"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   if (foundation.isLoading) return <EmptyState title="Loading landing zone…" />;
   if (!f) return <EmptyState title="Landing zone not found." />;
 
   const managed = f.mode === "managed";
   const view: View = managed
-    ? (search.view ?? "hierarchy")
+    ? (search.view ?? "design")
     : search.view === "policies"
       ? "policies"
-      : "hierarchy";
+      : "design";
   const lib = libraryFor(f.library_ref);
-  const tree = hierarchy(lib, managed ? answers : saved);
+  const current = managed ? answers : saved;
+  const tree = hierarchy(lib, current);
   const placed = placementsFor(placements(customers.data ?? [], offerings.data ?? []), f);
   const dirty = JSON.stringify(answers) !== JSON.stringify(saved);
   const tabs: [View, string][] = managed
     ? [
-        ["hierarchy", "Hierarchy"],
-        ["setup", "Setup"],
+        ["design", "Design"],
         ["policies", "Policies"],
         ["version", "ALZ version"],
         ["iac", "Infrastructure as code"],
         ["deploy", "Deploy"],
       ]
     : [
-        ["hierarchy", "Where your product lands"],
+        ["design", "Where your product lands"],
         ["policies", "Reference policies"],
       ];
 
@@ -133,25 +120,31 @@ function FoundationDetail() {
               )}
               <Pill
                 tone={
-                  f.status === "deployed" ? "success" : f.status === "draft" ? "neutral" : "warning"
+                  dirty
+                    ? "warning"
+                    : f.status === "deployed"
+                      ? "success"
+                      : f.status === "draft"
+                        ? "neutral"
+                        : "warning"
                 }
               >
-                {f.status === "deployed"
-                  ? "Deployed"
-                  : f.status === "draft"
-                    ? "Not deployed yet"
-                    : "Changes to deploy"}
+                {dirty
+                  ? "Unsaved design changes"
+                  : f.status === "deployed"
+                    ? "Deployed"
+                    : f.status === "draft"
+                      ? "Not deployed yet"
+                      : "Changes to deploy"}
               </Pill>
             </>
           ) : (
-            <Pill tone="info">
-              <Lock className="size-3" /> Customer-owned · read-only
-            </Pill>
+            <Pill tone="info">Customer-owned · read-only</Pill>
           )}
         </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {managed
-            ? `${tree.length} management groups under ${answers.intermediateRootName || "the intermediate root"} · ${placed.length} customer install${placed.length === 1 ? "" : "s"} placed${f.last_deployed_at ? ` · last deployed ${relative(f.last_deployed_at)}` : ""}`
+            ? `${tree.length} management groups under ${current.intermediateRootName || "the intermediate root"} · ${placed.length} customer install${placed.length === 1 ? "" : "s"} placed${f.last_deployed_at ? ` · last deployed ${relative(f.last_deployed_at)}` : ""}`
             : `Discovered from ${String((f.discovered as Record<string, unknown>)?.["source"] ?? "Azure Resource Graph")} · follows the ALZ reference architecture · owned by ${f.customers?.name}'s platform team`}
         </p>
         <nav className="mt-3 -mb-px flex gap-4 text-[13px]">
@@ -173,31 +166,26 @@ function FoundationDetail() {
       </div>
 
       <div className="p-4 lg:p-6">
-        {view === "hierarchy" && (
-          <HierarchyView
-            tree={tree}
-            focus={focus}
-            onFocus={setFocus}
-            answers={saved}
-            placed={placed}
-            managed={managed}
+        {view === "design" && (
+          <LandingZoneDesigner
             lib={lib}
-          />
-        )}
-        {view === "setup" && (
-          <SetupView
-            foundationId={f.id}
-            answers={answers}
-            setAnswers={setAnswers}
+            answers={current}
+            setAnswers={managed ? setAnswers : undefined}
             dirty={dirty}
-            libraryRef={f.library_ref}
+            saving={save.isPending}
+            onSave={() => save.mutate({ data: { foundationId: f.id, answers } })}
+            onDiscard={() => setAnswers(saved)}
+            placed={placed}
+            readOnlyOwner={managed ? undefined : (f.customers?.name ?? "the customer")}
           />
         )}
         {view === "policies" && <PoliciesView tree={tree} />}
         {view === "version" && (
           <VersionView foundationId={f.id} pinned={f.library_ref} deployed={f.deployed_ref} />
         )}
-        {view === "iac" && <IacView libraryRef={f.library_ref} answers={saved} placed={placed} />}
+        {view === "iac" && (
+          <IacView libraryRef={f.library_ref} answers={answers} placed={placed} dirty={dirty} />
+        )}
         {view === "deploy" && (
           <DeployView
             foundationId={f.id}
@@ -209,231 +197,6 @@ function FoundationDetail() {
           />
         )}
       </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------------- hierarchy */
-
-function HierarchyView({
-  tree,
-  focus,
-  onFocus,
-  answers,
-  placed,
-  managed,
-  lib,
-}: {
-  tree: MgNode[];
-  focus: string | null;
-  onFocus: (id: string | null) => void;
-  answers: Answers;
-  placed: Placement[];
-  managed: boolean;
-  lib: ReturnType<typeof libraryFor>;
-}) {
-  const root = tree.find((n) => n.parentId === null);
-  const selected =
-    tree.find((n) => n.id === focus) ??
-    tree.find((n) => n.libraryId === (managed ? "landingzones" : "corp")) ??
-    root;
-  const subs = platformSubscriptions(answers);
-  if (!root) return null;
-
-  const card = (n: MgNode) => {
-    const sub = subs.find((s) => s.managementGroup === n.libraryId);
-    const here = placed.filter((p) => p.landingZone === n.libraryId);
-    const removed = n.here.filter((h) => h.removed).length;
-    const target = !managed && n.libraryId === "corp";
-    return (
-      <button
-        onClick={() => onFocus(n.id)}
-        className={cn(
-          "w-[8.5rem] rounded-md border bg-card p-2 text-left transition-colors hover:border-border-strong",
-          selected?.id === n.id ? "border-primary ring-2 ring-primary/20" : "border-border",
-          target && "border-success/60 ring-2 ring-success/15",
-        )}
-      >
-        <p className="truncate text-[12.5px] font-semibold">{n.displayName}</p>
-        <p className="truncate font-mono text-[10px] text-muted-foreground">{n.id}</p>
-        <p className="mt-1.5 text-[11px]">
-          <b className="font-mono">{n.enforced}</b>{" "}
-          <span className="text-muted-foreground">here ·</span>{" "}
-          <b className="font-mono">{n.inherited}</b>{" "}
-          <span className="text-muted-foreground">inherited</span>
-        </p>
-        {removed > 0 && (
-          <p className="text-[10.5px] text-warning">{removed} removed for your setup</p>
-        )}
-        {sub && (
-          <p
-            className={cn(
-              "mt-1 truncate text-[10.5px]",
-              sub.created ? "text-cat-networking" : "text-muted-foreground",
-            )}
-          >
-            {sub.created ? `${sub.name} subscription` : "No subscription"}
-          </p>
-        )}
-        {["corp", "online", "local", "sandbox"].includes(n.libraryId) && (
-          <p
-            className={cn(
-              "mt-1 truncate text-[10.5px]",
-              here.length ? "text-success" : "text-muted-foreground",
-            )}
-          >
-            {target
-              ? "Your product lands here"
-              : here.length
-                ? `${here.length} install${here.length === 1 ? "" : "s"}`
-                : "No installs"}
-          </p>
-        )}
-      </button>
-    );
-  };
-
-  const branch = (n: MgNode): React.ReactNode => {
-    const kids = tree.filter((k) => k.parentId === n.id);
-    return (
-      <div className="flex flex-col items-center">
-        {card(n)}
-        {kids.length > 0 && (
-          <>
-            <span className="h-4 w-px bg-border-strong" />
-            <div className="flex">
-              {kids.map((k, i) => (
-                <div key={k.id} className="relative flex flex-col items-center px-1 pt-4">
-                  {i > 0 && (
-                    <span className="absolute top-0 left-0 w-1/2 border-t border-border-strong" />
-                  )}
-                  {i < kids.length - 1 && (
-                    <span className="absolute top-0 right-0 w-1/2 border-t border-border-strong" />
-                  )}
-                  <span className="absolute top-0 left-1/2 h-4 border-l border-border-strong" />
-                  {branch(k)}
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-      </div>
-    );
-  };
-
-  const ancestors: MgNode[] = [];
-  let p = tree.find((n) => n.id === selected?.parentId);
-  while (p) {
-    ancestors.unshift(p);
-    p = tree.find((n) => n.id === p?.parentId);
-  }
-  const here = selected ? placed.filter((x) => x.landingZone === selected.libraryId) : [];
-
-  return (
-    <div className="space-y-4">
-      <div className="canvas-grid overflow-x-auto rounded-md border border-border p-5">
-        <div className="flex min-w-max justify-center">
-          <div className="flex flex-col items-center">
-            <div className="mb-1 rounded-sm border border-dashed border-border-strong px-3 py-1 text-[11px] text-muted-foreground">
-              Tenant root group
-            </div>
-            <span className="h-4 w-px bg-border-strong" />
-            {branch(root)}
-          </div>
-        </div>
-      </div>
-
-      {selected && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <section className="overflow-hidden rounded-md border border-border bg-card">
-            <header className="border-b border-border px-4 py-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-[14px] font-semibold">{selected.displayName}</h2>
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  archetype: {selected.archetype}
-                </span>
-              </div>
-              <p className="mt-0.5 text-xs text-muted-foreground">{PURPOSE[selected.libraryId]}</p>
-            </header>
-            <ul className="max-h-[420px] divide-y divide-border overflow-y-auto">
-              {selected.here.map((h) => (
-                <li
-                  key={h.name}
-                  className={cn(
-                    "flex items-start justify-between gap-3 px-4 py-2",
-                    h.removed && "bg-warning/5",
-                  )}
-                >
-                  <div className="min-w-0">
-                    <p
-                      className={cn(
-                        "text-[13px] font-medium",
-                        h.removed && "text-muted-foreground line-through",
-                      )}
-                    >
-                      {h.assignment?.displayName ?? h.name}
-                    </p>
-                    <p className="font-mono text-[10.5px] text-muted-foreground">
-                      {h.name} · {h.assignment?.kind === "initiative" ? "initiative" : "policy"} ·{" "}
-                      {h.assignment?.source === "builtin" ? "built-in" : "ALZ custom"}
-                    </p>
-                    {h.removed && (
-                      <p className="mt-0.5 text-[11.5px] text-warning">{h.removed.reason}</p>
-                    )}
-                  </div>
-                  <Pill tone={h.removed ? "warning" : effectTone(h.assignment?.effect)}>
-                    {h.removed ? "Removed" : effectLabel(h.assignment?.effect)}
-                  </Pill>
-                </li>
-              ))}
-              {!selected.here.length && (
-                <li className="px-4 py-5 text-sm text-muted-foreground">
-                  Nothing is assigned directly here in ALZ {shortRef(lib.ref)} — everything is
-                  inherited from the groups above.
-                </li>
-              )}
-            </ul>
-          </section>
-          <aside className="space-y-3">
-            <div className="rounded-md border border-border bg-card p-3">
-              <p className="text-xs font-medium text-muted-foreground">Inherited from</p>
-              <ul className="mt-1.5 space-y-1 text-[13px]">
-                {ancestors.map((a) => (
-                  <li key={a.id} className="flex justify-between">
-                    <span>{a.displayName}</span>
-                    <span className="font-mono text-muted-foreground">{a.enforced}</span>
-                  </li>
-                ))}
-                {!ancestors.length && (
-                  <li className="text-muted-foreground">Nothing — this is the top.</li>
-                )}
-              </ul>
-            </div>
-            {["corp", "online", "local", "sandbox"].includes(selected.libraryId) && (
-              <div className="rounded-md border border-border bg-card p-3">
-                <p className="text-xs font-medium text-muted-foreground">Customer installs here</p>
-                <ul className="mt-1.5 space-y-1 text-[13px]">
-                  {here.slice(0, 8).map((x) => (
-                    <li
-                      key={`${x.customerId}-${x.environment}`}
-                      className="flex justify-between gap-2"
-                    >
-                      <span className="truncate">{x.customerName}</span>
-                      <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-                        {x.environment}
-                      </span>
-                    </li>
-                  ))}
-                  {here.length > 8 && (
-                    <li className="text-xs text-muted-foreground">+{here.length - 8} more</li>
-                  )}
-                  {!here.length && <li className="text-muted-foreground">None yet.</li>}
-                </ul>
-              </div>
-            )}
-          </aside>
-        </div>
-      )}
     </div>
   );
 }
@@ -463,195 +226,14 @@ const effectTone = (effect: string | null | undefined) => {
   return "neutral" as const;
 };
 
-/* -------------------------------------------------------------------- setup */
-
-function SetupView({
-  foundationId,
-  answers,
-  setAnswers,
-  dirty,
-  libraryRef,
-}: {
-  foundationId: string;
-  answers: Answers;
-  setAnswers: (a: Answers) => void;
-  dirty: boolean;
-  libraryRef: string;
-}) {
-  const queryClient = useQueryClient();
-  const lib = libraryFor(libraryRef);
-  const changes = changesFor(lib, answers);
-  const defaults = requiredDefaults(lib, answers);
-  const save = useMutation({
-    mutationFn: useServerFn(saveFoundationAnswers),
-    onSuccess: () => {
-      toast.success("Saved. Review the infrastructure as code, then deploy.");
-      void queryClient.invalidateQueries({ queryKey: ["foundation", foundationId] });
-      void queryClient.invalidateQueries({ queryKey: ["foundations"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  return (
-    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
-      <div className="space-y-4">
-        <section className="rounded-md border border-border bg-card p-4">
-          <h2 className="text-[13px] font-semibold">Name and region</h2>
-          <div className="mt-3 grid gap-3 sm:grid-cols-3">
-            <div>
-              <Label className="text-xs">Top management group ID</Label>
-              <Input
-                className="mt-1 font-mono text-xs"
-                value={answers.intermediateRootId}
-                onChange={(e) => setAnswers({ ...answers, intermediateRootId: e.target.value })}
-              />
-              <p className="mt-1 text-[11px] text-muted-foreground">
-                Used as the prefix for every group, e.g. {answers.intermediateRootId}-corp
-              </p>
-            </div>
-            <div>
-              <Label className="text-xs">Display name</Label>
-              <Input
-                className="mt-1 text-xs"
-                value={answers.intermediateRootName}
-                onChange={(e) => setAnswers({ ...answers, intermediateRootName: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label className="text-xs">Primary region</Label>
-              <Input
-                className="mt-1 font-mono text-xs"
-                value={answers.primaryRegion}
-                onChange={(e) => setAnswers({ ...answers, primaryRegion: e.target.value })}
-              />
-            </div>
-          </div>
-        </section>
-
-        {QUESTIONS.map((q) => (
-          <section key={q.key} className="rounded-md border border-border bg-card p-4">
-            <h2 className="text-[13px] font-semibold">{q.question}</h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">{q.help}</p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              {q.options.map((o) => {
-                const on = answers[q.key] === o.value;
-                return (
-                  <button
-                    key={o.value}
-                    onClick={() => setAnswers({ ...answers, [q.key]: o.value } as Answers)}
-                    className={cn(
-                      "rounded-md border p-3 text-left transition-colors",
-                      on
-                        ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                        : "border-border hover:border-border-strong",
-                    )}
-                  >
-                    <p className="flex items-center gap-1.5 text-[13px] font-semibold">
-                      {on && <Check className="size-3.5 text-primary" />}
-                      {o.label}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">{o.body}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-        ))}
-
-        <section className="rounded-md border border-border bg-card p-4">
-          <h2 className="text-[13px] font-semibold">Security contact</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Microsoft Defender for Cloud sends security alerts here.
-          </p>
-          <Input
-            className="mt-2 max-w-sm text-xs"
-            placeholder="secops@example.com"
-            value={answers.securityContactEmail}
-            onChange={(e) => setAnswers({ ...answers, securityContactEmail: e.target.value })}
-          />
-        </section>
-
-        <div className="flex justify-end">
-          <Button
-            disabled={!dirty || save.isPending}
-            onClick={() => save.mutate({ data: { foundationId, answers } })}
-          >
-            {save.isPending ? "Saving…" : "Save setup"}
-          </Button>
-        </div>
-      </div>
-
-      <aside className="space-y-4 xl:sticky xl:top-16 xl:h-fit">
-        <section className="rounded-md border border-border bg-card p-4">
-          <h2 className="text-[13px] font-semibold">What your answers change</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Everything else is the Microsoft ALZ {shortRef(libraryRef)} reference, unchanged.
-            Changes are made the way Microsoft documents — an archetype override in a custom
-            library, never an edited copy.
-          </p>
-          <ul className="mt-3 space-y-2">
-            {groupChanges(changes).map((g) => (
-              <li
-                key={g.assignment}
-                className="rounded-sm border border-warning/40 bg-warning/5 p-2.5"
-              >
-                <p className="text-[12.5px] font-medium">
-                  Remove <span className="font-mono">{g.assignment}</span>
-                </p>
-                <p className="text-[11px] text-muted-foreground">from {g.groups.join(", ")}</p>
-                <p className="mt-1 text-[11.5px] text-muted-foreground">{g.reason}</p>
-              </li>
-            ))}
-            {!changes.length && (
-              <li className="text-sm text-muted-foreground">
-                No changes — the full reference applies.
-              </li>
-            )}
-          </ul>
-        </section>
-        <section className="rounded-md border border-border bg-card p-4">
-          <h2 className="text-[13px] font-semibold">Values filled in for you</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            Policy parameters the library needs, and where each comes from.
-          </p>
-          <ul className="mt-2 space-y-1.5 text-[12px]">
-            {defaults.map((d) => (
-              <li key={d.name} className="flex items-start justify-between gap-2">
-                <span className="font-mono text-[11px]">{d.name}</span>
-                <span className="shrink-0 text-[11px] text-muted-foreground">{d.from}</span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      </aside>
-    </div>
-  );
-}
-
-const groupChanges = (changes: ReturnType<typeof changesFor>) =>
-  Object.values(
-    changes.reduce<Record<string, { assignment: string; groups: string[]; reason: string }>>(
-      (acc, c) => {
-        acc[c.assignment] = acc[c.assignment] ?? {
-          assignment: c.assignment,
-          groups: [],
-          reason: c.reason,
-        };
-        acc[c.assignment]!.groups.push(c.managementGroup);
-        return acc;
-      },
-      {},
-    ),
-  );
-
 /* ----------------------------------------------------------------- policies */
 
 function PoliciesView({ tree }: { tree: MgNode[] }) {
   const [q, setQ] = useState("");
-  const [only, setOnly] = useState<"all" | "removed" | "deny">("all");
+  const [only, setOnly] = useState<"all" | "changed" | "deny">("all");
   const rows = tree.flatMap((n) => n.here.map((h) => ({ mg: n, ...h })));
   const shown = rows.filter((r) => {
-    if (only === "removed" && !r.removed) return false;
+    if (only === "changed" && !r.change) return false;
     if (only === "deny" && !(r.assignment?.effect ?? "").toLowerCase().startsWith("deny"))
       return false;
     const text = `${r.name} ${r.assignment?.displayName ?? ""} ${r.mg.displayName}`.toLowerCase();
@@ -666,7 +248,7 @@ function PoliciesView({ tree }: { tree: MgNode[] }) {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        {(["all", "deny", "removed"] as const).map((o) => (
+        {(["all", "deny", "changed"] as const).map((o) => (
           <button
             key={o}
             onClick={() => setOnly(o)}
@@ -677,7 +259,7 @@ function PoliciesView({ tree }: { tree: MgNode[] }) {
                 : "border-border text-muted-foreground",
             )}
           >
-            {o === "all" ? "All" : o === "deny" ? "Deny effects" : "Removed for your setup"}
+            {o === "all" ? "All" : o === "deny" ? "Deny effects" : "Changed in your design"}
           </button>
         ))}
         <span className="text-xs text-muted-foreground">{shown.length} assignments</span>
@@ -711,8 +293,10 @@ function PoliciesView({ tree }: { tree: MgNode[] }) {
                   {r.assignment?.kind === "initiative" ? "initiative" : "policy"}
                 </td>
                 <td>
-                  {r.removed ? (
+                  {r.change?.action === "remove" ? (
                     <Pill tone="warning">Removed</Pill>
+                  ) : r.change?.action === "audit" ? (
+                    <Pill tone="neutral">Audit only</Pill>
                   ) : (
                     <Pill tone="success">Enforced</Pill>
                   )}
@@ -829,7 +413,7 @@ function VersionView({
               key={m.id}
               kind="add"
               title={`New management group: ${m.displayName}`}
-              detail={`${m.id}, under ${m.parentId} · archetype ${m.archetypes.join(", ")}. ${PURPOSE[m.id] ?? ""}`}
+              detail={`${m.id}, under ${m.parentId} · archetype ${m.archetypes.join(", ")}. ${MG_PURPOSE[m.id] ?? ""}`}
             />
           ))}
           {diff.managementGroupsRemoved.map((m) => (
@@ -915,10 +499,12 @@ function IacView({
   libraryRef,
   answers,
   placed,
+  dirty,
 }: {
   libraryRef: string;
   answers: Answers;
   placed: Placement[];
+  dirty: boolean;
 }) {
   const files = terraformFor(libraryRef, answers);
   const [file, setFile] = useState(files[0]?.path ?? "");
@@ -932,6 +518,11 @@ function IacView({
   );
   return (
     <div className="space-y-4">
+      {dirty && (
+        <p className="rounded-sm border border-warning/40 bg-warning/5 px-3 py-2 text-xs text-warning">
+          Showing your unsaved design. Save it on the Design tab before deploying.
+        </p>
+      )}
       <p className="max-w-3xl text-xs text-muted-foreground">
         Generated for Microsoft's Azure Verified Modules:{" "}
         <span className="font-mono">Azure/avm-ptn-alz</span> with the{" "}
@@ -1109,9 +700,9 @@ function DeployView({
           </h2>
           <p className="text-xs text-muted-foreground">
             {dirty
-              ? "Save your setup first — the deployment uses the saved answers."
+              ? "Save your design first — the deployment uses the saved design."
               : upToDate
-                ? "The tenant matches the saved setup and pinned library."
+                ? "The tenant matches the saved design and pinned library."
                 : "Runs the generated Terraform through the platform pipeline. Tenant-level changes need approval."}
           </p>
         </div>

@@ -1295,10 +1295,21 @@ const answersSchema = z.object({
   intermediateRootName: z.string().min(2).max(80),
   primaryRegion: z.string().min(3).max(40),
   connectivity: z.enum(["hub_and_spoke", "virtual_wan", "none"]),
+  firewall: z.enum(["Premium", "Standard", "Basic", "none"]),
+  bastion: z.enum(["yes", "no"]),
+  vpnGateway: z.enum(["yes", "no"]),
+  expressRoute: z.enum(["yes", "no"]),
   ddosPlan: z.enum(["yes", "no"]),
   privateDns: z.enum(["platform", "none"]),
   monitoring: z.enum(["azure_monitor", "third_party"]),
+  logRetentionDays: z.number().int().min(30).max(730),
   siem: z.enum(["sentinel", "other"]),
+  identity: z.enum(["yes", "no"]),
+  landingZones: z.array(z.enum(["corp", "online", "local", "sandbox"])),
+  policyOverrides: z.record(
+    z.string().regex(/^[a-z_]+\/[A-Za-z0-9-]+$/),
+    z.enum(["audit", "remove"]),
+  ),
   securityContactEmail: z.string().email().or(z.literal("")),
 });
 
