@@ -1956,19 +1956,12 @@ Before considering the product finished, verify that every major button performs
 
 Build the initial working product now.
 
-This project was built with [Lovable](https://lovable.dev).
-
-## Build with Lovable
-
-Continue developing this project in the [Lovable editor](https://lovable.dev/projects/8279ef0c-0766-4fd9-92e7-08364d83e046).
-
-- **Ship faster**: describe what you want to build and Lovable handles the code.
-- **Stay in sync**: every change made in Lovable is committed straight to this repository.
-- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
-
 ## Development
 
-Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+You need Node.js (or Bun) and a Supabase project. Copy the connection values into `.env`
+(`SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY` and the `VITE_`-prefixed
+public variants). Optional AI architecture drafting uses any OpenAI-compatible endpoint, e.g. Azure OpenAI:
+`AI_CHAT_COMPLETIONS_URL`, `AI_API_KEY`, `AI_MODEL`.
 
 ```sh
 git clone <this-repository-url>

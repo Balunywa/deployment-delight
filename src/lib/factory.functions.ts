@@ -581,8 +581,13 @@ export const draftBlueprintFromDescription = createServerFn({ method: "POST" })
     z.object({ description: z.string().min(30).max(6000), offeringId: z.string().uuid() }).parse(d),
   )
   .handler(async ({ data }) => {
-    const apiKey = process.env["LOVABLE_API_KEY"];
-    if (!apiKey) throw new Error("AI drafting is not configured for this environment.");
+    const apiKey = process.env["AI_API_KEY"];
+    const endpoint = process.env["AI_CHAT_COMPLETIONS_URL"];
+    const model = process.env["AI_MODEL"] ?? "gpt-4.1";
+    if (!apiKey || !endpoint)
+      throw new Error(
+        "AI drafting is not configured. Set AI_CHAT_COMPLETIONS_URL and AI_API_KEY (any OpenAI-compatible endpoint, e.g. Azure OpenAI).",
+      );
     const db = await admin();
     const { data: modules } = await db
       .from("infrastructure_modules")
@@ -594,11 +599,16 @@ Return ONLY JSON matching this shape:
 Only use module names from this catalog: ${(modules ?? []).map((m) => `${m.name}@${m.version}`).join(", ")}.
 Never invent Azure credentials, subscriptions or resource IDs.`;
 
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch(endpoint, {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      // Bearer for OpenAI-compatible gateways; api-key for Azure OpenAI.
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "api-key": apiKey,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
-        model: "google/gemini-3.8-flash",
+        model,
         messages: [
           { role: "system", content: system },
           { role: "user", content: data.description },
