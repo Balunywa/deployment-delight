@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { ArrowRight, Boxes, Building2, Layers, Rocket } from "lucide-react";
 
 import { Dot, Metric, PageHeader, Panel, Pill, deploymentTone, severityTone } from "@/components/Primitives";
 import { currency, percent, relative } from "@/lib/format";
@@ -74,6 +75,40 @@ function Overview() {
           </Link>
         }
       />
+
+      <div className="mb-8 overflow-hidden rounded-md border border-border bg-card">
+        <div className="border-b border-border bg-muted/30 px-4 py-2.5">
+          <h2 className="text-xs font-bold tracking-wider text-muted-foreground uppercase">
+            Catalog-to-Customer Lifecycle
+          </h2>
+        </div>
+        <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-4 sm:divide-x sm:divide-y-0">
+          <WorkflowStep
+            to="/products"
+            label="Productize"
+            desc="Define Azure architecture"
+            icon={Boxes}
+          />
+          <WorkflowStep
+            to="/offerings"
+            label="Version"
+            desc="Publish immutable blueprints"
+            icon={Layers}
+          />
+          <WorkflowStep
+            to="/onboard"
+            label="Onboard"
+            desc="Connect customer tenants"
+            icon={Building2}
+          />
+          <WorkflowStep
+            to="/deployments"
+            label="Deploy"
+            desc="Lifecycle execution & drift"
+            icon={Rocket}
+          />
+        </div>
+      </div>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Customers" value={customers.size} hint={`${envs.length} environments under management`} />
@@ -219,6 +254,21 @@ function Overview() {
         </Panel>
       </div>
     </>
+  );
+}
+
+function WorkflowStep({ to, label, desc, icon: Icon }: { to: string; label: string; desc: string; icon: any }) {
+  return (
+    <Link to={to} className="group relative flex flex-col p-4 transition-colors hover:bg-muted/50">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="grid size-8 place-items-center rounded-md bg-primary/10 text-primary transition-colors group-hover:bg-primary group-hover:text-primary-foreground">
+          <Icon className="size-4" />
+        </div>
+        <ArrowRight className="size-3 text-muted-foreground opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100" />
+      </div>
+      <p className="text-sm font-semibold text-foreground">{label}</p>
+      <p className="text-[11px] text-muted-foreground">{desc}</p>
+    </Link>
   );
 }
 

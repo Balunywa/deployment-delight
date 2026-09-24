@@ -26,8 +26,8 @@ function Products() {
   return (
     <>
       <PageHeader
-        title="Products"
-        description="Each product is a piece of ISV software. Its Azure architecture is defined once, then published as offerings that customers can be deployed onto."
+        title="Product Catalog"
+        description="The source of truth for your software products. Each product is a piece of ISV software. Its Azure architecture is defined once, then published as offerings that customers can be deployed onto."
       />
 
       {products.isLoading && <EmptyState title="Loading products…" />}
