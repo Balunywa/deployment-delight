@@ -1334,3 +1334,7 @@ footer .wrap {
 .nav .btn-ghost:hover {
   border-color: var(--navy-muted);
 }
+
+.hero h1 {
+  font-size: clamp(34px, 4.4vw, 56px);
+}
