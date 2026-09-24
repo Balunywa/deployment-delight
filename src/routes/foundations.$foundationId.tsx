@@ -7,7 +7,9 @@ import { toast } from "sonner";
 
 import { type JobStatus, PipelineGraph } from "@/components/architecture/PipelineGraph";
 import { CodeBlock } from "@/components/CodeBlock";
+import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
+import { assess } from "@/lib/alz/assess";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,7 +40,7 @@ import type { Stage } from "@/lib/pipeline";
 import { customersQuery, foundationQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type View = "design" | "policies" | "version" | "iac" | "deploy";
+type View = "design" | "assessment" | "policies" | "version" | "iac" | "deploy";
 
 export const Route = createFileRoute("/foundations/$foundationId")({
   validateSearch: (s: Record<string, unknown>): { view?: View } => {
@@ -78,23 +80,27 @@ function FoundationDetail() {
   const managed = f.mode === "managed";
   const view: View = managed
     ? (search.view ?? "design")
-    : search.view === "policies"
-      ? "policies"
-      : "design";
+    : search.view === "policies" || search.view === "design"
+      ? search.view
+      : "assessment";
   const lib = libraryFor(f.library_ref);
   const current = managed ? answers : saved;
   const tree = hierarchy(lib, current);
   const placed = placementsFor(placements(customers.data ?? [], offerings.data ?? []), f);
   const dirty = JSON.stringify(answers) !== JSON.stringify(saved);
+  const snapshot = snapshotFor(f, libraryFor(f.library_ref));
+  const assessment = snapshot ? assess(snapshot, libraryFor(f.library_ref)) : null;
   const tabs: [View, string][] = managed
     ? [
         ["design", "Design"],
+        ["assessment", assessment ? `Assessment · ${assessment.overall}%` : "Assess a tenant"],
         ["policies", "Policies"],
         ["version", "ALZ version"],
         ["iac", "Infrastructure as code"],
         ["deploy", "Deploy"],
       ]
     : [
+        ["assessment", assessment ? `Assessment · ${assessment.overall}%` : "Assessment"],
         ["design", "Where your product lands"],
         ["policies", "Reference policies"],
       ];
@@ -177,6 +183,28 @@ function FoundationDetail() {
             onDiscard={() => setAnswers(saved)}
             placed={placed}
             readOnlyOwner={managed ? undefined : (f.customers?.name ?? "the customer")}
+            name={f.name}
+            assessment={assessment}
+          />
+        )}
+        {view === "assessment" && (
+          <AssessmentView
+            foundationId={f.id}
+            name={f.name}
+            lib={lib}
+            snapshot={snapshot}
+            answers={current}
+            placed={placed}
+            managed={managed}
+            onUseDesign={
+              managed
+                ? (a) => {
+                    setAnswers(a);
+                    void navigate({ search: { view: "design" } });
+                    toast.success("Design updated from the tenant — review it, then save.");
+                  }
+                : undefined
+            }
           />
         )}
         {view === "policies" && <PoliciesView tree={tree} />}

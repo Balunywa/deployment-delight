@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.44.1.10279",
-      "templateHash": "3277497462129256511"
+      "templateHash": "4772002782595861678"
     }
   },
   "parameters": {
@@ -88,6 +88,20 @@
       "metadata": {
         "description": "URL of the prebuilt app package (release asset built by .github/workflows/release-app.yml)."
       }
+    },
+    "enableAdvisor": {
+      "type": "bool",
+      "defaultValue": true,
+      "metadata": {
+        "description": "Create the AI design advisor (Azure AI Services with a gpt-4.1 deployment, keyless via the app identity)."
+      }
+    },
+    "advisorLocation": {
+      "type": "string",
+      "defaultValue": "eastus2",
+      "metadata": {
+        "description": "Region for the advisor model (must offer gpt-4.1 Global Standard)."
+      }
     }
   },
   "variables": {
@@ -100,9 +114,47 @@
     "workspaceName": "[format('{0}-law-{1}', parameters('namePrefix'), variables('suffix'))]",
     "databaseName": "cloud_delivery",
     "useEntra": "[equals(parameters('databaseAuth'), 'entra')]",
-    "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6"
+    "keyVaultSecretsUserRoleId": "4633458b-17de-408a-b874-0445c86b69e6",
+    "openAiUserRoleId": "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd",
+    "advisorName": "[format('{0}-advisor-{1}', parameters('namePrefix'), variables('suffix'))]"
   },
   "resources": [
+    {
+      "condition": "[parameters('enableAdvisor')]",
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2024-10-01",
+      "name": "[variables('advisorName')]",
+      "location": "[parameters('advisorLocation')]",
+      "kind": "AIServices",
+      "sku": {
+        "name": "S0"
+      },
+      "properties": {
+        "customSubDomainName": "[variables('advisorName')]",
+        "disableLocalAuth": true,
+        "publicNetworkAccess": "Enabled"
+      }
+    },
+    {
+      "condition": "[parameters('enableAdvisor')]",
+      "type": "Microsoft.CognitiveServices/accounts/deployments",
+      "apiVersion": "2024-10-01",
+      "name": "[format('{0}/{1}', variables('advisorName'), 'gpt-4.1')]",
+      "sku": {
+        "name": "GlobalStandard",
+        "capacity": 50
+      },
+      "properties": {
+        "model": {
+          "format": "OpenAI",
+          "name": "gpt-4.1",
+          "version": "2025-04-14"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('advisorName'))]"
+      ]
+    },
     {
       "type": "Microsoft.OperationalInsights/workspaces",
       "apiVersion": "2023-09-01",
@@ -236,7 +288,7 @@
           "ftpsState": "Disabled",
           "http20Enabled": true,
           "healthCheckPath": "/",
-          "appSettings": "[concat(createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('packageUrl')), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false'), createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'PORT', 'value', '8080'), createObject('name', 'WEBSITES_PORT', 'value', '8080'), createObject('name', 'AUTO_MIGRATE', 'value', 'true'), createObject('name', 'SEED_DEMO_DATA', 'value', if(parameters('seedDemoData'), 'true', 'false')), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('insightsName')), '2020-02-02').ConnectionString), createObject('name', 'ApplicationInsightsAgent_EXTENSION_VERSION', 'value', '~3')), if(variables('useEntra'), createArray(createObject('name', 'DATABASE_URL', 'value', format('postgres://{0}@{1}:5432/{2}', variables('webAppName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName, variables('databaseName'))), createObject('name', 'AZURE_POSTGRES_ENTRA_AUTH', 'value', 'true')), createArray(createObject('name', 'DATABASE_URL', 'value', format('@Microsoft.KeyVault(SecretUri=https://{0}{1}/secrets/database-url)', variables('keyVaultName'), environment().suffixes.keyvaultDns)))))]"
+          "appSettings": "[concat(createArray(createObject('name', 'WEBSITE_RUN_FROM_PACKAGE', 'value', parameters('packageUrl')), createObject('name', 'SCM_DO_BUILD_DURING_DEPLOYMENT', 'value', 'false'), createObject('name', 'NODE_ENV', 'value', 'production'), createObject('name', 'PORT', 'value', '8080'), createObject('name', 'WEBSITES_PORT', 'value', '8080'), createObject('name', 'AUTO_MIGRATE', 'value', 'true'), createObject('name', 'SEED_DEMO_DATA', 'value', if(parameters('seedDemoData'), 'true', 'false')), createObject('name', 'APPLICATIONINSIGHTS_CONNECTION_STRING', 'value', reference(resourceId('Microsoft.Insights/components', variables('insightsName')), '2020-02-02').ConnectionString), createObject('name', 'ApplicationInsightsAgent_EXTENSION_VERSION', 'value', '~3')), if(variables('useEntra'), createArray(createObject('name', 'DATABASE_URL', 'value', format('postgres://{0}@{1}:5432/{2}', variables('webAppName'), reference(resourceId('Microsoft.DBforPostgreSQL/flexibleServers', variables('postgresName')), '2024-08-01').fullyQualifiedDomainName, variables('databaseName'))), createObject('name', 'AZURE_POSTGRES_ENTRA_AUTH', 'value', 'true')), createArray(createObject('name', 'DATABASE_URL', 'value', format('@Microsoft.KeyVault(SecretUri=https://{0}{1}/secrets/database-url)', variables('keyVaultName'), environment().suffixes.keyvaultDns)))), if(parameters('enableAdvisor'), createArray(createObject('name', 'AZURE_OPENAI_ENDPOINT', 'value', format('https://{0}.cognitiveservices.azure.com/', variables('advisorName'))), createObject('name', 'AZURE_OPENAI_DEPLOYMENT', 'value', 'gpt-4.1')), createArray()))]"
         }
       },
       "dependsOn": [
@@ -260,6 +312,22 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', variables('keyVaultName'))]",
+        "[resourceId('Microsoft.Web/sites', variables('webAppName'))]"
+      ]
+    },
+    {
+      "condition": "[parameters('enableAdvisor')]",
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.CognitiveServices/accounts', variables('advisorName'))]",
+      "name": "[guid(variables('advisorName'), variables('webAppName'), variables('openAiUserRoleId'))]",
+      "properties": {
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', variables('webAppName')), '2023-12-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal",
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('openAiUserRoleId'))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.CognitiveServices/accounts', variables('advisorName'))]",
         "[resourceId('Microsoft.Web/sites', variables('webAppName'))]"
       ]
     },
@@ -330,6 +398,10 @@
     "webAppName": {
       "type": "string",
       "value": "[variables('webAppName')]"
+    },
+    "webAppPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Web/sites', variables('webAppName')), '2023-12-01', 'full').identity.principalId]"
     },
     "webAppUrl": {
       "type": "string",

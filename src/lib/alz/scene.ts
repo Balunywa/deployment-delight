@@ -208,6 +208,8 @@ export function flowsFor(scene: Scene, answers: Answers): Flow[] {
   });
 
   const dns = hub && answers.privateDns === "platform";
+  // The ALZ connectivity modules point spokes at the firewall's DNS proxy when a Standard/Premium firewall exists.
+  const proxy = fw && answers.firewall !== "Basic";
   flows.push({
     id: "private-endpoint",
     title: "A workload reaches its database privately",
@@ -226,10 +228,26 @@ export function flowsFor(scene: Scene, answers: Answers): Flow[] {
             title: "Looks up the database name",
             body: "e.g. mydb.database.windows.net, from an app in the spoke.",
           },
+          ...(proxy
+            ? [
+                {
+                  at: "firewall",
+                  title: "Azure Firewall DNS proxy takes the query",
+                  body: "The spoke's DNS server is the firewall's private IP. Its DNS proxy forwards the query to the DNS Private Resolver.",
+                },
+              ]
+            : []),
+          {
+            at: "dnsresolver",
+            title: "DNS Private Resolver resolves it",
+            body: proxy
+              ? "The resolver's inbound endpoint answers from the private DNS zones linked to the hub. On-premises DNS servers forward privatelink queries here too."
+              : "The spoke's DNS server is the resolver's inbound endpoint. It answers from the private DNS zones linked to the hub; on-premises DNS servers forward privatelink queries here too.",
+          },
           {
             at: "dnszones",
-            title: "Private DNS answers with a private IP",
-            body: "The privatelink.database.windows.net zone in Connectivity holds the private endpoint's record. On-premises servers get the same answer through the DNS Private Resolver.",
+            title: "Private DNS returns the private IP",
+            body: "The privatelink.database.windows.net zone holds the private endpoint's A record, so the name resolves to an address inside the spoke.",
             policy:
               "Deploy-Private-DNS-Zones (Corp) registers the record automatically when the endpoint is created",
           },

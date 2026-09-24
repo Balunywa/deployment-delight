@@ -162,7 +162,13 @@ type Ctx = {
   sel: Sel | null;
   onSelect: (s: Sel) => void;
   involved: Set<string> | null;
+  /** For an assessed tenant: the management groups actually found. */
+  present?: Set<string> | undefined;
+  asIs?: AsIsInfo | undefined;
 };
+
+/** Drawing today's tenant: what was actually found, so nothing is shown that isn't there. */
+export type AsIsInfo = { parts: Set<string>; counts: Record<string, string> };
 
 export function ArchitectureDiagram({
   lib,
@@ -174,7 +180,11 @@ export function ArchitectureDiagram({
   onSelect,
   flow,
   step,
+  present,
+  asIs,
 }: {
+  present?: Set<string> | undefined;
+  asIs?: AsIsInfo | undefined;
   lib: AlzLibrary;
   tree: MgNode[];
   answers: Answers;
@@ -195,7 +205,7 @@ export function ArchitectureDiagram({
 
   const involved =
     flow?.available && flow.steps.length ? new Set(flow.steps.map((s) => s.at)) : null;
-  const ctx: Ctx = { answers, tree, lib, set, sel, onSelect, involved };
+  const ctx: Ctx = { answers, tree, lib, set, sel, onSelect, involved, present, asIs };
   const wan = answers.connectivity === "virtual_wan";
   const hub = hasHub(answers);
   const second =
@@ -543,9 +553,11 @@ export function ArchitectureDiagram({
               ctx={ctx}
               id="security"
               title="Security subscription"
-              on={answers.siem === "sentinel"}
+              on={on(answers.securitySubscription)}
               toggle={
-                set && (() => set({ siem: answers.siem === "sentinel" ? "other" : "sentinel" }))
+                set &&
+                (() =>
+                  set({ securitySubscription: on(answers.securitySubscription) ? "no" : "yes" }))
               }
               note="For the security team's own tools"
             >
@@ -834,7 +846,7 @@ function Subscription({
             </p>
             {note && (
               <p className="truncate text-[10.5px] text-[#605e5c]">
-                {isOn ? note : "Left out of this design"}
+                {isOn ? note : ctx.asIs ? "Not found in the tenant" : "Left out of this design"}
               </p>
             )}
           </div>
@@ -852,7 +864,7 @@ function Subscription({
 
 function Toolset({ ctx, mg, dim }: { ctx: Ctx; mg: string; dim: boolean }) {
   const eff = effectivePolicies(ctx.tree, mg);
-  if (!eff.length) return null;
+  if (!eff.length || ctx.asIs) return null;
   const items = TOOLS.map((t) => {
     const hit = eff.filter((e) => e.item.name === t.assignment);
     if (!hit.length) return null;
@@ -976,7 +988,7 @@ function Part({
   detail,
   icon: Icon,
   tone,
-  on: isOn,
+  on: initiallyOn,
   toggle,
   select,
 }: {
@@ -990,7 +1002,10 @@ function Part({
   toggle?: (() => void) | undefined;
   select?: Sel;
 }) {
+  let isOn = initiallyOn;
   const s = select ?? { kind: "res" as const, id };
+  if (ctx.asIs && !["sandboxapps"].includes(id))
+    isOn = isOn && ctx.asIs.parts.has(id.replace(/2$/, ""));
   const selected = ctx.sel?.kind === s.kind && ctx.sel.id === s.id;
   const lit = !ctx.involved || ctx.involved.has(id);
   return (
@@ -1026,7 +1041,7 @@ function Part({
         </span>
         {(detail || !isOn) && (
           <span className="block truncate text-[10.5px] leading-tight text-[#605e5c]">
-            {isOn ? detail : "Left out"}
+            {isOn ? detail : ctx.asIs ? "Not found" : "Left out"}
           </span>
         )}
       </span>
@@ -1107,7 +1122,7 @@ function LandingGroup({
               ? group === "corp"
                 ? "peered to the hub"
                 : group === "online"
-                  ? "internet-facing, isolated"
+                  ? "internet-facing, not peered"
                   : "Azure Local"
               : "left out"}
           </span>
@@ -1195,7 +1210,7 @@ function OrgChart({ ctx, exists }: { ctx: Ctx; spokes: Spoke[]; exists: (id: str
   const root = node("alz");
   const optional = (id: string) => ["corp", "online", "local", "sandbox"].includes(id);
   const subsFor: Record<string, { label: string; on: boolean }[]> = {
-    security: [{ label: "Subscription", on: answers.siem === "sentinel" }],
+    security: [{ label: "Subscription", on: on(answers.securitySubscription) }],
     management: [{ label: "Subscription", on: true }],
     identity: [{ label: "Subscription", on: on(answers.identity) }],
     connectivity: [{ label: "Subscription", on: hasHub(answers) }],
@@ -1203,7 +1218,7 @@ function OrgChart({ ctx, exists }: { ctx: Ctx; spokes: Spoke[]; exists: (id: str
   };
   const mgBox = (id: string, label?: string) => {
     const n = node(id);
-    const included = !!n;
+    const included = !!n && (!ctx.present || ctx.present.has(id));
     if (!exists(id) && id !== "alz") return null;
     const selected = ctx.sel?.kind === "mg" && ctx.sel.id === id;
     return (
@@ -1232,7 +1247,11 @@ function OrgChart({ ctx, exists }: { ctx: Ctx; spokes: Spoke[]; exists: (id: str
             {label ?? n?.displayName ?? id}
           </span>
           <span className="block font-mono text-[9.5px] text-[#605e5c]">
-            {included ? `${n!.enforced} + ${n!.inherited}` : "left out"}
+            {included
+              ? (ctx.asIs?.counts[id] ?? `${n!.enforced} + ${n!.inherited}`)
+              : ctx.present
+                ? "not in tenant"
+                : "left out"}
           </span>
           {ctx.set && optional(id) && (
             <span className="absolute -top-1.5 -right-1.5">

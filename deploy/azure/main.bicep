@@ -48,6 +48,12 @@ param seedDemoData bool = true
 @description('URL of the prebuilt app package (release asset built by .github/workflows/release-app.yml).')
 param packageUrl string = 'https://github.com/Balunywa/deployment-delight/releases/download/app-latest/cloud-delivery-app.zip'
 
+@description('Create the AI design advisor (Azure AI Services with a gpt-4.1 deployment, keyless via the app identity).')
+param enableAdvisor bool = true
+
+@description('Region for the advisor model (must offer gpt-4.1 Global Standard).')
+param advisorLocation string = 'eastus2'
+
 var suffix = take(uniqueString(resourceGroup().id, namePrefix), 6)
 var webAppName = '${namePrefix}-${suffix}'
 var planName = '${namePrefix}-plan-${suffix}'
@@ -58,6 +64,29 @@ var workspaceName = '${namePrefix}-law-${suffix}'
 var databaseName = 'cloud_delivery'
 var useEntra = databaseAuth == 'entra'
 var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+var openAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+var advisorName = '${namePrefix}-advisor-${suffix}'
+
+resource advisor 'Microsoft.CognitiveServices/accounts@2024-10-01' = if (enableAdvisor) {
+  name: advisorName
+  location: advisorLocation
+  kind: 'AIServices'
+  sku: { name: 'S0' }
+  properties: {
+    customSubDomainName: advisorName
+    disableLocalAuth: true
+    publicNetworkAccess: 'Enabled'
+  }
+}
+
+resource advisorModel 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = if (enableAdvisor) {
+  parent: advisor
+  name: 'gpt-4.1'
+  sku: { name: 'GlobalStandard', capacity: 50 }
+  properties: {
+    model: { format: 'OpenAI', name: 'gpt-4.1', version: '2025-04-14' }
+  }
+}
 
 resource workspace 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
   name: workspaceName
@@ -184,7 +213,13 @@ resource webApp 'Microsoft.Web/sites@2023-12-01' = {
           { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: insights.properties.ConnectionString }
           { name: 'ApplicationInsightsAgent_EXTENSION_VERSION', value: '~3' }
         ],
-        databaseSettings
+        databaseSettings,
+        enableAdvisor
+          ? [
+              { name: 'AZURE_OPENAI_ENDPOINT', value: 'https://${advisorName}.cognitiveservices.azure.com/' }
+              { name: 'AZURE_OPENAI_DEPLOYMENT', value: 'gpt-4.1' }
+            ]
+          : []
       )
     }
   }
@@ -213,7 +248,19 @@ resource secretsUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (
   }
 }
 
+// The advisor is keyless: the web app's identity calls it with Microsoft Entra ID.
+resource advisorUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (enableAdvisor) {
+  name: guid(advisorName, webAppName, openAiUserRoleId)
+  scope: advisor
+  properties: {
+    principalId: webApp.identity.principalId
+    principalType: 'ServicePrincipal'
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', openAiUserRoleId)
+  }
+}
+
 output webAppName string = webAppName
+output webAppPrincipalId string = webApp.identity.principalId
 output webAppUrl string = 'https://${webApp.properties.defaultHostName}'
 output postgresServer string = postgres.properties.fullyQualifiedDomainName
 output databaseAuth string = databaseAuth

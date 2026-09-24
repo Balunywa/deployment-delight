@@ -1,6 +1,7 @@
 /*
- * Landing zone designer: pick what the platform needs, see it built in 3D, trace traffic through it and watch
- * policy flow down the management group tree. Every choice maps to the Terraform on the next tab.
+ * Landing zone designer: Microsoft's reference architecture as a canvas. Tick what the platform needs, open
+ * any management group or subscription for its policies and access, trace traffic, and ask the advisor.
+ * Every choice maps to the Terraform on the Infrastructure as code tab.
  */
 import {
   ArrowRight,
@@ -14,12 +15,17 @@ import {
   Play,
   Route,
   ShieldCheck,
+  Sparkles,
   Undo2,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { ArchitectureDiagram } from "@/components/lz/ArchitectureDiagram";
+import { AccessPanel, AdvisorPanel, PolicyAddsPanel } from "@/components/lz/Panels";
+import type { Assessment } from "@/lib/alz/assess";
+import { designContext } from "@/lib/alz/context";
+import { PERSONAS } from "@/lib/alz/governance";
 import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -155,6 +161,8 @@ export function LandingZoneDesigner({
   saving,
   placed,
   readOnlyOwner,
+  name = "",
+  assessment = null,
 }: {
   lib: AlzLibrary;
   answers: Answers;
@@ -166,9 +174,11 @@ export function LandingZoneDesigner({
   placed: Placement[];
   /** Set for customer-owned landing zones: the design can be explored but not changed. */
   readOnlyOwner?: string | undefined;
+  name?: string;
+  assessment?: Assessment | null;
 }) {
   const editable = !!setAnswers && !readOnlyOwner;
-  const [panel, setPanel] = useState<"design" | "details" | "traffic">(
+  const [panel, setPanel] = useState<"design" | "details" | "traffic" | "access" | "advisor">(
     editable ? "design" : "details",
   );
   const [sel, setSel] = useState<Sel | null>(null);
@@ -249,6 +259,17 @@ export function LandingZoneDesigner({
             </Button>
           </>
         )}
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 border-[#8661c5]/40 text-[#5c2e91]"
+          onClick={() => {
+            setPanel("advisor");
+            setOpen(true);
+          }}
+        >
+          <Sparkles className="size-3.5" /> Ask the advisor
+        </Button>
         <Button size="sm" variant="outline" className="h-7" onClick={() => setOpen((o) => !o)}>
           {open ? "Hide panel" : "Show panel"}
         </Button>
@@ -334,7 +355,9 @@ export function LandingZoneDesigner({
             [
               ["design", editable ? "Design" : "About"],
               ["details", "Details"],
-              ["traffic", "Traffic flows"],
+              ["traffic", "Traffic"],
+              ["access", "Access"],
+              ["advisor", "✦ Advisor"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -345,7 +368,8 @@ export function LandingZoneDesigner({
                   setFlowId(flows.find((f) => f.available)?.id ?? null);
               }}
               className={cn(
-                "-mb-px border-b-2 px-3 pb-2 text-[12.5px] transition-colors",
+                "-mb-px border-b-2 px-2 pb-2 text-[12.5px] whitespace-nowrap transition-colors",
+                id === "advisor" && "text-[#8661c5]",
                 panel === id
                   ? "border-primary font-medium text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground",
@@ -375,6 +399,21 @@ export function LandingZoneDesigner({
             ) : (
               <ReadOnlyPanel owner={readOnlyOwner ?? "the customer"} placed={placed} />
             )}
+          </div>
+        ) : panel === "access" ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <AccessPanel tree={tree} answers={answers} set={editable ? set : undefined} />
+          </div>
+        ) : panel === "advisor" ? (
+          <div className="min-h-0 flex-1">
+            <AdvisorPanel
+              answers={answers}
+              set={editable ? (p) => setAnswers?.({ ...answers, ...p }) : undefined}
+              assessed={!!assessment}
+              context={() =>
+                designContext(lib, answers, placed, { name, owner: readOnlyOwner, assessment })
+              }
+            />
           </div>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto">{inspector}</div>
@@ -664,6 +703,10 @@ function Palette({
           ))}
         </Section>
 
+        <Section title="Extra policy and compliance">
+          <PolicyAddsPanel tree={hierarchy(lib, answers)} answers={answers} set={set} />
+        </Section>
+
         <Section title="Operations">
           <div>
             <p className="mb-1 text-[12.5px] font-medium">Monitoring</p>
@@ -815,13 +858,7 @@ function Inspector(props: {
           <X className="size-3.5" />
         </button>
       </div>
-      {sel.kind === "mg" && (
-        <>
-          <MgDetail id={sel.id} {...props} />
-          <PolicyPanel {...props} />
-        </>
-      )}
-      {sel.kind === "sub" && <SubDetail id={sel.id} {...props} />}
+      {(sel.kind === "mg" || sel.kind === "sub") && <GroupTabs key={sel.id} {...props} sel={sel} />}
       {sel.kind === "res" && <ResourceDetail id={sel.id} {...props} />}
       {sel.kind === "spoke" && <SpokeDetail id={sel.id} {...props} />}
       {sel.kind === "ext" && <ExtDetail id={sel.id} {...props} />}
@@ -830,6 +867,97 @@ function Inspector(props: {
 }
 
 type IP = Parameters<typeof Inspector>[0];
+
+/** Management group or subscription: what it is, every policy that reaches it, and who has access. */
+function GroupTabs(props: IP & { sel: Sel }) {
+  const [tab, setTab] = useState<"overview" | "policies" | "access">("overview");
+  const mg = props.sel.id;
+  const n = props.tree.find((t) => t.libraryId === mg);
+  const chain: MgNode[] = [];
+  let cur = n;
+  while (cur) {
+    chain.unshift(cur);
+    cur = props.tree.find((t) => t.id === cur?.parentId);
+  }
+  const inherited = props.answers.rbac.filter((r) => chain.some((c) => c.libraryId === r.scope));
+  return (
+    <div>
+      <div className="flex gap-1 border-b border-border px-3 pt-2">
+        {(
+          [
+            ["overview", "Overview"],
+            ["policies", `Policies${n ? ` · ${n.enforced + n.inherited}` : ""}`],
+            ["access", `Access${inherited.length ? ` · ${inherited.length}` : ""}`],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={cn(
+              "-mb-px border-b-2 px-2 pb-1.5 text-[12px]",
+              tab === id
+                ? "border-primary font-medium"
+                : "border-transparent text-muted-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {tab === "overview" &&
+        (props.sel.kind === "mg" ? (
+          <MgDetail id={mg} {...props} />
+        ) : (
+          <SubDetail id={mg} {...props} />
+        ))}
+      {tab === "policies" && (
+        <>
+          <PolicyPanel {...props} sel={{ kind: "mg", id: mg }} />
+          {n && (
+            <div className="border-t border-border p-4">
+              <p className="mb-2 text-[12.5px] font-semibold">
+                Add Microsoft built-ins at {n.displayName}
+              </p>
+              <PolicyAddsPanel
+                tree={props.tree}
+                answers={props.answers}
+                set={props.set}
+                scope={mg}
+              />
+            </div>
+          )}
+        </>
+      )}
+      {tab === "access" && (
+        <div>
+          {n && (
+            <div className="border-b border-border px-4 py-3 text-[12px]">
+              <p className="font-semibold">Effective access at {n.displayName}</p>
+              {inherited.length ? (
+                <ul className="mt-1 space-y-0.5">
+                  {inherited.map((r) => (
+                    <li key={r.persona} className="flex justify-between gap-2">
+                      <span>{PERSONAS.find((p) => p.id === r.persona)?.label}</span>
+                      <span className="text-muted-foreground">
+                        {r.role}
+                        {r.scope !== mg
+                          ? ` · from ${props.tree.find((t) => t.libraryId === r.scope)?.displayName}`
+                          : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-muted-foreground">No roles assigned in this design yet.</p>
+              )}
+            </div>
+          )}
+          <AccessPanel tree={props.tree} answers={props.answers} set={props.set} focusScope={mg} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Overview({ answers, tree, changes, lib, omitted, setSel, set }: IP) {
   const subs = platformSubscriptions(answers);

@@ -1305,6 +1305,18 @@ const answersSchema = z.object({
   logRetentionDays: z.number().int().min(30).max(730),
   siem: z.enum(["sentinel", "other"]),
   identity: z.enum(["yes", "no"]),
+  securitySubscription: z.enum(["yes", "no"]),
+  rbac: z
+    .array(
+      z.object({
+        persona: z.string().max(40),
+        role: z.string().max(80),
+        scope: z.string().max(40),
+      }),
+    )
+    .max(40),
+  policyAdds: z.array(z.object({ id: z.string().max(60), scope: z.string().max(40) })).max(40),
+  customerTag: z.string().regex(/^[A-Za-z0-9_.-]{1,40}$/),
   secondaryRegion: z.string().max(40),
   defender: z.enum(["yes", "no"]),
   updateManager: z.enum(["yes", "no"]),

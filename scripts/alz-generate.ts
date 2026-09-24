@@ -24,6 +24,18 @@ const cases: { name: string; answers: Partial<Answers> }[] = [
       expressRoute: "yes",
       identity: "yes",
       secondaryRegion: "westus2",
+      rbac: [
+        { persona: "platform", role: "Owner", scope: "alz" },
+        { persona: "netops", role: "Network-Management", scope: "connectivity" },
+        { persona: "secops", role: "Security-Operations", scope: "alz" },
+        { persona: "delivery", role: "Owner", scope: "landingzones" },
+        { persona: "appops", role: "Application-Owners", scope: "landingzones" },
+      ],
+      policyAdds: [
+        { id: "allowed-locations", scope: "alz" },
+        { id: "require-rg-tag", scope: "landingzones" },
+        { id: "nist-800-53-r5", scope: "alz" },
+      ],
     },
   },
   {

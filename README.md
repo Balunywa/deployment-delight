@@ -53,6 +53,25 @@ releases in `src/lib/alz/`):
   support say what's missing and offer the fix.
 - **Policy per management group.** Click a group to see the chain it inherits from and every assignment that
   reaches it, with the real effect. Any assignment can be kept, set to audit only (`DoNotEnforce`) or removed.
+- **Access.** Microsoft's recommended roles per team (CAF identity design area and the ALZ custom roles —
+  Network-Management, Security-Operations, Application-Owners, Subscription-Owner) with where to assign each, shown
+  with a recommendation bulb. Choices become `management_group_role_assignments`; the delivery pipeline's Owner
+  assignment carries Microsoft's condition that blocks granting Owner, User Access Administrator or RBAC Administrator.
+- **Extra policy.** Official built-ins (Allowed locations, Require a tag on resource groups) and regulatory
+  initiatives (NIST SP 800-53 Rev. 5, ISO 27001:2013, CIS Azure Foundations v2.0.0, PCI DSS v4, FedRAMP High) at
+  any management group, each with Microsoft's recommended scope.
+- **Tenant assessment (brownfield).** Scans a real tenant with Azure Resource Graph — management groups,
+  subscriptions, policy and role assignments, networks and platform resources — and maps it onto the standard:
+  an alignment score per design area, prioritized gaps (with one-click "add to design"), what the traffic really does
+  today, ALZ policy coverage per management group, where each subscription should move, and today's tenant drawn on
+  the reference architecture. "Start the design from this tenant" turns the scan into a starting design. The app's
+  managed identity needs Reader at the tenant root (`az role assignment create --role Reader --assignee
+<webAppPrincipalId> --scope /providers/Microsoft.Management/managementGroups/<tenantId>`); customer tenants delegate
+  Reader through Azure Lighthouse. Customer-owned landing zones without a scan use a demo snapshot.
+- **Design advisor (Azure OpenAI).** A chat that reasons over the exact design — every management group and its
+  assignments, resources, traffic paths, access, installs and the tenant assessment — answers questions, and proposes
+  changes as structured patches you apply with one click. Keyless: the web app's identity has Cognitive Services
+  OpenAI User on an Azure AI Services account (created by the Deploy to Azure template, `enableAdvisor`).
 - Design choices become the customizations Microsoft documents: archetype overrides and a custom architecture
   definition in a small custom library, `policy_assignments_to_modify`, and policy default values wired to the
   outputs of the management and connectivity modules.
