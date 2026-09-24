@@ -268,7 +268,7 @@ function DeploymentDetail() {
       </div>
 
       <div className="mt-4">
-        <Panel title="Execution timeline" description={d.error_json ? JSON.stringify(d.error_json) : undefined} bodyClassName="p-0">
+        <Panel title="Execution timeline" description={summarizeResult(d.result_json)} bodyClassName="p-0">
           <ol className="divide-y divide-border">
             {steps.map((s) => (
               <li key={s.id} className="px-4 py-3">
@@ -309,4 +309,11 @@ function DeploymentDetail() {
       )}
     </>
   );
+}
+
+function summarizeResult(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  const record = result as Record<string, unknown>;
+  const message = record["error"] ?? record["summary"] ?? record["message"];
+  return typeof message === "string" ? message : undefined;
 }
