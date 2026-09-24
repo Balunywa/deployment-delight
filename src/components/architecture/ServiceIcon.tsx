@@ -20,6 +20,7 @@ import {
   Server,
   Shield,
   Split,
+  Users,
   Wallet,
   Webhook,
   Workflow,
@@ -58,6 +59,7 @@ const ICON: Record<string, LucideIcon> = {
   firewall: BrickWall,
   dns: Globe,
   law: Activity,
+  users: Users,
 };
 
 export const CATEGORY_TILE: Record<ServiceDef["category"] | "Customer", string> = {

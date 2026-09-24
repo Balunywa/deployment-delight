@@ -128,18 +128,25 @@ export const semverBump = (v: string) => {
 export const slugOf = (name: string) =>
   `grid-analytics-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 
-export const LANDING_LABEL: Record<Topology["landing"], { title: string; body: string }> = {
+/** Where an offering runs: in the ISV's own Azure, or inside the customer's Azure tenant. */
+export const LANDING_LABEL: Record<
+  Topology["landing"],
+  { title: string; body: string; where: "isv" | "customer" }
+> = {
+  "isv-hosted": {
+    title: "Hosted in your Azure",
+    body: "Each customer gets a dedicated environment in your own Azure. The customer needs no Azure of their own.",
+    where: "isv",
+  },
   "existing-customer-hub": {
-    title: "Customer landing zone",
-    body: "Peer into the customer's hub. Their firewall, DNS, logging and policy are consumed, never replaced.",
+    title: "Customer's Azure · existing setup",
+    body: "Installed in the customer's Azure and plugged into their network, DNS, logging and policy — never replacing them.",
+    where: "customer",
   },
   "dedicated-spoke": {
-    title: "Dedicated network",
-    body: "The product brings its own spoke network into an approved subscription.",
-  },
-  "isv-hosted": {
-    title: "Connected to your SaaS",
-    body: "Only a connector lands in the customer's Azure; the data plane stays in your tenant.",
+    title: "Customer's Azure · new setup",
+    body: "Installed in the customer's Azure with its own network, for customers without an established Azure setup.",
+    where: "customer",
   },
 };
 
@@ -150,4 +157,11 @@ export const CONNECTION_LABEL: Record<string, string> = {
   existing_subscription: "Existing subscription",
   existing_resource_group: "Existing resource group",
   new_subscription: "New subscription (vending)",
+};
+
+/** Plain label for where a customer's installs run, from customers.azure_model. */
+export const RUNS_IN: Record<string, string> = {
+  isv_hosted: "Hosted in your Azure",
+  existing_enterprise_alz: "Customer's Azure · existing setup",
+  greenfield: "Customer's Azure · new setup",
 };

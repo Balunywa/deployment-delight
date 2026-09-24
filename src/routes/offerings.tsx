@@ -293,7 +293,7 @@ function Designer() {
           {/* Palette */}
           <aside className="border-b border-border bg-card lg:border-r lg:border-b-0">
             <div className="border-b border-border p-3">
-              <p className="mb-1.5 text-xs font-medium text-muted-foreground">Lands into</p>
+              <p className="mb-1.5 text-xs font-medium text-muted-foreground">Where it runs</p>
               <div className="space-y-1">
                 {(Object.keys(LANDING_LABEL) as Topology["landing"][]).map((l) => (
                   <button
@@ -385,7 +385,7 @@ function Designer() {
               focus={focus}
               onFocus={setFocus}
               onRemove={toggle}
-              installName={`${offering.offering_type.replace(/_/g, "-")}-{customer}`}
+              installName={`${offering.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-{customer}`}
             />
             <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground">
               <span>

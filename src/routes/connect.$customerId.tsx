@@ -84,6 +84,19 @@ function Connect() {
       </Shell>
     );
 
+  if (c.azure_model === "isv_hosted")
+    return (
+      <Shell isv={isv}>
+        <div className="mx-auto max-w-lg rounded-md border border-border bg-card p-6 text-center">
+          <h1 className="text-lg font-semibold">Nothing to connect</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isv} runs your environment in its own Azure. You don't need an Azure subscription, and
+            there is no access to grant.
+          </p>
+        </div>
+      </Shell>
+    );
+
   const hub = arch.topology.landing === "existing-customer-hub";
   const extra = inputsFor(arch.selected, arch.topology).filter(
     (i) => i.source === "customer" && i.from !== "Customer platform" && i.key !== "subscriptionId",

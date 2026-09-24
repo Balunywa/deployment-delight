@@ -46,7 +46,7 @@ export const Route = createFileRoute("/onboard")({
   component: Onboard,
 });
 
-const STEPS = ["Customer & offering", "Environments", "Customer's Azure", "Review"] as const;
+const STEPS = ["Customer & offering", "Environments", "Where it runs", "Review"] as const;
 type Env = "development" | "test" | "qa" | "staging" | "production";
 
 function Onboard() {
@@ -96,13 +96,20 @@ function Onboard() {
     [pick, region],
   );
   const required = arch ? inputsFor(arch.selected, arch.topology) : [];
+  const hub = arch?.topology.landing === "existing-customer-hub";
+  const hosted = arch?.topology.landing === "isv-hosted";
   const discovered = discoverPlatform(customer.code, inputs["subscriptionId"] ?? "2f8a7d11");
   const value = (k: string) =>
     inputs[k] ??
-    (k === "subscriptionId" ? "2f8a7d11-4c39-4f85-b1de-93c7f6a52e10" : (discovered[k]?.[0] ?? ""));
+    (k === "subscriptionId"
+      ? hosted
+        ? `sub-gridworks-hosted-${customer.code}`
+        : "2f8a7d11-4c39-4f85-b1de-93c7f6a52e10"
+      : k === "customerSignInDomain"
+        ? `${customer.code}.example`
+        : (discovered[k]?.[0] ?? ""));
   const monthly = arch ? monthlyEstimate(arch.selected) : 0;
   const quote = envs.reduce((s, e) => s + (e === "production" ? monthly : monthly * 0.3), 0);
-  const hub = arch?.topology.landing === "existing-customer-hub";
 
   const onboard = useMutation({
     mutationFn: useServerFn(onboardCustomer),
@@ -126,6 +133,31 @@ function Onboard() {
 
   const submit = () => {
     const bound = Object.fromEntries(required.map((i) => [i.key, value(i.key)]));
+    if (hosted) {
+      onboard.mutate({
+        data: {
+          name: customer.name,
+          customerCode: customer.code,
+          industry: customer.industry,
+          accessMethod: "engineer",
+          subscriptionId: value("subscriptionId"),
+          managementGroupId: "mg-gridworks-hosted",
+          azureModel: "isv_hosted",
+          connectionType: "new_subscription",
+          offeringId: pick.offering.id,
+          region,
+          environments: envs,
+          inputs: bound,
+          network: {
+            mode: "isv-hosted",
+            privateEndpoints: arch.topology.privateEndpoints,
+            publicAccess: arch.topology.publicAccess,
+          },
+          observability: { useCustomerWorkspace: false },
+        },
+      });
+      return;
+    }
     onboard.mutate({
       data: {
         name: customer.name,
@@ -216,12 +248,12 @@ function Onboard() {
 
       {created ? (
         <Done
-          access={access}
+          access={hosted ? "engineer" : access}
           customerId={created.customerId}
           name={customer.name}
           link={link}
           version={created.version}
-          canPlan={access === "engineer" && !!prodEnv}
+          canPlan={(hosted || access === "engineer") && !!prodEnv}
           planning={plan.isPending}
           onPlan={() =>
             prodEnv &&
@@ -355,7 +387,32 @@ function Onboard() {
               </Card>
             )}
 
-            {step === 2 && (
+            {step === 2 && hosted && (
+              <Card
+                title={`Runs in your Azure — nothing needed from ${customer.name}'s IT`}
+                subtitle="A dedicated environment is created for this customer in your own Azure subscription pool. The customer doesn't need Azure, and no access has to be granted."
+              >
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between gap-3 rounded-sm border border-border px-3 py-2">
+                    <div>
+                      <p className="text-[13px] font-medium">Hosting subscription</p>
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {value("subscriptionId")}
+                      </p>
+                    </div>
+                    <Pill tone="neutral">Created automatically</Pill>
+                  </div>
+                  <Field
+                    label="Customer sign-in domain"
+                    value={value("customerSignInDomain")}
+                    onChange={(v) => setInputs({ ...inputs, customerSignInDomain: v })}
+                    hint="Their users sign in to your product with their own work accounts."
+                  />
+                </div>
+              </Card>
+            )}
+
+            {step === 2 && !hosted && (
               <>
                 <Card title="How will the customer grant access?">
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -495,7 +552,7 @@ function Onboard() {
             <p className="text-[13px] font-semibold">{customer.name || "New customer"}</p>
             <dl className="mt-3 space-y-1.5 text-xs">
               <Row k="Offering" v={`${pick.offering.name} v${pick.version.version}`} />
-              <Row k="Lands into" v={LANDING_LABEL[arch.topology.landing].title} />
+              <Row k="Runs in" v={LANDING_LABEL[arch.topology.landing].title} />
               <Row k="Environments" v={envs.map(titleize).join(", ") || "—"} />
               <Row k="Region" v={region} />
               <Row k="Resources per install" v={String(arch.selected.length)} />
@@ -503,15 +560,19 @@ function Onboard() {
               <Row
                 k="Access"
                 v={
-                  access === "customer_link"
-                    ? "Install link"
-                    : (CONNECTION_LABEL[connection] ?? connection)
+                  hosted
+                    ? "None needed — runs in your Azure"
+                    : access === "customer_link"
+                      ? "Install link"
+                      : (CONNECTION_LABEL[connection] ?? connection)
                 }
               />
             </dl>
             <div className="mt-4 border-t border-border pt-3">
               <p className="text-xs text-muted-foreground">
-                Quote · customer's Azure bill (estimate)
+                {hosted
+                  ? "Your Azure cost for this customer (estimate)"
+                  : "Quote · customer's Azure bill (estimate)"}
               </p>
               <p className="mt-0.5 font-mono text-lg font-semibold">
                 {currency(quote)}
@@ -606,8 +667,8 @@ function Done({
       ) : (
         <>
           <p className="mt-2 text-sm text-muted-foreground">
-            Bindings recorded. Validate the customer's landing zone and generate the production plan
-            — it opens as a pipeline run that waits for approval.
+            Details recorded. Run the checks and generate the production plan — it opens as a
+            pipeline run that waits for approval.
           </p>
           <div className="mt-4 flex gap-2">
             <Button disabled={!canPlan || planning} onClick={onPlan}>

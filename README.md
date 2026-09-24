@@ -1,25 +1,33 @@
 # Cloud Delivery
 
-**Deploy your software into every customer's Azure — without a new cloud project each time.**
+**Give every customer their own environment on Azure — in your Azure or theirs, without a new cloud project each time.**
 
-Cloud Delivery is for software companies that install their product inside their customers' Azure
-subscriptions. Today every new customer usually means weeks of custom work: network design, security
-reviews, new infrastructure scripts and pipelines. Cloud Delivery lets you do that work once.
+Cloud Delivery is for software companies that deliver their product on Azure. Today every new customer
+usually means weeks of custom cloud work: network design, security reviews, new infrastructure scripts
+and pipelines. Cloud Delivery lets you do that work once.
+
+## Two ways to run it
+
+|                        | Hosted in your Azure (most common)                           | In the customer's own Azure                                                              |
+| ---------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Who it's for           | Customers who don't use Azure — they just want your software | Customers who need it in their cloud for data, security or contract reasons              |
+| Where it runs          | A dedicated subscription per customer, in your Azure         | The customer's subscription                                                              |
+| What the customer does | Nothing — their users sign in with their own work accounts   | Their Azure admin reviews what will be installed and approves limited access with a link |
+| Their existing Azure   | Not needed                                                   | Used as-is (network, DNS, security, rules), or a secure foundation is set up first       |
+
+Either way, it's the same product setup, the same deployment process and the same updates.
 
 ## How it works
 
-1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas. Cloud
-   Delivery creates the infrastructure code (Bicep), the deployment pipeline (GitHub Actions or Azure
-   DevOps) and the short list of details you'll need from each customer.
-2. **Bring on a customer.** Send their Azure admin a link. They see exactly what will be installed,
-   confirm a few settings (found automatically), and approve limited access. No passwords are shared.
-3. **Check, approve, deploy.** Cloud Delivery checks their Azure first, shows what it will create and
+1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
+   choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
+   (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.
+2. **Bring on a customer.** Hosted by you: enter their name and sign-in domain. In their Azure: send
+   their admin a link to approve access — their settings are found automatically.
+3. **Check, approve, deploy.** Cloud Delivery checks everything first, shows what it will create and
    what it will cost, waits for approval, then deploys.
 4. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
    versions in stages instead of all at once.
-
-It works whether the customer already has a mature Azure setup (we plug into their network, DNS,
-security tools and rules without changing them) or is new to Azure (we set up a secure foundation first).
 
 ## What's in this repo
 

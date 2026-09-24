@@ -20,7 +20,7 @@ import {
 } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CONNECTION_LABEL, LANDING_LABEL, fromManifest } from "@/lib/architecture";
+import { CONNECTION_LABEL, LANDING_LABEL, RUNS_IN, fromManifest } from "@/lib/architecture";
 import { inputsFor } from "@/lib/catalog";
 import { discoverPlatform } from "@/lib/discovery";
 import {
@@ -179,7 +179,8 @@ function CustomerDetail() {
     if (!env?.offerings) return null;
     const a = fromManifest(env.offerings, env.desired?.manifest_json);
     const mode = (env.configuration_json?.["network"] as { mode?: string } | undefined)?.mode;
-    if (mode === "existing-customer-hub" || mode === "dedicated-spoke") a.topology.landing = mode;
+    if (mode === "existing-customer-hub" || mode === "dedicated-spoke" || mode === "isv-hosted")
+      a.topology.landing = mode;
     a.topology.regions = [env.region];
     return a;
   }, [env]);
@@ -245,13 +246,11 @@ function CustomerDetail() {
           <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
             {fc && <StageBadge stage={fc.stage} />}
             <span>{titleize(c.industry ?? "Utility")}</span>
-            <span>
-              {c.azure_model === "greenfield"
-                ? "Greenfield baseline"
-                : "Existing enterprise landing zone"}
-            </span>
+            <span>{RUNS_IN[c.azure_model] ?? c.azure_model}</span>
             <span className="font-mono">
-              tenant {c.tenant_id ? `${c.tenant_id.slice(0, 8)}…` : "not connected"}
+              {c.azure_model === "isv_hosted"
+                ? "no customer Azure needed"
+                : `tenant ${c.tenant_id ? `${c.tenant_id.slice(0, 8)}…` : "not connected"}`}
             </span>
           </div>
         </div>
@@ -584,32 +583,45 @@ function CustomerDetail() {
               <p className="text-sm text-muted-foreground">No connection recorded.</p>
             )}
           </Panel>
-          <Panel
-            title="Customer install link"
-            description="What the customer's Azure admin opens to review the architecture and grant access"
-          >
-            <div className="flex items-center gap-2 rounded-sm border border-border bg-muted/50 px-3 py-2">
-              <code className="min-w-0 flex-1 truncate font-mono text-xs">{link}</code>
-              <button
-                onClick={() => {
-                  void navigator.clipboard.writeText(link);
-                  toast.success("Install link copied");
-                }}
-                aria-label="Copy install link"
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <Copy className="size-3.5" />
-              </button>
-            </div>
-            <a
-              href={`/connect/${customerId}?preview=1`}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+          {c.azure_model === "isv_hosted" ? (
+            <Panel
+              title="Hosted in your Azure"
+              description="This customer doesn't need Azure of their own"
             >
-              <ExternalLink className="size-3" /> Preview what the customer sees
-            </a>
-          </Panel>
+              <p className="text-[13px] text-muted-foreground">
+                Every install for {c.name} runs in a dedicated subscription in your Azure. Their
+                users only need to sign in with their work accounts — there is no install link and
+                no access for their IT team to grant.
+              </p>
+            </Panel>
+          ) : (
+            <Panel
+              title="Customer install link"
+              description="What the customer's Azure admin opens to review the architecture and grant access"
+            >
+              <div className="flex items-center gap-2 rounded-sm border border-border bg-muted/50 px-3 py-2">
+                <code className="min-w-0 flex-1 truncate font-mono text-xs">{link}</code>
+                <button
+                  onClick={() => {
+                    void navigator.clipboard.writeText(link);
+                    toast.success("Install link copied");
+                  }}
+                  aria-label="Copy install link"
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <Copy className="size-3.5" />
+                </button>
+              </div>
+              <a
+                href={`/connect/${customerId}?preview=1`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+              >
+                <ExternalLink className="size-3" /> Preview what the customer sees
+              </a>
+            </Panel>
+          )}
         </TabsContent>
 
         <TabsContent value="activity" className="mt-4">

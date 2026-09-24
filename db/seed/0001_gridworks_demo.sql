@@ -9,7 +9,7 @@ insert into public.products (id, organization_id, name, description, category) v
 ('22222222-2222-2222-2222-222222222223','11111111-1111-1111-1111-111111111111','Grid Edge Services','Edge orchestration for substation and DER workloads.','Edge');
 
 insert into public.offerings (id, product_id, name, description, offering_type, deployment_boundary, network_profile, security_profile, supported_regions, estimated_monthly_cost_low, estimated_monthly_cost_high) values
-('33333333-3333-3333-3333-333333333331','22222222-2222-2222-2222-222222222221','SaaS Connected','Best for customers consuming the ISV-hosted service with a light connector footprint.','saas_connected','resource-group','isv-hosted','standard','{eastus2,centralus,westeurope}',1800,3200),
+('33333333-3333-3333-3333-333333333331','22222222-2222-2222-2222-222222222221','Hosted by GridWorks','A dedicated environment for each customer, run in GridWorks'' own Azure. The customer needs no Azure of their own.','saas_connected','subscription','isv-hosted','hardened','{eastus2,centralus,westeurope}',6200,8400),
 ('33333333-3333-3333-3333-333333333332','22222222-2222-2222-2222-222222222221','Customer Hosted','Deploy the application into a customer-owned Azure subscription with public-safe defaults.','customer_hosted','subscription','dedicated-spoke','standard','{eastus2,centralus,westeurope}',6400,9100),
 ('33333333-3333-3333-3333-333333333333','22222222-2222-2222-2222-222222222221','Enterprise Private','Private networking, customer hub connectivity, private endpoints, centralized identity and logging.','enterprise_private','subscription','customer-hub','hardened','{eastus2,centralus}',14200,17900),
 ('33333333-3333-3333-3333-333333333334','22222222-2222-2222-2222-222222222221','Regulated','Enterprise Private plus customer-managed keys, extended retention, Defender and stricter policy.','regulated','subscription','customer-hub','utility-critical','{eastus2,centralus}',19800,24500),
@@ -26,8 +26,8 @@ insert into public.offering_versions (id, offering_id, version, status, release_
  '{"name":"grid-analytics-regulated","version":"4.2.0","security":{"customerManagedKeys":true,"defender":true,"retentionDays":730},"modules":[{"name":"resource-group","version":"2.0"},{"name":"network-spoke","version":"3.1"},{"name":"key-vault","version":"3.0"},{"name":"aks","version":"5.2"},{"name":"postgres","version":"4.0"},{"name":"event-hubs","version":"2.4"},{"name":"storage","version":"3.5"},{"name":"monitoring","version":"4.2"},{"name":"security-baseline","version":"6.0"},{"name":"defender","version":"2.1"}]}'::jsonb),
 ('44444444-4444-4444-4444-444444444462','33333333-3333-3333-3333-333333333332','4.2.0','published','Customer Hosted aligned to 4.2 module set.','Sarah Chen', now() - interval '19 days',
  '{"name":"grid-analytics-customer-hosted","version":"4.2.0","modules":[{"name":"resource-group","version":"2.0"},{"name":"network-spoke","version":"3.1"},{"name":"aks","version":"5.2"},{"name":"postgres","version":"4.0"},{"name":"monitoring","version":"4.2"}]}'::jsonb),
-('44444444-4444-4444-4444-444444444472','33333333-3333-3333-3333-333333333331','4.2.0','published','SaaS Connected connector footprint 4.2.','Sarah Chen', now() - interval '19 days',
- '{"name":"grid-analytics-saas-connected","version":"4.2.0","modules":[{"name":"resource-group","version":"2.0"},{"name":"key-vault","version":"3.0"},{"name":"private-endpoint","version":"3.5"},{"name":"monitoring","version":"4.2"}]}'::jsonb),
+('44444444-4444-4444-4444-444444444472','33333333-3333-3333-3333-333333333331','4.2.0','published','Dedicated per-customer environment in the GridWorks tenant, aligned to the 4.2 module set.','Sarah Chen', now() - interval '19 days',
+ '{"name":"grid-analytics-hosted","version":"4.2.0","boundary":{"allowed":["subscription"]},"network":{"publicAccess":false,"privateEndpoints":true,"modes":["isv-hosted"]},"identity":{"managedIdentity":true},"observability":{"diagnosticsRequired":true,"customerWorkspaceSupported":false},"regions":["eastus2","centralus","westeurope"],"modules":[{"name":"resource-group","version":"2.0"},{"name":"network-spoke","version":"3.1"},{"name":"app-gateway","version":"0.6.0"},{"name":"key-vault","version":"3.0"},{"name":"aks","version":"5.2"},{"name":"postgres","version":"4.0"},{"name":"event-hubs","version":"2.4"},{"name":"storage","version":"3.5"},{"name":"monitoring","version":"4.2"},{"name":"security-baseline","version":"6.0"}]}'::jsonb),
 ('44444444-4444-4444-4444-444444444482','33333333-3333-3333-3333-333333333335','4.2.0','published','Sandbox profile 4.2.','Sarah Chen', now() - interval '19 days',
  '{"name":"grid-analytics-sandbox","version":"4.2.0","modules":[{"name":"resource-group","version":"2.0"},{"name":"aks","version":"5.2"},{"name":"postgres","version":"4.0"}]}'::jsonb),
 ('44444444-4444-4444-4444-444444444443','33333333-3333-3333-3333-333333333333','4.3.0','draft','Draft: AVM module refresh, Postgres 16 default, Defender CSPM plan update.','Sarah Chen', null,
@@ -123,6 +123,37 @@ insert into public.environments (customer_id, offering_id, desired_offering_vers
 select r.id, '33333333-3333-3333-3333-333333333335'::uuid,'44444444-4444-4444-4444-444444444482'::uuid,'44444444-4444-4444-4444-444444444482'::uuid, e.n, e.t::public.environment_type,'eastus2','healthy',100, 1200
 from ranked r cross join (values ('DEV','development'),('TEST','test')) as e(n,t)
 where r.rn <= 8;
+
+-- Most utilities have no Azure of their own: GridWorks hosts a dedicated environment for them in its own tenant.
+update public.customers set azure_model = 'isv_hosted'
+where id in (
+  select e.customer_id from public.environments e join public.customers c on c.id = e.customer_id
+  where e.environment_type = 'production' and e.actual_offering_version_id = '44444444-4444-4444-4444-444444444442'
+    and c.customer_code not in ('metro-energy','north-grid','coastal-power','cascade-utilities')
+  order by c.name limit 13
+);
+
+update public.environments e set
+  offering_id = '33333333-3333-3333-3333-333333333331',
+  desired_offering_version_id = '44444444-4444-4444-4444-444444444472',
+  actual_offering_version_id = '44444444-4444-4444-4444-444444444472',
+  deployment_boundary = 'subscription',
+  monthly_cost_estimate = 6800,
+  configuration_json = jsonb_build_object('network', jsonb_build_object('mode','isv-hosted','privateEndpoints',true,'publicAccess',false),
+                                          'observability', jsonb_build_object('useCustomerWorkspace', false),
+                                          'inputs', jsonb_build_object('customerSignInDomain', c.customer_code || '.example'))
+from public.customers c
+where c.id = e.customer_id and c.azure_model = 'isv_hosted' and e.environment_type = 'production';
+
+update public.customer_connections k set
+  connection_type = 'new_subscription',
+  tenant_id = '11111111-aaaa-4bbb-8ccc-gridworks000',
+  subscription_id = 'sub-gridworks-hosted-' || c.customer_code,
+  management_group_id = 'mg-gridworks-hosted',
+  credential_reference = 'managed-identity://gridworks-delivery',
+  metadata_json = jsonb_build_object('hostedBy', 'isv', 'federatedIdentity', false)
+from public.customers c
+where c.id = k.customer_id and c.azure_model = 'isv_hosted';
 
 -- compliance checks for every environment
 insert into public.compliance_checks (environment_id, policy_pack_id, control_name, control_key, result, evidence_json)

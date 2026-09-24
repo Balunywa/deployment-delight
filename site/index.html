@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Cloud Delivery — Deploy your software into every customer's Azure</title>
+    <title>Cloud Delivery — Run your software on Azure for every customer</title>
     <meta
       name="description"
-      content="For software companies that install their product in customers' Azure. Set it up once, then deploy to each new customer without running a new cloud project."
+      content="For software companies delivering their product on Azure. Give each customer a dedicated environment in your Azure, or install it in theirs — set up once, no new cloud project per customer."
     />
     <meta
       property="og:title"
-      content="Cloud Delivery — Deploy your software into every customer's Azure"
+      content="Cloud Delivery — Run your software on Azure for every customer"
     />
     <meta
       property="og:description"
@@ -24,7 +24,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="styles.css?v=5" />
+    <link rel="stylesheet" href="styles.css?v=6" />
     <script src="config.js"></script>
   </head>
   <body>
@@ -34,7 +34,7 @@
         <nav class="nav-links">
           <a href="#translate">How it works</a>
           <a href="#abstraction">What's automated</a>
-          <a href="#adapt">Any customer</a>
+          <a href="#adapt">Where it runs</a>
           <a href="#lifecycle">Lifecycle</a>
           <a href="#estate">All customers</a>
         </nav>
@@ -50,18 +50,17 @@
       <section class="hero dark">
         <div class="wrap">
           <div class="hero-copy">
-            <p class="eyebrow on-dark">
-              For software companies that install their product in customers' Azure
-            </p>
+            <p class="eyebrow on-dark">For software companies delivering their product on Azure</p>
             <h1>
-              Deploy your software into every customer's Azure.<br /><span
-                >Without a new cloud project each time.</span
+              Give every customer their own environment on Azure.<br /><span
+                >In your Azure or theirs. No new cloud project each time.</span
               >
             </h1>
             <p class="lede">
-              Describe what your product needs on Azure once. We set it up correctly in each
-              customer's environment — network, security, policies, infrastructure and pipelines —
-              and keep every customer up to date after that.
+              Describe what your product needs on Azure once. Most customers get a dedicated
+              environment you host in your own Azure — they don't need Azure at all. Customers who
+              need it in their own Azure get it there instead. Either way it's set up correctly and
+              kept up to date.
             </p>
             <div class="ctas">
               <a class="btn btn-primary btn-lg" data-link="console" href="#"
@@ -73,7 +72,7 @@
 
           <div
             class="stage"
-            aria-label="One product setup, deployed to three different customers and updated together"
+            aria-label="One product setup, running for three customers — one hosted by the software company, two in the customers' own Azure — updated together"
           >
             <div class="stage-top">
               <div class="product-card">
@@ -114,32 +113,31 @@
             <div class="customers">
               <div class="cust" data-ring="0">
                 <div class="cust-head">
-                  <h3>Metro Energy</h3>
-                  <span class="ver mono">4.2</span>
-                </div>
-                <span class="tag">Already uses Azure</span>
-                <p>Plugs into their existing network and security</p>
-              </div>
-              <div class="cust" data-ring="1">
-                <div class="cust-head">
                   <h3>Prairie Electric</h3>
                   <span class="ver mono">4.2</span>
                 </div>
-                <span class="tag new">New to Azure</span>
-                <p>We set up their Azure foundation first</p>
+                <span class="tag hosted">Hosted by GridWorks</span>
+                <p>Dedicated environment in GridWorks' Azure — no Azure needed on their side</p>
+              </div>
+              <div class="cust" data-ring="1">
+                <div class="cust-head">
+                  <h3>Metro Energy</h3>
+                  <span class="ver mono">4.2</span>
+                </div>
+                <span class="tag">In their own Azure</span>
+                <p>Plugs into their existing network and security</p>
               </div>
               <div class="cust" data-ring="2">
                 <div class="cust-head">
                   <h3>Coastal Power</h3>
                   <span class="ver mono">4.2</span>
                 </div>
-                <span class="tag">Already uses Azure · strict rules</span>
+                <span class="tag">In their own Azure · strict rules</span>
                 <p>Their own encryption keys, 2-year log retention</p>
               </div>
             </div>
             <p class="caption">
-              Same product, set up once. Each customer's Azure is different — and it still works
-              everywhere.
+              Same product, set up once — whether you host it or it runs in the customer's Azure.
             </p>
           </div>
         </div>
@@ -160,8 +158,8 @@
             <div class="asked"><b>6</b><span>details you ask the customer for</span></div>
           </div>
           <p class="numbers-note">
-            Counted from the sample product in the app. Everything left of the arrow is done for
-            you.
+            Counted from the sample product, for an install in a customer's own Azure. Hosted in
+            your Azure, it's usually just one: their sign-in domain.
           </p>
         </div>
       </section>
@@ -219,14 +217,14 @@
                 <div class="step strong">Your product's Azure setup · done once</div>
                 <div class="arrow">↓</div>
                 <div class="split">
-                  <div class="step">Standard</div>
-                  <div class="step">Private network</div>
-                  <div class="step">Strict security</div>
+                  <div class="step">Hosted by you</div>
+                  <div class="step">In their Azure</div>
+                  <div class="step">Their Azure · strict</div>
                 </div>
                 <div class="arrow">↓</div>
-                <div class="step">Customer fills in a few details about their Azure</div>
+                <div class="step">A few details about the customer</div>
                 <div class="arrow">↓</div>
-                <div class="step">Same process deploys it into their Azure</div>
+                <div class="step">Same process deploys it — in your Azure or theirs</div>
               </div>
             </div>
           </div>
@@ -248,8 +246,8 @@
             <p class="eyebrow">How it works</p>
             <h2>One setup. Three very different customers.<br />No custom versions.</h2>
             <p class="sub">
-              Click a customer. Your product setup on the left never changes. The deployment plan on
-              the right adapts to what that customer already has.
+              Click a customer. Your product setup on the left never changes. The plan on the right
+              changes with where it runs and what that customer already has.
             </p>
           </div>
           <div class="tx">
@@ -275,14 +273,14 @@
             </div>
             <div class="tx-out">
               <div class="tx-tabs" role="tablist">
-                <button role="tab" class="on" data-cust="metro">
-                  Metro Energy<small>already uses Azure</small>
+                <button role="tab" class="on" data-cust="prairie">
+                  Prairie Electric<small>hosted by you</small>
                 </button>
-                <button role="tab" data-cust="prairie">
-                  Prairie Electric<small>new to Azure</small>
+                <button role="tab" data-cust="metro">
+                  Metro Energy<small>in their Azure</small>
                 </button>
                 <button role="tab" data-cust="coastal">
-                  Coastal Power<small>strict rules</small>
+                  Coastal Power<small>their Azure · strict rules</small>
                 </button>
               </div>
               <div class="tx-plan mono" id="tx-plan"></div>
@@ -443,83 +441,68 @@
         </div>
       </section>
 
-      <!-- ADAPT -->
+      <!-- WHERE IT RUNS -->
       <section id="adapt">
         <div class="wrap">
           <div class="section-head">
-            <p class="eyebrow">Works with any customer</p>
-            <h2>Customer already on Azure? We plug in.<br />New to Azure? We set it up.</h2>
+            <p class="eyebrow">Where it runs</p>
+            <h2>Two ways to run it.<br />Choose per customer.</h2>
             <p class="sub">
-              Big customers have their own Azure rules and don't want them changed. Smaller ones
-              have nothing set up yet. Cloud Delivery handles both — and your team does the same
-              thing either way.
+              Most of your customers don't use Azure — they just want your software. Some need it
+              inside their own Azure for data, security or contract reasons. Cloud Delivery handles
+              both with the same product setup.
             </p>
           </div>
           <div class="paths">
-            <div class="path">
-              <p class="label">Customer already runs Azure</p>
-              <h3>Find it and use it</h3>
-              <div class="has">
-                <span class="node dashed"
-                  ><span class="tile t-cust"><i data-lucide="network"></i></span>
-                  <div><b>Hub VNet</b><small>theirs</small></div></span
-                >
-                <span class="node dashed"
-                  ><span class="tile t-cust"><i data-lucide="brick-wall"></i></span>
-                  <div><b>Firewall</b><small>theirs</small></div></span
-                >
-                <span class="node dashed"
-                  ><span class="tile t-cust"><i data-lucide="globe"></i></span>
-                  <div><b>Private DNS</b><small>theirs</small></div></span
-                >
-                <span class="node dashed"
-                  ><span class="tile t-cust"><i data-lucide="activity"></i></span>
-                  <div><b>SOC workspace</b><small>theirs</small></div></span
-                >
-                <span class="node dashed"
-                  ><span class="tile t-cust"><i data-lucide="scroll-text"></i></span>
-                  <div><b>Azure Policy</b><small>theirs</small></div></span
-                >
-              </div>
-              <p class="verb">found automatically when they connect</p>
-              <div class="result">
-                Your product connects to their existing network, uses their DNS, sends logs to their
-                security team and is checked against their rules before anything is deployed.
-                Nothing of theirs is changed.
-              </div>
+            <div class="path featured">
+              <p class="label">Most common</p>
+              <h3>Hosted in your Azure</h3>
+              <p class="path-body">
+                Each customer gets their own dedicated environment in your Azure. You run it and
+                keep it up to date. The customer's IT team doesn't need to do anything — their users
+                just sign in.
+              </p>
+              <ul class="path-list">
+                <li>
+                  <i data-lucide="check"></i>A separate subscription per customer — their data never
+                  mixes with anyone else's
+                </li>
+                <li>
+                  <i data-lucide="check"></i>No Azure account, install or access needed from the
+                  customer
+                </li>
+                <li><i data-lucide="check"></i>Users sign in with their own work accounts</li>
+                <li><i data-lucide="check"></i>You see and update every customer from one place</li>
+              </ul>
             </div>
             <div class="path">
-              <p class="label">Customer is new to Azure</p>
-              <h3>Set up the basics first</h3>
-              <div class="has">
-                <span class="node"
-                  ><span class="tile t-gov"><i data-lucide="folder-tree"></i></span>
-                  <div><b>Subscription</b><small>vended</small></div></span
-                >
-                <span class="node"
-                  ><span class="tile t-net"><i data-lucide="network"></i></span>
-                  <div><b>Network</b><small>dedicated</small></div></span
-                >
-                <span class="node"
-                  ><span class="tile t-gov"><i data-lucide="scroll-text"></i></span>
-                  <div><b>Policy</b><small>baseline</small></div></span
-                >
-                <span class="node"
-                  ><span class="tile t-obs"><i data-lucide="activity"></i></span>
-                  <div><b>Logging</b><small>baseline</small></div></span
-                >
-                <span class="node"
-                  ><span class="tile t-sec"><i data-lucide="shield"></i></span>
-                  <div><b>Defender</b><small>baseline</small></div></span
-                >
-              </div>
-              <p class="verb">only with the customer's permission</p>
-              <div class="result">
-                A secure Azure foundation is created first, then your product goes on top — the same
-                version and the same process as every other customer.
+              <p class="label">When the customer requires it</p>
+              <h3>In the customer's own Azure</h3>
+              <p class="path-body">
+                Installed inside the customer's Azure. Their Azure admin reviews what will be
+                installed and approves limited access with a link — no passwords shared.
+              </p>
+              <div class="sub-paths">
+                <div>
+                  <b>Already on Azure</b>
+                  <p>
+                    Plugs into their existing network, DNS, security tools and rules — without
+                    changing them.
+                  </p>
+                </div>
+                <div>
+                  <b>New to Azure</b>
+                  <p>
+                    A secure Azure foundation is set up first, with their permission, then your
+                    product on top.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
+          <p class="both">
+            Either way: the same product setup, the same deployment process, the same updates.
+          </p>
         </div>
       </section>
 
@@ -527,7 +510,7 @@
       <section class="admin">
         <div class="wrap admin-grid">
           <div>
-            <p class="eyebrow">Your customer's side</p>
+            <p class="eyebrow">When it runs in the customer's Azure</p>
             <h2>Easy for your customer's IT team to say yes.</h2>
             <p class="sub" style="margin-top: 14px">
               Your customer's Azure admin gets a link with your name on it. They see exactly what
@@ -607,13 +590,18 @@
             <div>
               <span class="n">03</span>
               <h3>Connect</h3>
-              <p>The customer's admin approves limited access — no passwords shared.</p>
+              <p>
+                Hosted by you: nothing to do. In their Azure: their admin approves limited access.
+              </p>
               <span class="phase">Customer · minutes</span>
             </div>
             <div>
               <span class="n">04</span>
               <h3>Discover</h3>
-              <p>Their existing network, DNS and security tools are found automatically.</p>
+              <p>
+                In their Azure, their existing network, DNS and security tools are found
+                automatically.
+              </p>
               <span class="phase">Automatic</span>
             </div>
             <div>
@@ -810,7 +798,7 @@
           <h2>Your next customer should take hours,<br />not another Azure project.</h2>
           <p class="sub">
             Install Cloud Delivery in your own Azure from GitHub, describe how your product runs,
-            and bring on your next customer.
+            and bring on your next customer — hosted by you or in their Azure.
           </p>
           <div class="ctas">
             <a class="btn btn-primary btn-lg" data-link="console" href="#"
@@ -868,11 +856,9 @@
         prairie: {
           sec: "hardened",
           lines: [
-            ["+", "Microsoft.Subscription/aliases", "sub-prairie-grid-analytics (vended)"],
-            ["+", "Microsoft.Authorization/policyAssignments", "baseline policy set"],
-            ["+", "Microsoft.Network/virtualNetworks", "vnet-prairie-prod 10.40.0.0/22"],
-            ["+", "Microsoft.OperationalInsights/workspaces", "law-prairie-prod"],
-            ["+", "Microsoft.Network/privateDnsZones", "privatelink zones"],
+            ["+", "Microsoft.Subscription/aliases", "sub-gridworks-prairie (in your Azure)"],
+            ["+", "Microsoft.Network/virtualNetworks", "dedicated network for Prairie"],
+            ["+", "Microsoft.Network/applicationGateways", "prairie.gridanalytics.example"],
             ["+", "Microsoft.ContainerService/managedClusters", "aks-prairie-prod"],
             [
               "+",
@@ -880,11 +866,13 @@
               "postgres-prairie-prod (zone-redundant)",
             ],
             ["+", "Microsoft.EventHub/namespaces", "evh-prairie-prod"],
+            ["+", "Microsoft.KeyVault/vaults", "kv-prairie-prod"],
             ["+", "Microsoft.Network/privateEndpoints", "×4"],
+            ["=", "Microsoft Entra ID", "their users sign in with their own accounts"],
           ],
           sum: [
-            "foundation set up first",
-            "with the customer's permission",
+            "dedicated environment in your Azure",
+            "nothing needed from their IT",
             "same version as everyone",
           ],
         },
@@ -923,7 +911,7 @@
       document
         .querySelectorAll(".tx-tabs button")
         .forEach((b) => b.addEventListener("click", () => render(b.dataset.cust)));
-      render("metro");
+      render("prairie");
 
       // Hero: a release rolls out ring by ring and each customer's version flips.
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;

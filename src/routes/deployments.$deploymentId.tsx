@@ -122,7 +122,8 @@ function DeploymentRun() {
     if (!env) return null;
     const a = fromManifest(env.offerings, env.desired?.manifest_json);
     const mode = (env.configuration_json?.["network"] as { mode?: string } | undefined)?.mode;
-    if (mode === "existing-customer-hub" || mode === "dedicated-spoke") a.topology.landing = mode;
+    if (mode === "existing-customer-hub" || mode === "dedicated-spoke" || mode === "isv-hosted")
+      a.topology.landing = mode;
     a.topology.environments = [env.environment_type];
     a.topology.regions = [env.region];
     return a;

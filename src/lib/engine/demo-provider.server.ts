@@ -31,7 +31,8 @@ function architectureOf(
     },
     manifest,
   );
-  if (mode === "existing-customer-hub" || mode === "dedicated-spoke") arch.topology.landing = mode;
+  if (mode === "existing-customer-hub" || mode === "dedicated-spoke" || mode === "isv-hosted")
+    arch.topology.landing = mode;
   return arch;
 }
 
@@ -199,6 +200,12 @@ export const demoProvider: InfrastructureProvider = {
     const hub = arch.topology.landing === "existing-customer-hub";
 
     const resources: DeploymentPlan["resources"] = [];
+    if (arch.topology.landing === "isv-hosted")
+      resources.push({
+        action: "create",
+        type: "Microsoft.Subscription/aliases",
+        name: `sub-hosted-${env}`,
+      });
     for (const s of arch.selected) {
       const def = SERVICE_BY_ID.get(s.id);
       if (!def || s.id === "private-endpoints") continue;

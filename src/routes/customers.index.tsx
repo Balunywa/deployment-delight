@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { Dot, EmptyState, PageHeader, Pill } from "@/components/Primitives";
 import { Input } from "@/components/ui/input";
+import { RUNS_IN } from "@/lib/architecture";
 import { currency, relative, titleize } from "@/lib/format";
 import { customersQuery } from "@/lib/queries";
 
@@ -38,7 +39,7 @@ function Customers() {
     <>
       <PageHeader
         title="Customers"
-        description="Each customer keeps its own Azure tenant, connection and environments. Existing enterprise landing zones are consumed, never replaced."
+        description="Every customer and where their installs run — hosted in your Azure, or inside the customer's own Azure."
         actions={
           <Link
             to="/onboard"
@@ -92,11 +93,13 @@ function Customers() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-foreground">{customer.name}</p>
                   <p className="truncate font-mono text-[11px] text-muted-foreground">
-                    {customer.tenant_id}
+                    {customer.azure_model === "isv_hosted"
+                      ? "no customer Azure"
+                      : customer.tenant_id}
                   </p>
                 </div>
-                <Pill tone={customer.azure_model === "greenfield" ? "warning" : "neutral"}>
-                  {customer.azure_model === "greenfield" ? "Greenfield" : "Existing ALZ"}
+                <Pill tone={customer.azure_model === "isv_hosted" ? "primary" : "neutral"}>
+                  {RUNS_IN[customer.azure_model] ?? customer.azure_model}
                 </Pill>
               </div>
 

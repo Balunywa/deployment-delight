@@ -591,8 +591,7 @@ export const withDefaults = (id: string, settings: Record<string, unknown> = {})
 export function normalise(selected: Selected[], topology: Topology): Selected[] {
   const map = new Map(selected.filter((s) => SERVICE_BY_ID.has(s.id)).map((s) => [s.id, s]));
   for (const id of LOCKED) if (!map.has(id)) map.set(id, withDefaults(id));
-  if (topology.landing !== "isv-hosted" && !map.has("network-spoke"))
-    map.set("network-spoke", withDefaults("network-spoke"));
+  if (!map.has("network-spoke")) map.set("network-spoke", withDefaults("network-spoke"));
   const needsPe =
     topology.privateEndpoints && [...map.keys()].some((id) => SERVICE_BY_ID.get(id)?.privateLink);
   if (needsPe && !map.has("private-endpoints"))
@@ -633,6 +632,10 @@ export function edgesFor(selected: Selected[], topology: Topology): Edge[] {
     for (const d of [...messaging, ...data]) edges.push({ from: c, to: d, kind: "data" });
     if (has("key-vault")) edges.push({ from: c, to: "key-vault", kind: "identity" });
   }
+  if (topology.landing === "isv-hosted") {
+    const entry = ingressChain[0] ?? compute[0];
+    if (entry) edges.push({ from: "users", to: entry, label: "sign in" });
+  }
   if (topology.landing === "existing-customer-hub" && has("network-spoke"))
     edges.push({ from: "hub", to: "network-spoke", kind: "peering", label: "peering" });
   return edges;
@@ -646,15 +649,33 @@ export function inputsFor(selected: Selected[], topology: Topology) {
     source: "customer" | "isv";
     help: string;
     from: string;
-  }[] = [
-    {
-      key: "subscriptionId",
-      label: "Target subscription",
-      source: "customer",
-      help: "Approved subscription for this install.",
-      from: "Deployment boundary",
-    },
-  ];
+  }[] =
+    topology.landing === "isv-hosted"
+      ? [
+          {
+            key: "subscriptionId",
+            label: "Hosting subscription",
+            source: "isv",
+            help: "Created for this customer in your Azure, automatically.",
+            from: "Your Azure",
+          },
+          {
+            key: "customerSignInDomain",
+            label: "Customer sign-in domain",
+            source: "customer",
+            help: "So their users sign in with their own work accounts.",
+            from: "Customer users",
+          },
+        ]
+      : [
+          {
+            key: "subscriptionId",
+            label: "Target subscription",
+            source: "customer",
+            help: "Approved subscription for this install.",
+            from: "Deployment boundary",
+          },
+        ];
   if (topology.landing === "existing-customer-hub") {
     for (const p of CUSTOMER_PLATFORM)
       inputs.push({

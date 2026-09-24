@@ -62,6 +62,7 @@ export function ArchitectureCanvas({
   const pe = selected.find((s) => s.id === "private-endpoints");
   const privateCount = selected.filter((s) => SERVICE_BY_ID.get(s.id)?.privateLink).length;
   const hub = topology.landing === "existing-customer-hub";
+  const hosted = topology.landing === "isv-hosted";
   const edgeKey = JSON.stringify(edges) + selected.length + String(hub);
 
   const measure = useCallback(() => {
@@ -130,7 +131,10 @@ export function ArchitectureCanvas({
 
   const node = (id: string, opts?: { platform?: boolean }) => {
     const def = SERVICE_BY_ID.get(id);
-    const platform = CUSTOMER_PLATFORM.find((p) => p.id === id);
+    const platform =
+      id === "users"
+        ? { id: "users", name: "Their users", type: "Entra ID", input: "customerSignInDomain" }
+        : CUSTOMER_PLATFORM.find((p) => p.id === id);
     const s = selected.find((x) => x.id === id);
     const first = def?.options[0];
     const bound = platform ? bindings?.[platform.input] : undefined;
@@ -278,10 +282,19 @@ export function ArchitectureCanvas({
             </div>
           </Boundary>
         )}
+        {hosted && (
+          <Boundary
+            title="Customer"
+            subtitle="No Azure needed on their side · users sign in with their own accounts"
+            dashed
+          >
+            <div className="flex gap-2.5">{node("users", { platform: true })}</div>
+          </Boundary>
+        )}
 
         <Boundary
-          title="Customer subscription"
-          subtitle={`${topology.regions[0] ?? "region"}${bindings?.["subscriptionId"] ? ` · ${String(bindings["subscriptionId"]).slice(0, 8)}…` : ""}`}
+          title={hosted ? "Your Azure · dedicated to this customer" : "Customer subscription"}
+          subtitle={`${topology.regions[0] ?? "region"}${bindings?.["subscriptionId"] ? ` · ${String(bindings["subscriptionId"]).slice(0, 8)}…` : ""}${hosted ? " · you operate it" : ""}`}
         >
           <Boundary
             title={`rg-${installName ?? "{install}"}`}

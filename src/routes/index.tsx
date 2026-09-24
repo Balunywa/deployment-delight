@@ -112,7 +112,7 @@ function Home() {
             <tr>
               <th>Offering</th>
               <th>Architecture</th>
-              <th>Lands into</th>
+              <th>Runs in</th>
               <th>Preferred release</th>
               <th>Pipeline</th>
               <th className="text-right">Installs</th>

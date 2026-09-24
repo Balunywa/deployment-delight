@@ -858,7 +858,7 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         inputs: z.record(z.string(), z.union([z.string().max(400), z.boolean()])).default({}),
         overrides: z.record(z.string(), z.string().max(200)).default({}),
         industry: z.string().max(80).optional(),
-        azureModel: z.enum(["existing_enterprise_alz", "greenfield"]),
+        azureModel: z.enum(["existing_enterprise_alz", "greenfield", "isv_hosted"]),
         connectionType: z.enum([
           "existing_subscription",
           "new_subscription",
@@ -877,7 +877,7 @@ export const onboardCustomer = createServerFn({ method: "POST" })
           .array(z.enum(["development", "test", "qa", "staging", "production"]))
           .min(1),
         network: z.object({
-          mode: z.enum(["existing-customer-hub", "dedicated-spoke"]),
+          mode: z.enum(["existing-customer-hub", "dedicated-spoke", "isv-hosted"]),
           vnetId: z.string().max(300).optional(),
           privateEndpoints: z.boolean(),
           publicAccess: z.boolean(),
