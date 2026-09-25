@@ -8,7 +8,9 @@ import { toast } from "sonner";
 import { CodeBlock } from "@/components/CodeBlock";
 import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
+import { ChangeBar, ReviewView, StepBar } from "@/components/lz/Flow";
 import { RealDeploy } from "@/components/lz/RealDeploy";
+import { describeChanges } from "@/lib/alz/changes";
 import { assess } from "@/lib/alz/assess";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
@@ -34,7 +36,7 @@ import { relative } from "@/lib/format";
 import { customersQuery, foundationQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type View = "design" | "assessment" | "policies" | "version" | "iac" | "deploy";
+type View = "design" | "assessment" | "review" | "policies" | "version" | "iac" | "deploy";
 
 export const Route = createFileRoute("/foundations/$foundationId")({
   validateSearch: (s: Record<string, unknown>): { view?: View } => {
@@ -61,7 +63,8 @@ function FoundationDetail() {
   const save = useMutation({
     mutationFn: useServerFn(saveFoundationAnswers),
     onSuccess: () => {
-      toast.success("Design saved. Review the Terraform, then deploy.");
+      toast.success("Design saved. Here's what it changes.");
+      void navigate({ search: { view: "review" } });
       void queryClient.invalidateQueries({ queryKey: ["foundation", foundationId] });
       void queryClient.invalidateQueries({ queryKey: ["foundations"] });
     },
@@ -84,14 +87,41 @@ function FoundationDetail() {
   const dirty = JSON.stringify(answers) !== JSON.stringify(saved);
   const snapshot = snapshotFor(f, libraryFor(f.library_ref));
   const assessment = snapshot ? assess(snapshot, libraryFor(f.library_ref)) : null;
+  const applied = (f as unknown as { deployment?: { appliedAnswers?: unknown } | null }).deployment
+    ?.appliedAnswers;
+  const deployedAnswers = applied ? withDefaults(applied) : null;
+  const baselineUnknown = !applied && f.status !== "draft";
+  const unsaved = describeChanges(saved, answers).length;
+  const pending = deployedAnswers ? describeChanges(deployedAnswers, saved).length : 0;
+  const stepStatus = {
+    assessment: assessment
+      ? { text: `${assessment.overall}% aligned`, tone: "success" as const }
+      : { text: "Scan an existing tenant first", tone: "muted" as const },
+    design: unsaved
+      ? { text: `${unsaved} unsaved change${unsaved === 1 ? "" : "s"}`, tone: "warning" as const }
+      : { text: "Saved", tone: "success" as const },
+    review: baselineUnknown
+      ? { text: "Compare with Azure in the plan", tone: "muted" as const }
+      : !deployedAnswers
+        ? { text: "Everything is new", tone: "muted" as const }
+        : pending
+          ? {
+              text: `${pending} change${pending === 1 ? "" : "s"} to deploy`,
+              tone: "warning" as const,
+            }
+          : { text: "Matches Azure", tone: "success" as const },
+    deploy:
+      f.status === "deployed"
+        ? { text: "Deployed", tone: "success" as const }
+        : f.status === "draft"
+          ? { text: "Not deployed yet", tone: "muted" as const }
+          : { text: "Changes to deploy", tone: "warning" as const },
+  };
   const tabs: [View, string][] = managed
     ? [
-        ["design", "Design"],
-        ["assessment", assessment ? `Assessment · ${assessment.overall}%` : "Assess a tenant"],
         ["policies", "Policies"],
         ["version", "ALZ version"],
-        ["iac", "Infrastructure as code"],
-        ["deploy", "Deploy"],
+        ["iac", "Terraform"],
       ]
     : [
         ["assessment", assessment ? `Assessment · ${assessment.overall}%` : "Assessment"],
@@ -147,7 +177,32 @@ function FoundationDetail() {
             ? `${tree.length} management groups under ${current.intermediateRootName || "the intermediate root"} · ${placed.length} customer install${placed.length === 1 ? "" : "s"} placed${f.last_deployed_at ? ` · last deployed ${relative(f.last_deployed_at)}` : ""}`
             : `Discovered from ${String((f.discovered as Record<string, unknown>)?.["source"] ?? "Azure Resource Graph")} · follows the ALZ reference architecture · owned by ${f.customers?.name}'s platform team`}
         </p>
-        <nav className="mt-3 -mb-px flex gap-4 text-[13px]">
+        {managed && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pb-3">
+            <StepBar
+              view={view}
+              onGo={(v) => void navigate({ search: { view: v } })}
+              status={stepStatus}
+            />
+            <div className="flex items-center gap-3 text-[12.5px]">
+              {tabs.map(([id, label]) => (
+                <button
+                  key={id}
+                  onClick={() => navigate({ search: { view: id } })}
+                  className={cn(
+                    "hover:text-foreground",
+                    view === id
+                      ? "font-medium text-foreground underline underline-offset-4"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <nav className={cn("mt-3 -mb-px flex gap-4 text-[13px]", managed && "hidden")}>
           {tabs.map(([id, label]) => (
             <button
               key={id}
@@ -179,6 +234,29 @@ function FoundationDetail() {
             readOnlyOwner={managed ? undefined : (f.customers?.name ?? "the customer")}
             name={f.name}
             assessment={assessment}
+          />
+        )}
+        {view === "design" && managed && (
+          <ChangeBar
+            lib={lib}
+            saved={saved}
+            answers={answers}
+            saving={save.isPending}
+            onDiscard={() => setAnswers(saved)}
+            onSave={() => save.mutate({ data: { foundationId: f.id, answers } })}
+          />
+        )}
+        {view === "review" && managed && (
+          <ReviewView
+            lib={lib}
+            deployed={deployedAnswers}
+            saved={saved}
+            status={f.status}
+            dirty={dirty}
+            baselineUnknown={baselineUnknown}
+            onBackToDesign={() => void navigate({ search: { view: "design" } })}
+            onDeploy={() => void navigate({ search: { view: "deploy" } })}
+            onTerraform={() => void navigate({ search: { view: "iac" } })}
           />
         )}
         {view === "assessment" && (

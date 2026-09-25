@@ -253,17 +253,6 @@ export function LandingZoneDesigner({
         </p>
       </div>
       <div className="flex items-center gap-2 text-[12px]">
-        {editable && dirty && (
-          <>
-            <span className="text-warning">Unsaved changes</span>
-            <Button size="sm" variant="ghost" className="h-7" onClick={onDiscard}>
-              Discard
-            </Button>
-            <Button size="sm" className="h-7" disabled={saving} onClick={onSave}>
-              {saving ? "Saving…" : "Save design"}
-            </Button>
-          </>
-        )}
         <Button
           size="sm"
           variant="outline"
@@ -288,6 +277,44 @@ export function LandingZoneDesigner({
           {full ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </Button>
       </div>
+    </div>
+  );
+
+  // Jump straight to a part of the drawing; the canvas is tall.
+  const jump = (target: string) => {
+    const el = document.querySelector(
+      target.startsWith("sub:") ? `[data-anchor="${target}"]` : `[data-section="${target}"]`,
+    );
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const sections: [string, string][] = [
+    ["mg", "Management groups"],
+    ["sub:management", "Management"],
+    ...(answers.connectivity !== "none"
+      ? ([["sub:connectivity", "Connectivity"]] as [string, string][])
+      : []),
+    ["sub:security", "Security"],
+    ["landing", "Landing zones"],
+    ["sub:sandbox", "Sandbox"],
+  ];
+  const nav = (
+    <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5 text-[11.5px]">
+      <span className="mr-1 text-muted-foreground">Jump to</span>
+      {sections.map(([id, label]) => (
+        <button
+          key={id}
+          onClick={(e) => {
+            e.stopPropagation();
+            jump(id);
+          }}
+          className="rounded-sm border border-border bg-card px-2 py-0.5 hover:border-primary hover:text-primary"
+        >
+          {label}
+        </button>
+      ))}
+      <span className="ml-auto text-muted-foreground">
+        Click anything in the drawing to see and change its details.
+      </span>
     </div>
   );
 
@@ -331,6 +358,7 @@ export function LandingZoneDesigner({
     >
       <section className={cn("flex min-w-0 flex-col", full && "h-screen")}>
         {header}
+        {nav}
         <div
           className={cn("overflow-x-auto", full && "min-h-0 flex-1 overflow-y-auto")}
           onClick={() => setSel(null)}

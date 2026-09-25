@@ -327,6 +327,8 @@ export const startDeployRun = createServerFn({ method: "POST" })
                 deployed_ref: f.library_ref,
                 last_deployed_at: now,
                 updated_at: now,
+                // What was applied, so the Review step can show what a later design changes.
+                deployment: { ...deployment, appliedAnswers: answers },
               },
               { id: f.id },
             );
@@ -346,7 +348,16 @@ export const startDeployRun = createServerFn({ method: "POST" })
           await db.update("foundations", { deployment }, { id: f.id });
         }
         if (r.ok)
-          await db.update("foundations", { status: "draft", deployed_ref: null }, { id: f.id });
+          await db.update(
+            "foundations",
+            {
+              status: "draft",
+              deployed_ref: null,
+              last_deployed_at: null,
+              deployment: { ...deployment, appliedAnswers: null },
+            },
+            { id: f.id },
+          );
         await finish(r.ok, r.summary);
       } catch (e) {
         log(`Error: ${(e as Error).message}`);

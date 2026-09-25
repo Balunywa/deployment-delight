@@ -146,6 +146,29 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
 
   return (
     <div className="space-y-4">
+      {latest?.status === "succeeded" && latest.action === "apply" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-success/40 bg-success/5 px-4 py-2.5 text-[13px]">
+          <span>
+            <b className="font-semibold">Deployed.</b> Next: scan the tenant to confirm Azure
+            matches the design.
+          </span>
+          <a
+            href="?view=assessment"
+            className="rounded-sm bg-primary px-3 py-1 text-[12.5px] font-medium text-primary-foreground"
+          >
+            Scan the tenant
+          </a>
+        </div>
+      )}
+      {!list.length && (
+        <div className="rounded-md border border-border bg-muted/30 px-4 py-2.5 text-[12.5px] text-muted-foreground">
+          <b className="font-medium text-foreground">How deploying works:</b> pick the platform
+          subscriptions, run a <b className="font-medium text-foreground">Plan</b> (read-only —
+          shows exactly what Terraform will create), then{" "}
+          <b className="font-medium text-foreground">Apply plan</b>. Nothing in Azure changes until
+          you apply.
+        </div>
+      )}
       <section className="rounded-md border border-border bg-card">
         <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
           <div>

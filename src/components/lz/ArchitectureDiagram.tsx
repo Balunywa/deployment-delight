@@ -468,7 +468,7 @@ export function ArchitectureDiagram({
       ))}
 
       {/* C — management groups and subscriptions */}
-      <Area letter="C" title="Management groups and subscriptions">
+      <Area letter="C" title="Management groups and subscriptions" section="mg">
         <OrgChart ctx={ctx} spokes={spokes} exists={exists} onAdd={setAdding} />
       </Area>
 
@@ -736,6 +736,7 @@ export function ArchitectureDiagram({
       <div className="space-y-4">
         <Area
           letter="F"
+          section="landing"
           title="Landing zones — each customer install gets a subscription per environment"
         >
           <div className="grid grid-cols-3 gap-3">
@@ -838,9 +839,19 @@ function Letter({ l }: { l: string }) {
   );
 }
 
-function Area({ letter, title, children }: { letter: string; title: string; children: ReactNode }) {
+function Area({
+  letter,
+  title,
+  section,
+  children,
+}: {
+  letter: string;
+  title: string;
+  section?: string;
+  children: ReactNode;
+}) {
   return (
-    <section>
+    <section data-section={section}>
       <h3 className="mb-1.5 flex items-center gap-1.5 text-[12.5px] font-semibold">
         <Letter l={letter} />
         {title}
