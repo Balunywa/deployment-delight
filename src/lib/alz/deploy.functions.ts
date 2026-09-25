@@ -141,6 +141,14 @@ export const getDeployReadiness = createServerFn({ method: "POST" })
             },
       );
     }
+    if (f.library_ref !== LATEST_REF)
+      checks.push({
+        id: "library",
+        level: "warn",
+        title: `ALZ ${shortRef(f.library_ref)} is older than the latest (${shortRef(LATEST_REF)})`,
+        detail:
+          "Microsoft updates built-in policies over time; older library releases can be rejected by Azure (for example a changed allowed value). Upgrade on the ALZ version tab before deploying.",
+      });
     return {
       identity,
       tenantId: identity?.tenantId ?? null,
