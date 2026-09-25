@@ -82,7 +82,18 @@ import {
   verdict,
 } from "@/lib/onboarding";
 import { BUSINESS_LINES, PRODUCT_BY_NAME, modelOf } from "@/lib/product-catalog";
-import { customersQuery, foundationsQuery, offeringsQuery } from "@/lib/queries";
+import { customersQuery, foundationsQuery, offeringsQuery, organizationQuery } from "@/lib/queries";
+import {
+  type Answers,
+  DEFAULT_ANSWERS,
+  LATEST_REF,
+  hierarchy,
+  libraryFor,
+  nextSpokeCidr,
+  spokeOf,
+  withDefaults,
+} from "@/lib/alz/engine";
+import { SCENARIOS } from "@/lib/alz/scenarios";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/onboard")({
@@ -104,13 +115,49 @@ export const Route = createFileRoute("/onboard")({
   component: Onboard,
 });
 
-const STEPS = ["Customer & offering", "Access", "Environments", "Delivery", "Review & launch"];
+const STEPS = [
+  "Customer & where it runs",
+  "Access",
+  "Landing zone & environments",
+  "Release pipeline",
+  "Review & launch",
+];
 const slug = (s: string) =>
   s
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
+// Hosted first, then customer-tenant options from "we build it" to "plug into theirs".
+const MODEL_ORDER = (o: { offering_type: string }) =>
+  ["saas_connected", "customer_hosted", "enterprise_private", "regulated", "sandbox"].indexOf(
+    o.offering_type,
+  );
+const MODEL_WHAT = (type: string, landing: string): { where: string; body: string } =>
+  landing === "isv-hosted"
+    ? {
+        where: "Your tenant · your hosting landing zone",
+        body: "Each environment gets its own subscription under your landing zone. You pay the Azure bill.",
+      }
+    : type === "regulated"
+      ? {
+          where: "Customer's tenant · their landing zone · regulated",
+          body: "Plugs into their platform with stricter controls: private endpoints only, customer-managed keys, more audit.",
+        }
+      : landing === "existing-customer-hub"
+        ? {
+            where: "Customer's tenant · their existing landing zone",
+            body: "Their platform team grants a management group; the install uses their hub, DNS, logging and policy.",
+          }
+        : type === "sandbox"
+          ? {
+              where: "Customer's tenant · sandbox",
+              body: "A trial or proof of concept with lighter guardrails, not connected to their network.",
+            }
+          : {
+              where: "Customer's tenant · new landing zone",
+              body: "For customers with no Azure platform yet: a Microsoft landing zone is built in their tenant, then the install lands in it.",
+            };
 const sampleSub = (i: number) => `2f8a7d11-4c39-4f85-b1de-93c7f6a52e1${i}`;
 
 type Launch = {
@@ -122,12 +169,14 @@ type Launch = {
   merged: boolean;
   error: string | null;
   environments: { id: string; environment_type: string }[];
+  landing: { foundationId: string; name: string; subscriptions: string[] } | null;
 };
 
 function Onboard() {
   const offerings = useQuery(offeringsQuery);
   const foundations = useQuery(foundationsQuery);
   const customers = useQuery(customersQuery);
+  const isvName = useQuery(organizationQuery).data?.name ?? "your company";
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [customer, setCustomer] = useState({ name: "Metro Energy", industry: "Electric utility" });
@@ -152,6 +201,10 @@ function Onboard() {
   const [delivery, setDelivery] = useState<Delivery>(DEFAULT_DELIVERY);
   const [showFiles, setShowFiles] = useState<"install" | "workflow" | null>(null);
   const [launch, setLaunch] = useState<Launch | null>(null);
+  // Which landing zone the new subscriptions are vended into, and in which of its management groups.
+  const [zonePick, setZonePick] = useState("");
+  const [zoneGroup, setZoneGroup] = useState("");
+  const [zoneScenario, setZoneScenario] = useState("smb-single-hub");
 
   const hostingAnswers = (foundations.data ?? []).find((f) => !f.customer_id)?.answers ?? {};
   const published = useMemo(
@@ -183,7 +236,7 @@ function Onboard() {
   const [productId, setProductId] = useState<string>("");
   const defaultPick =
     published
-      .filter((p) => p.offering.offering_type === "enterprise_private")
+      .filter((p) => p.offering.offering_type === "saas_connected")
       .sort(
         (a, b) =>
           ((b.offering.environments ?? []) as unknown[]).length -
@@ -193,7 +246,7 @@ function Onboard() {
   const models = published.filter((p) => p.offering.product_id === currentProduct);
   const pick =
     models.find((p) => p.offering.id === offeringId) ??
-    models.find((p) => p.offering.offering_type === "enterprise_private") ??
+    models.find((p) => p.offering.offering_type === "saas_connected") ??
     models[0] ??
     defaultPick;
   const productGroups = BUSINESS_LINES.map((l) => ({
@@ -257,11 +310,58 @@ function Onboard() {
 
   const hosted = arch.topology.landing === "isv-hosted";
   const hub = arch.topology.landing === "existing-customer-hub";
+  const newSetup = arch.topology.landing === "dedicated-spoke";
+  const isvZones = (foundations.data ?? []).filter((f) => !f.customer_id && f.mode === "managed");
+  const zone = hosted ? (isvZones.find((f) => f.id === zonePick) ?? isvZones[0] ?? null) : null;
+  const zonePrefix =
+    (customerCode.replace(/[^a-z0-9-]/g, "").replace(/^[^a-z]+/, "") || "cust")
+      .slice(0, 10)
+      .replace(/-+$/, "") || "cust";
+  const scenario = SCENARIOS.find((x) => x.id === zoneScenario) ?? SCENARIOS[0]!;
+  // The design the subscriptions land in: the chosen hosting landing zone, or the new one for the customer.
+  const zoneAnswers: Answers | null = zone
+    ? withDefaults(zone.answers)
+    : newSetup
+      ? {
+          ...DEFAULT_ANSWERS,
+          ...scenario.answers,
+          intermediateRootId: zonePrefix,
+          intermediateRootName: customer.name || "Customer",
+        }
+      : null;
+  const zoneLib = libraryFor(zone?.library_ref ?? LATEST_REF);
+  const zoneGroups = zoneAnswers
+    ? (() => {
+        const t = hierarchy(zoneLib, zoneAnswers);
+        const under = (id: string | null): boolean => {
+          const n = t.find((x) => x.id === id);
+          return !!n && (n.libraryId === "landingzones" || under(n.parentId));
+        };
+        return t
+          .filter((n) => under(n.parentId))
+          .map((n) => ({ id: n.libraryId, name: n.displayName }));
+      })()
+    : [];
+  const group =
+    zoneGroups.find((g) => g.id === zoneGroup)?.id ??
+    zoneGroups.find((g) => g.id === arch.topology.landingZone)?.id ??
+    zoneGroups[0]?.id ??
+    arch.topology.landingZone;
   const viaLink = !hosted && access === "customer_link";
   const grantedGroup = viaLink
     ? "Granted on the install link"
     : (grantedInput ?? `${customerCode}-landingzones-${arch.topology.landingZone}`);
   const envPlans = sortEnvs(Object.keys(plans) as EnvKey[]).map((e) => plans[e]!);
+  const vending = envPlans.filter((p) => p.target === "new_subscription");
+  const spokes = zoneAnswers
+    ? vending.reduce<{ env: EnvKey; name: string; cidr: string }[]>((out, p) => {
+        const cidr = nextSpokeCidr(
+          zoneAnswers,
+          out.map((o) => o.cidr),
+        );
+        return [...out, { env: p.env, name: `${customer.name} ${ENV_META[p.env].short}`, cidr }];
+      }, [])
+    : [];
   // With an install link the customer's admin picks subscriptions, so none are sent from here.
   const submitPlans = envPlans.map((p) =>
     !hosted && access === "customer_link" ? { ...p, subscriptionId: "" } : p,
@@ -275,11 +375,17 @@ function Onboard() {
     (k === "customerSignInDomain" ? `${customerCode}.example` : (discovered[k]?.[0] ?? ""));
   const placement = placementFor({
     landing: arch.topology.landing,
-    landingZone: arch.topology.landingZone,
+    landingZone: zoneAnswers ? group : arch.topology.landingZone,
     hostingAnswers,
     customerName: customer.name,
     customerCode,
     grantedGroup,
+    answers: zoneAnswers ?? undefined,
+    source: zone
+      ? `${zone.name} · your tenant`
+      : newSetup
+        ? `New landing zone in ${customer.name}'s tenant · ${scenario.name}`
+        : undefined,
   });
   const checks = onboardingChecks({
     selected: arch.selected,
@@ -287,7 +393,7 @@ function Onboard() {
     plans: envPlans,
     delivery,
     placementExists: placement.exists,
-    hostingAnswers,
+    hostingAnswers: zone?.answers ?? hostingAnswers,
     viaLink,
     customerTenant: !hosted,
   });
@@ -378,15 +484,16 @@ function Onboard() {
         detail: `${envPlans.length} subject${envPlans.length === 1 ? "" : "s"}, no secrets stored`,
         state: "queued",
       },
-      ...(envPlans.some((p) => p.target === "new_subscription")
+      ...(vending.length
         ? [
             {
               id: "subs",
-              label: "Subscriptions requested",
-              detail: envPlans
-                .filter((p) => p.target === "new_subscription")
-                .map((p) => namesFor(customerCode, p, delivery).subscription)
-                .join(" · "),
+              label: zoneAnswers
+                ? `Subscriptions added to ${zone ? zone.name : `${customer.name}'s new landing zone`} → ${zoneGroups.find((g) => g.id === group)?.name ?? group}`
+                : "Subscriptions requested in the customer's landing zone",
+              detail: zoneAnswers
+                ? spokes.map((x) => `${x.name} (${x.cidr})`).join(" · ")
+                : vending.map((p) => namesFor(customerCode, p, delivery).subscription).join(" · "),
               state: "queued" as RunState,
             },
           ]
@@ -414,6 +521,7 @@ function Onboard() {
       merged: false,
       error: null,
       environments: [],
+      landing: null,
     };
     const push = () => setLaunch({ ...state, steps: state.steps.map((s) => ({ ...s })) });
     const mark = (id: string, s: RunState) => {
@@ -459,10 +567,32 @@ function Onboard() {
               ? { logAnalyticsWorkspaceId: value("logAnalyticsWorkspaceId") }
               : {}),
           },
+          ...(vending.length && zone
+            ? { landingZone: { foundationId: zone.id, group } }
+            : vending.length && newSetup
+              ? {
+                  landingZone: {
+                    group,
+                    create: {
+                      scenario: scenario.id,
+                      prefix: zonePrefix,
+                      displayName: customer.name,
+                      region: primary.region,
+                      securityContactEmail: `azure-security@${value("customerSignInDomain") || `${customerCode}.example`}`,
+                    },
+                  },
+                }
+              : {}),
         },
-      })) as { customerId: string; environments: { id: string; environment_type: string }[] };
+      })) as {
+        customerId: string;
+        environments: { id: string; environment_type: string }[];
+        landing: Launch["landing"];
+      };
       state.customerId = r.customerId;
       state.environments = r.environments;
+      state.landing = r.landing;
+      void queryClient.invalidateQueries({ queryKey: ["foundations"] });
       void queryClient.invalidateQueries({ queryKey: ["customers"] });
       void queryClient.invalidateQueries({ queryKey: ["estate"] });
       mark("record", "success");
@@ -797,75 +927,119 @@ function Onboard() {
                   )}
                 </Card>
                 <Card
-                  title="How it's delivered"
-                  subtitle="Offerings of this product. Published versions only — each one passed architecture review and is immutable."
+                  title="Where it runs"
+                  subtitle="Pick whose Azure tenant the product runs in. Each option is a published, architecture-reviewed offering of this product."
                 >
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {models.map((p) => {
-                      const v = verdict(p.review);
-                      return (
-                        <button
-                          key={p.offering.id}
-                          onClick={() => setOfferingId(p.offering.id)}
-                          className={cn(
-                            "rounded-md border p-3 text-left transition-colors",
-                            p.offering.id === pick.offering.id
-                              ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                              : "border-border hover:border-border-strong",
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-[13px] font-semibold">{modelOf(p.offering.name)}</p>
-                            <span className="font-mono text-[11px] text-muted-foreground">
-                              v{p.version.version}
-                            </span>
+                  {(
+                    [
+                      {
+                        id: "isv",
+                        title: `Hosted by ${isvName} — in your Azure tenant`,
+                        body: "You run it for the customer. Subscriptions are vended in your hosting landing zone; the customer needs no Azure of their own.",
+                      },
+                      {
+                        id: "customer",
+                        title: "In the customer's Azure tenant",
+                        body: "Installed in the customer's own tenant and billed to their Azure. They grant access; you deliver and upgrade it.",
+                      },
+                    ] as const
+                  ).map((sec) => {
+                    const list = models
+                      .filter((p) => LANDING_LABEL[p.arch.topology.landing].where === sec.id)
+                      .sort((a, b) => MODEL_ORDER(a.offering) - MODEL_ORDER(b.offering));
+                    if (!list.length) return null;
+                    return (
+                      <div key={sec.id} className="mb-4 last:mb-0">
+                        <div className="mb-2 flex items-start gap-2">
+                          <span
+                            className={cn(
+                              "mt-0.5 rounded-sm px-1.5 py-0.5 text-[10px] font-semibold tracking-wider uppercase",
+                              sec.id === "isv"
+                                ? "bg-primary/10 text-primary"
+                                : "bg-[#8661c5]/10 text-[#5c2e91]",
+                            )}
+                          >
+                            {sec.id === "isv" ? "Your tenant" : "Customer's tenant"}
+                          </span>
+                          <div>
+                            <p className="text-[13px] font-semibold">{sec.title}</p>
+                            <p className="text-xs text-muted-foreground">{sec.body}</p>
                           </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {LANDING_LABEL[p.arch.topology.landing].title} ·{" "}
-                            {p.arch.topology.landingZone} landing zone
-                          </p>
-                          <div className="mt-2 flex flex-wrap items-center gap-1">
-                            {p.arch.selected
-                              .filter(
-                                (s) =>
-                                  !SERVICE_BY_ID.get(s.id)?.locked &&
-                                  s.id !== "private-endpoints" &&
-                                  s.id !== "network-spoke",
-                              )
-                              .map((s) => (
-                                <span key={s.id} title={SERVICE_BY_ID.get(s.id)?.name}>
-                                  <ServiceIcon id={s.id} size="sm" />
-                                </span>
-                              ))}
-                          </div>
-                          <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
-                            <span>{p.arch.topology.regions.length} regions</span>·
-                            <span>
-                              {sortEnvs(p.arch.topology.environments)
-                                .map((e) => ENV_META[e as EnvKey]?.short ?? e)
-                                .join(" · ")}
-                            </span>
-                            ·
-                            <span
-                              className={cn(
-                                v === "pass"
-                                  ? "text-success"
-                                  : v === "warn"
-                                    ? "text-warning"
-                                    : "text-danger",
-                              )}
-                            >
-                              {v === "pass"
-                                ? "Review passed"
-                                : v === "warn"
-                                  ? "Review: warnings"
-                                  : "Review failing"}
-                            </span>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {list.map((p) => {
+                            const v = verdict(p.review);
+                            const what = MODEL_WHAT(
+                              p.offering.offering_type,
+                              p.arch.topology.landing,
+                            );
+                            return (
+                              <button
+                                key={p.offering.id}
+                                onClick={() => setOfferingId(p.offering.id)}
+                                className={cn(
+                                  "rounded-md border p-3 text-left transition-colors",
+                                  p.offering.id === pick.offering.id
+                                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                                    : "border-border hover:border-border-strong",
+                                )}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-[13px] font-semibold">
+                                    {modelOf(p.offering.name)}
+                                  </p>
+                                  <span className="font-mono text-[11px] text-muted-foreground">
+                                    v{p.version.version}
+                                  </span>
+                                </div>
+                                <p className="mt-0.5 text-xs font-medium">{what.where}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground">{what.body}</p>
+                                <div className="mt-2 flex flex-wrap items-center gap-1">
+                                  {p.arch.selected
+                                    .filter(
+                                      (s) =>
+                                        !SERVICE_BY_ID.get(s.id)?.locked &&
+                                        s.id !== "private-endpoints" &&
+                                        s.id !== "network-spoke",
+                                    )
+                                    .map((s) => (
+                                      <span key={s.id} title={SERVICE_BY_ID.get(s.id)?.name}>
+                                        <ServiceIcon id={s.id} size="sm" />
+                                      </span>
+                                    ))}
+                                </div>
+                                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-muted-foreground">
+                                  <span>{p.arch.topology.landingZone} landing zone</span>·
+                                  <span>{p.arch.topology.regions.length} regions</span>·
+                                  <span>
+                                    {sortEnvs(p.arch.topology.environments)
+                                      .map((e) => ENV_META[e as EnvKey]?.short ?? e)
+                                      .join(" · ")}
+                                  </span>
+                                  ·
+                                  <span
+                                    className={cn(
+                                      v === "pass"
+                                        ? "text-success"
+                                        : v === "warn"
+                                          ? "text-warning"
+                                          : "text-danger",
+                                    )}
+                                  >
+                                    {v === "pass"
+                                      ? "Review passed"
+                                      : v === "warn"
+                                        ? "Review: warnings"
+                                        : "Review failing"}
+                                  </span>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
                   <p className="mt-3 text-xs text-muted-foreground">
                     Need a different architecture?{" "}
                     <Link
@@ -990,6 +1164,116 @@ function Onboard() {
             {step === 2 && (
               <>
                 <Card
+                  title="Landing zone"
+                  subtitle={
+                    hosted
+                      ? `${customer.name}'s subscriptions are vended in your tenant, under the landing zone and management group you pick. They inherit its policies, and each gets a spoke network.`
+                      : newSetup
+                        ? `${customer.name} has no Azure platform yet. A Microsoft landing zone is created in their tenant, and each environment's subscription lands in it.`
+                        : `${customer.name} already runs a landing zone. The install lands in the management group their platform team grants — their hierarchy and policies stay in charge.`
+                  }
+                >
+                  {hosted &&
+                    (zone ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <label className="block text-xs font-medium">
+                          Your landing zone
+                          <Select value={zone.id} onValueChange={setZonePick}>
+                            <SelectTrigger className="mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {isvZones.map((f) => (
+                                <SelectItem key={f.id} value={f.id}>
+                                  {f.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </label>
+                        <GroupPick groups={zoneGroups} value={group} onChange={setZoneGroup} />
+                      </div>
+                    ) : (
+                      <p className="text-[13px] text-danger">
+                        You don't have a hosting landing zone yet.{" "}
+                        <Link to="/foundations" className="text-primary hover:underline">
+                          Create one
+                        </Link>{" "}
+                        first — hosted customers land in it.
+                      </p>
+                    ))}
+                  {newSetup && (
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className="block text-xs font-medium">
+                        Landing zone scenario for {customer.name}'s tenant
+                        <Select value={scenario.id} onValueChange={setZoneScenario}>
+                          <SelectTrigger className="mt-1">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {SCENARIOS.filter((x) => x.supported && !x.multiRegion).map((x) => (
+                              <SelectItem key={x.id} value={x.id}>
+                                {x.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </label>
+                      <GroupPick groups={zoneGroups} value={group} onChange={setZoneGroup} />
+                    </div>
+                  )}
+                  {zone && zone.status !== "deployed" && zone.status !== "changes_pending" && (
+                    <p className="mt-2 text-[12px] text-warning">
+                      {zone.name} isn't deployed to Azure yet. The subscriptions are vended when you
+                      deploy it.
+                    </p>
+                  )}
+                  <div className="mt-3">
+                    <PlacementTree
+                      path={placement.path}
+                      source={placement.source}
+                      subs={envPlans.map((p) => {
+                        const n = namesFor(customerCode, p, delivery);
+                        const sp = spokes.find((x) => x.env === p.env);
+                        return {
+                          label: ENV_META[p.env].label,
+                          sub: sp
+                            ? `${sp.name} · vnet ${sp.cidr}`
+                            : p.target === "new_subscription"
+                              ? n.subscription
+                              : p.target === "existing_resource_group"
+                                ? `${ENV_META[p.env].short}: ${n.resourceGroup}`
+                                : `${ENV_META[p.env].short}: existing`,
+                          pending: !sp && (viaLink || p.target !== "new_subscription"),
+                        };
+                      })}
+                    />
+                  </div>
+                  {zoneAnswers && spokes.length > 0 && (
+                    <p className="mt-2 text-[12px] text-muted-foreground">
+                      On launch, {spokes.length} subscription{spokes.length === 1 ? " is" : "s are"}{" "}
+                      added to {zone ? zone.name : `${customer.name}'s new landing zone`}. They're
+                      created by subscription vending when that landing zone is deployed — you see
+                      the Terraform plan first.{" "}
+                      {zoneAnswers.connectivity !== "none" &&
+                        (spokeOf(
+                          zoneAnswers,
+                          zoneLib,
+                          { id: "x", name: "x", group, environment: "prod" },
+                          0,
+                        ).peered
+                          ? "Each network is peered to the hub, and traffic leaves through the firewall."
+                          : "This group isn't peered to the hub — the networks stay isolated.")}
+                    </p>
+                  )}
+                  <p className="mt-2 flex items-start gap-1.5 text-[11.5px] text-muted-foreground">
+                    <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-warning" />
+                    Microsoft's Cloud Adoption Framework: keep dev, test and prod as separate
+                    subscriptions in the same management group, not separate groups — they get the
+                    same guardrails as production.
+                  </p>
+                </Card>
+                <Card
                   title="Environments"
                   subtitle={`${pick.offering.name} offers ${offeredEnvs.map((e) => ENV_META[e].label).join(", ")}. Each environment is its own install with its own subscription.`}
                 >
@@ -1047,34 +1331,6 @@ function Onboard() {
                       Use {ENV_META[envPlans[0]!.env].label}'s region and target for all
                     </button>
                   )}
-                </Card>
-                <Card
-                  title="Where they land"
-                  subtitle="Placement comes from the landing zone design — nobody picks management groups by hand."
-                >
-                  <PlacementTree
-                    path={placement.path}
-                    source={placement.source}
-                    subs={envPlans.map((p) => {
-                      const n = namesFor(customerCode, p, delivery);
-                      return {
-                        label: ENV_META[p.env].label,
-                        sub:
-                          p.target === "new_subscription"
-                            ? n.subscription
-                            : p.target === "existing_resource_group"
-                              ? `${ENV_META[p.env].short}: ${n.resourceGroup}`
-                              : `${ENV_META[p.env].short}: existing`,
-                        pending: viaLink || p.target !== "new_subscription",
-                      };
-                    })}
-                  />
-                  <p className="mt-2 flex items-start gap-1.5 text-[11.5px] text-muted-foreground">
-                    <Lightbulb className="mt-0.5 size-3.5 shrink-0 text-warning" />
-                    Microsoft's Cloud Adoption Framework: keep dev, test and prod as separate
-                    subscriptions in the same management group, not separate groups — they get the
-                    same guardrails as production.
-                  </p>
                 </Card>
               </>
             )}
@@ -1234,13 +1490,18 @@ function Onboard() {
                   <PlacementTree
                     path={placement.path}
                     source={placement.source}
-                    subs={envPlans.map((p) => ({
-                      label: ENV_META[p.env].label,
-                      sub: namesFor(customerCode, p, delivery)[
-                        p.target === "new_subscription" ? "subscription" : "resourceGroup"
-                      ],
-                      pending: viaLink || p.target !== "new_subscription",
-                    }))}
+                    subs={envPlans.map((p) => {
+                      const sp = spokes.find((x) => x.env === p.env);
+                      return {
+                        label: ENV_META[p.env].label,
+                        sub: sp
+                          ? `${sp.name} · vnet ${sp.cidr}`
+                          : namesFor(customerCode, p, delivery)[
+                              p.target === "new_subscription" ? "subscription" : "resourceGroup"
+                            ],
+                        pending: !sp && (viaLink || p.target !== "new_subscription"),
+                      };
+                    })}
                   />
                   <div className="mt-3">
                     <ArchitectureCanvas
@@ -1322,7 +1583,18 @@ function Onboard() {
               <p className="text-[13px] font-semibold">{customer.name || "New customer"}</p>
               <dl className="mt-3 space-y-1.5 text-xs">
                 <Row k="Offering" v={`${pick.offering.name} v${pick.version.version}`} />
-                <Row k="Runs in" v={LANDING_LABEL[arch.topology.landing].title} />
+                <Row
+                  k="Runs in"
+                  v={
+                    hosted ? `Your tenant (${isvName})` : `${customer.name || "Customer"}'s tenant`
+                  }
+                />
+                <Row
+                  k="Landing zone"
+                  v={
+                    zone ? zone.name : newSetup ? "New, in their tenant" : "Theirs (granted group)"
+                  }
+                />
                 <Row k="Lands in" v={placement.path.at(-1)?.name ?? "—"} />
                 <Row
                   k="Environments"
@@ -1586,6 +1858,30 @@ function LaunchView({
             </li>
           ))}
         </ol>
+        {launch.done && launch.landing && launch.landing.subscriptions.length > 0 && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-[13px] font-medium">
+                {launch.landing.subscriptions.length} subscription
+                {launch.landing.subscriptions.length === 1 ? "" : "s"} added to{" "}
+                {launch.landing.name}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {launch.landing.subscriptions.join(" · ")} — vended with their spoke networks when
+                you deploy the landing zone. Review the plan first.
+              </p>
+            </div>
+            <Button size="sm" asChild>
+              <Link
+                to="/foundations/$foundationId"
+                params={{ foundationId: launch.landing.foundationId }}
+                search={{ view: "review" }}
+              >
+                Review & deploy the landing zone
+              </Link>
+            </Button>
+          </div>
+        )}
         {launch.error && (
           <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-danger/40 bg-danger/5 px-3 py-2">
             <p className="text-[13px] text-danger">{launch.error}</p>
@@ -1748,6 +2044,34 @@ function LaunchView({
         </Link>
       )}
     </div>
+  );
+}
+
+function GroupPick({
+  groups,
+  value,
+  onChange,
+}: {
+  groups: { id: string; name: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block text-xs font-medium">
+      Management group
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="mt-1">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {groups.map((g) => (
+            <SelectItem key={g.id} value={g.id}>
+              {g.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </label>
   );
 }
 

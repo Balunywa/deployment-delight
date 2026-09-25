@@ -8,6 +8,7 @@ import { fromManifest, toManifest } from "./architecture";
 import {
   DEFAULT_DELIVERY,
   ENV_KEYS,
+  ENV_META,
   envName,
   namesFor,
   reviewOffering,
@@ -1031,11 +1032,54 @@ export const onboardCustomer = createServerFn({ method: "POST" })
           useCustomerWorkspace: z.boolean(),
           logAnalyticsWorkspaceId: z.string().max(300).optional(),
         }),
+        // The landing zone the new subscriptions are vended into: an existing design (the ISV's hosting
+        // tenant), or a new one created for the customer's tenant from a Microsoft scenario.
+        landingZone: z
+          .object({
+            foundationId: z.string().uuid().optional(),
+            group: z.string().min(2).max(40),
+            create: z
+              .object({
+                scenario: z.string().max(40),
+                prefix: z.string().regex(/^[a-z][a-z0-9-]{1,9}$/),
+                displayName: z.string().min(2).max(60),
+                region: z.string().min(3).max(40),
+                securityContactEmail: z.string().email().max(120),
+              })
+              .optional(),
+          })
+          .refine((l) => !!l.foundationId !== !!l.create, "Pick a landing zone or create one.")
+          .optional(),
       })
       .parse(d),
   )
   .handler(async ({ data }) => {
     const db = await admin();
+    const alz = await import("./alz/engine");
+
+    // Check the landing zone first, so a bad choice doesn't leave a half-onboarded customer behind.
+    let target: Tables<"foundations"> | null = null;
+    if (data.landingZone?.foundationId) {
+      target = await db.maybeOne<Tables<"foundations">>(
+        "select * from public.foundations where id = $1",
+        [data.landingZone.foundationId],
+      );
+      if (!target) throw new Error("That landing zone no longer exists.");
+      if (target.mode !== "managed")
+        throw new Error("Subscriptions can only be vended into a landing zone this app manages.");
+      const groups = alz.includedGroups(
+        alz.libraryFor(target.library_ref),
+        alz.withDefaults(target.answers),
+      );
+      if (!groups.some((g) => g.id === data.landingZone!.group))
+        throw new Error(`${target.name} has no "${data.landingZone.group}" management group.`);
+    }
+    const scenario = data.landingZone?.create
+      ? (await import("./alz/scenarios")).SCENARIOS.find(
+          (x) => x.id === data.landingZone!.create!.scenario && x.supported && !x.multiRegion,
+        )
+      : null;
+    if (data.landingZone?.create && !scenario) throw new Error("Pick a supported scenario.");
 
     const offering = await db.one<Tables<"offerings">>(
       "select * from public.offerings where id = $1",
@@ -1132,6 +1176,71 @@ export const onboardCustomer = createServerFn({ method: "POST" })
       }),
     );
 
+    // Every environment that gets a new subscription is added to the landing zone design, in the chosen
+    // management group with its own spoke network. The landing zone's Deploy step vends them with Terraform.
+    let landing: { foundationId: string; name: string; subscriptions: string[] } | null = null;
+    if (data.landingZone) {
+      const lz = data.landingZone;
+      if (lz.create && scenario) {
+        target = await db.insert<Tables<"foundations">>("foundations", {
+          organization_id: ORG_ID,
+          customer_id: customer.id,
+          name: `${data.name} landing zone`,
+          tenant_id: data.tenantId || null,
+          mode: "managed",
+          library_ref: alz.LATEST_REF,
+          answers: {
+            ...alz.DEFAULT_ANSWERS,
+            ...scenario.answers,
+            intermediateRootId: lz.create.prefix,
+            intermediateRootName: lz.create.displayName,
+            primaryRegion: lz.create.region,
+            secondaryRegion: "",
+            securityContactEmail: lz.create.securityContactEmail,
+          },
+          status: "draft",
+        });
+      }
+      const f = target!;
+      const answers = alz.withDefaults(f.answers);
+      const extras = [...answers.extraSubscriptions];
+      const added: string[] = [];
+      for (const p of data.plans.filter((x) => x.target === "new_subscription")) {
+        const short = ENV_META[p.env].short;
+        const id = `${data.customerCode}-${short}`.slice(0, 60);
+        if (extras.some((x) => x.id === id)) continue;
+        const name = `${data.name} ${short}`.slice(0, 64);
+        extras.push({
+          id,
+          name,
+          group: lz.group,
+          environment: short,
+          vnet: true,
+          cidr: alz.nextSpokeCidr({ extraSubscriptions: extras }),
+          customerId: customer.id,
+          customerName: data.name,
+        });
+        added.push(name);
+      }
+      await db.update(
+        "foundations",
+        {
+          answers: { ...answers, extraSubscriptions: extras },
+          status: f.status === "deployed" ? "changes_pending" : f.status,
+          updated_at: new Date().toISOString(),
+        },
+        { id: f.id },
+      );
+      await audit(db, {
+        event_type: lz.create ? "foundation.created" : "foundation.answers_updated",
+        customer_id: customer.id,
+        resource_type: "foundation",
+        resource_id: f.name,
+        new_value: { onboarding: data.customerCode, group: lz.group, subscriptions: added },
+      });
+      landing = { foundationId: f.id, name: f.name, subscriptions: added };
+    }
+
     await audit(db, {
       event_type: "customer.onboarded",
       customer_id: customer.id,
@@ -1155,6 +1264,7 @@ export const onboardCustomer = createServerFn({ method: "POST" })
       connectionId: connection?.id ?? null,
       environments: environments ?? [],
       version: published.version,
+      landing,
     };
   });
 
@@ -1506,9 +1616,11 @@ const answersSchema = z.object({
           .regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/(1[6-9]|2[0-4])$/, "Use a /16 to /24 range")
           .optional(),
         peer: z.boolean().optional(),
+        customerId: z.string().uuid().optional(),
+        customerName: z.string().max(120).optional(),
       }),
     )
-    .max(50),
+    .max(200),
   defaultGroup: z.string().max(40),
   workloads: z.array(z.object({ group: z.string().max(40), id: z.string().max(20) })).max(60),
   rbac: z

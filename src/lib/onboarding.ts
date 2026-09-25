@@ -141,6 +141,9 @@ export function placementFor(opts: {
   customerName: string;
   customerCode: string;
   grantedGroup: string;
+  /** The landing zone design the subscriptions are vended into, when one was picked. */
+  answers?: unknown;
+  source?: string | undefined;
 }): { path: PlacementNode[]; exists: boolean; source: string } {
   if (opts.landing === "existing-customer-hub")
     return {
@@ -154,8 +157,9 @@ export function placementFor(opts: {
       exists: true,
       source: "Customer's existing landing zone",
     };
-  const answers: Answers =
-    opts.landing === "isv-hosted"
+  const answers: Answers = opts.answers
+    ? answersWithDefaults(opts.answers)
+    : opts.landing === "isv-hosted"
       ? answersWithDefaults(opts.hostingAnswers)
       : {
           ...DEFAULT_ANSWERS,
@@ -177,9 +181,10 @@ export function placementFor(opts: {
     path: [...path, ...chain],
     exists,
     source:
-      opts.landing === "isv-hosted"
+      opts.source ??
+      (opts.landing === "isv-hosted"
         ? "Your hosting tenant's landing zone design"
-        : "New landing zone built from Microsoft's defaults",
+        : "New landing zone built from Microsoft's defaults"),
   };
 }
 

@@ -93,7 +93,23 @@ export type ExtraSubscription = {
   cidr?: string | undefined;
   /** Peer the spoke to the hub, or connect it to the Virtual WAN hub (default: yes in Corp-style groups). */
   peer?: boolean | undefined;
+  /** Set when onboarding a customer vended this subscription for one of their environments. */
+  customerId?: string | undefined;
+  customerName?: string | undefined;
 };
+
+/** The next /24 from 10.100.0.0 that no added subscription's spoke uses yet. */
+export function nextSpokeCidr(answers: Pick<Answers, "extraSubscriptions">, taken: string[] = []) {
+  const used = new Set([
+    ...answers.extraSubscriptions.map((x, i) => x.cidr || `10.${100 + i}.0.0/24`),
+    ...taken,
+  ]);
+  for (let k = 100; k < 250; k++) {
+    const c = `10.${k}.0.0/24`;
+    if (!used.has(c)) return c;
+  }
+  throw new Error("No free 10.x.0.0/24 range left for a spoke network.");
+}
 
 /** Where an added subscription's spoke network lands and whether it's connected to the hub. */
 export function spokeOf(answers: Answers, lib: AlzLibrary, x: ExtraSubscription, index: number) {

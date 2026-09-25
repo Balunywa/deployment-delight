@@ -139,8 +139,11 @@ export function ReferenceCanvas({
     hub && !!answers.secondaryRegion && answers.secondaryRegion !== answers.primaryRegion;
   const res = new Set(platformResources(answers).map((r) => r.id));
   const has = (id: string) => tree.some((n) => n.libraryId === id);
-  const corp = spokes.filter((s) => s.group === "corp");
-  const online = spokes.filter((s) => s.group === "online");
+  // Installs whose subscriptions onboarding added to this design are drawn once, as those subscriptions.
+  const vended = new Set(answers.extraSubscriptions.map((x) => x.customerId).filter(Boolean));
+  const drawn = spokes.filter((s) => !(s.placement && vended.has(s.placement.customerId)));
+  const corp = drawn.filter((s) => s.group === "corp");
+  const online = drawn.filter((s) => s.group === "online");
   const liveCorp = corp.filter((s) => !s.ghost);
   const extras = answers.extraSubscriptions.map((x, i) => ({ x, ...spokeOf(answers, lib, x, i) }));
   const edit = !!set;
@@ -781,6 +784,11 @@ export function ReferenceCanvas({
             <span className="rounded-sm bg-[#fff4ce] px-1 text-[9px] font-normal">
               {e.x.environment}
             </span>
+            {e.x.customerId && (
+              <span className="rounded-sm bg-[#eff6fc] px-1 text-[9px] font-normal text-[#0078d4]">
+                customer install
+              </span>
+            )}
           </p>
           {e.vnet ? (
             <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px]">
