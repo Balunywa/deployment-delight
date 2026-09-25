@@ -2,7 +2,15 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import type { Json } from "../db-types";
-import { type Answers, hasHub, on, shortRef, terraformFor, withDefaults } from "./engine";
+import {
+  type Answers,
+  LATEST_REF,
+  hasHub,
+  on,
+  shortRef,
+  terraformFor,
+  withDefaults,
+} from "./engine";
 
 /*
  * Real platform landing zone deployments. The design, library pin and generated Terraform are the same the
