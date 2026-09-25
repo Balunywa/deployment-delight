@@ -1500,6 +1500,12 @@ const answersSchema = z.object({
         name: z.string().min(1).max(64),
         group: z.string().max(40),
         environment: z.string().max(20),
+        vnet: z.boolean().optional(),
+        cidr: z
+          .string()
+          .regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/(1[6-9]|2[0-4])$/, "Use a /16 to /24 range")
+          .optional(),
+        peer: z.boolean().optional(),
       }),
     )
     .max(50),

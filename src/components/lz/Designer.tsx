@@ -169,6 +169,7 @@ export function LandingZoneDesigner({
   readOnlyOwner,
   name = "",
   assessment = null,
+  baseline,
 }: {
   lib: AlzLibrary;
   answers: Answers;
@@ -182,6 +183,8 @@ export function LandingZoneDesigner({
   readOnlyOwner?: string | undefined;
   name?: string;
   assessment?: Assessment | null;
+  /** The saved design; the canvas highlights anything that differs from it. */
+  baseline?: Answers | undefined;
 }) {
   const editable = !!setAnswers && !readOnlyOwner;
   const [panel, setPanel] = useState<"design" | "details" | "traffic" | "access" | "advisor">(
@@ -404,6 +407,7 @@ export function LandingZoneDesigner({
               onSelect={select}
               flow={flow}
               step={step}
+              baseline={baseline}
             />
           ) : (
             <ArchitectureDiagram

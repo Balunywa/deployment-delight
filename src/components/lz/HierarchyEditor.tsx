@@ -89,6 +89,9 @@ export function AddDialog({
   const [archetype, setArchetype] = useState<CustomArchetype>("inherit");
   const [workload, setWorkload] = useState("");
   const [env, setEnv] = useState("prod");
+  const [vnet, setVnet] = useState(true);
+  const [cidr, setCidr] = useState("");
+  const [peer, setPeer] = useState(true);
   useEffect(() => {
     if (!adding) return;
     setName("");
@@ -99,7 +102,10 @@ export function AddDialog({
       p && ["corp", "online", "local", "sandbox"].includes(p.archetype) ? "inherit" : "corp",
     );
     setEnv(answers.environments.includes("prod") ? "prod" : (answers.environments[0] ?? "prod"));
-  }, [adding, tree, answers.environments]);
+    setVnet(true);
+    setCidr(`10.${100 + answers.extraSubscriptions.length}.0.0/24`);
+    setPeer(!!p && p.archetype.startsWith("corp"));
+  }, [adding, tree, answers.environments, answers.extraSubscriptions.length]);
 
   const parentNode = tree.find((n) => n.libraryId === parent);
   const depth = (parentNode?.depth ?? 0) + 1;
@@ -126,12 +132,20 @@ export function AddDialog({
     });
     onClose();
   };
+  const cidrOk = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/(1[6-9]|2[0-4])$/.test(cidr);
   const addSubscription = () => {
     const id = `${parent}-${slug(name)}-${env}`.slice(0, 60);
     set({
       extraSubscriptions: [
         ...answers.extraSubscriptions.filter((x) => x.id !== id),
-        { id, name: name.trim(), group: parent, environment: env },
+        {
+          id,
+          name: name.trim(),
+          group: parent,
+          environment: env,
+          vnet,
+          ...(vnet ? { cidr, peer: peer && answers.connectivity !== "none" } : {}),
+        },
       ],
     });
     onClose();
@@ -297,13 +311,56 @@ export function AddDialog({
                   </select>
                 </label>
               </div>
+              <div className="space-y-2 rounded-md border border-border p-2.5">
+                <label className="flex items-center justify-between gap-2 text-[12px] font-medium">
+                  Spoke virtual network
+                  <input
+                    type="checkbox"
+                    checked={vnet}
+                    onChange={(e) => setVnet(e.target.checked)}
+                  />
+                </label>
+                {vnet && (
+                  <>
+                    <label className="block text-[12px] font-medium">
+                      Address space
+                      <Input
+                        className={cn("mt-1 font-mono text-xs", !cidrOk && "border-danger")}
+                        value={cidr}
+                        onChange={(e) => setCidr(e.target.value.trim())}
+                        placeholder="10.100.0.0/24"
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-2 text-[12px] font-medium">
+                      <span>
+                        {answers.connectivity === "virtual_wan"
+                          ? "Connect to the Virtual WAN hub"
+                          : "Peer to the hub"}
+                        <span className="block text-[11px] font-normal text-muted-foreground">
+                          {answers.connectivity === "none"
+                            ? "No central network in this design."
+                            : "Traffic leaves through the hub firewall; DNS comes from the hub."}
+                        </span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        disabled={answers.connectivity === "none"}
+                        checked={peer && answers.connectivity !== "none"}
+                        onChange={(e) => setPeer(e.target.checked)}
+                      />
+                    </label>
+                  </>
+                )}
+              </div>
               <Bulb>
                 CAF: give each environment its own subscription so policy, access and blast radius
                 stay separate. The subscription inherits every policy of the group it's placed in.
+                It's created by subscription vending, with its network and hub peering, in the same
+                deployment.
               </Bulb>
             </div>
             <DialogFooter>
-              <Button disabled={!name.trim()} onClick={addSubscription}>
+              <Button disabled={!name.trim() || (vnet && !cidrOk)} onClick={addSubscription}>
                 Add subscription
               </Button>
             </DialogFooter>

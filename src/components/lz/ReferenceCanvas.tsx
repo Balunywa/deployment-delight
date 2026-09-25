@@ -9,6 +9,8 @@
 import {
   Boxes,
   Building2,
+  GripVertical,
+  Trash2,
   CreditCard,
   GitBranch,
   Globe,
@@ -19,7 +21,7 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   type AlzLibrary,
@@ -30,6 +32,7 @@ import {
   hasHub,
   on,
   platformResources,
+  spokeOf,
 } from "@/lib/alz/engine";
 import type { Flow, Sel, Spoke } from "@/lib/alz/scene";
 import { AZURE_REGIONS } from "@/lib/regions";
@@ -58,7 +61,10 @@ export function ReferenceCanvas({
   onSelect,
   flow,
   step,
+  baseline,
 }: {
+  /** The saved design; anything that differs glows until it's saved. */
+  baseline?: Answers | undefined;
   lib: AlzLibrary;
   tree: MgNode[];
   answers: Answers;
@@ -69,7 +75,6 @@ export function ReferenceCanvas({
   flow: Flow | null;
   step: number;
 }) {
-  void lib;
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -78,6 +83,44 @@ export function ReferenceCanvas({
   const [height, setHeight] = useState(900);
   const [hover, setHover] = useState<string | null>(null);
   const [adding, setAdding] = useState<Adding>(null);
+  // Boxes can be dragged anywhere; offsets are kept per landing zone prefix in this browser.
+  const layoutKey = `cd-canvas-layout:${answers.intermediateRootId || "alz"}`;
+  const [offsets, setOffsets] = useState<Record<string, { x: number; y: number }>>({});
+  // Read after mount: the server render has no localStorage.
+  useEffect(() => {
+    try {
+      setOffsets(JSON.parse(localStorage.getItem(layoutKey) ?? "{}"));
+    } catch {
+      setOffsets({});
+    }
+  }, [layoutKey]);
+  const [dragging, setDragging] = useState<string | null>(null);
+  const startDrag = (anchor: string) => (e: React.PointerEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const start = { x: e.clientX, y: e.clientY };
+    const from = offsets[anchor] ?? { x: 0, y: 0 };
+    setDragging(anchor);
+    const move = (ev: PointerEvent) =>
+      setOffsets((o) => ({
+        ...o,
+        [anchor]: {
+          x: Math.round((from.x + (ev.clientX - start.x) / scale) / 8) * 8,
+          y: Math.round((from.y + (ev.clientY - start.y) / scale) / 8) * 8,
+        },
+      }));
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setDragging(null);
+      setOffsets((o) => {
+        globalThis.localStorage?.setItem(layoutKey, JSON.stringify(o));
+        return o;
+      });
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   const [geo, setGeo] = useState<{
     links: (Link & { d: string; mid: { x: number; y: number } })[];
     flow: string[];
@@ -94,7 +137,58 @@ export function ReferenceCanvas({
   const corp = spokes.filter((s) => s.group === "corp");
   const online = spokes.filter((s) => s.group === "online");
   const liveCorp = corp.filter((s) => !s.ghost);
+  const extras = answers.extraSubscriptions.map((x, i) => ({ x, ...spokeOf(answers, lib, x, i) }));
   const edit = !!set;
+
+  const changed = new Set<string>();
+  if (baseline) {
+    const b = baseline;
+    const mark = (cond: boolean, ...ids: string[]) => cond && ids.forEach((i) => changed.add(i));
+    mark(b.firewall !== answers.firewall, "firewall", "firewall2");
+    mark(b.vpnGateway !== answers.vpnGateway, "vpngw", "vpngw2");
+    mark(b.expressRoute !== answers.expressRoute, "ergw", "ergw2");
+    mark(b.bastion !== answers.bastion, "bastion", "bastion2");
+    mark(b.privateDns !== answers.privateDns, "dnsresolver", "dnsresolver2", "dnszones");
+    mark(b.ddosPlan !== answers.ddosPlan, "ddos");
+    mark(b.secondaryRegion !== answers.secondaryRegion, "hub2", "sub:connectivity");
+    mark(b.connectivity !== answers.connectivity, "sub:connectivity", "chip:connectivity");
+    mark(b.primaryRegion !== answers.primaryRegion, "hub1");
+    mark(b.identity !== answers.identity, "sub:identity", "chip:identity");
+    mark(b.securitySubscription !== answers.securitySubscription, "sub:security", "chip:security");
+    mark(b.siem !== answers.siem, "sentinel", "seclaw");
+    mark(b.monitoring !== answers.monitoring, "ama");
+    mark(b.logRetentionDays !== answers.logRetentionDays, "law");
+    mark(JSON.stringify(b.rbac) !== JSON.stringify(answers.rbac), "iam");
+    mark(JSON.stringify(b.workloads) !== JSON.stringify(answers.workloads), "templates");
+    mark(
+      b.intermediateRootName !== answers.intermediateRootName ||
+        b.intermediateRootId !== answers.intermediateRootId,
+      "mg-root",
+    );
+    for (const g of ["corp", "online", "sandbox", "local"] as const)
+      mark(
+        b.landingZones.includes(g) !== answers.landingZones.includes(g),
+        `sub:${g}`,
+        `chip:${g}`,
+        `mg:${g}`,
+      );
+    for (const g of answers.customGroups)
+      mark(
+        !b.customGroups.some((x) => JSON.stringify(x) === JSON.stringify(g)),
+        `mg:${g.id}`,
+        `sub:${g.id}`,
+      );
+    for (const [k, v] of Object.entries(answers.groupNames)) mark(b.groupNames[k] !== v, `mg:${k}`);
+    for (const x of answers.extraSubscriptions)
+      mark(
+        !b.extraSubscriptions.some((y) => JSON.stringify(y) === JSON.stringify(x)),
+        `extra:${x.id}`,
+        `chip:extra-${x.id}`,
+      );
+    for (const t of TOOLS) if (t.answer) mark(b[t.answer] !== answers[t.answer], `tool:${t.id}`);
+    mark(JSON.stringify(b.policyOverrides) !== JSON.stringify(answers.policyOverrides), "mg-box");
+  }
+  const glow = (id: string) => changed.has(id) && "cd-glow";
 
   const pick = (s: Sel) => (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -136,6 +230,14 @@ export function ReferenceCanvas({
           ...(second
             ? [{ from: "hub1", to: "hub2", kind: "peering" as const, label: "Global peering" }]
             : []),
+          ...extras
+            .filter((e) => e.peered)
+            .map((e) => ({
+              from: "hub1",
+              to: `extra:${e.x.id}`,
+              kind: "peering" as const,
+              label: wan ? "Hub connection" : "Peering",
+            })),
           ...(on(answers.vpnGateway) || on(answers.expressRoute)
             ? [
                 {
@@ -150,7 +252,7 @@ export function ReferenceCanvas({
       : []),
   ];
 
-  const key = JSON.stringify([answers, spokes.length, flow?.id, flow?.available]);
+  const key = JSON.stringify([answers, spokes.length, flow?.id, flow?.available, offsets]);
   useLayoutEffect(() => {
     const o = outer.current;
     const el = inner.current;
@@ -256,6 +358,7 @@ export function ReferenceCanvas({
             : "border-dashed border-[#a19f9d] text-[#8a8886]",
           isSel(s.kind, s.id) && "ring-2 ring-[#0078d4]",
           flowAt.has(id) && "ring-2 ring-offset-1",
+          glow(id),
         )}
         style={flowAt.has(id) ? { ["--tw-ring-color" as string]: flow?.color } : undefined}
       >
@@ -308,6 +411,7 @@ export function ReferenceCanvas({
             }}
             className={cn(
               "flex items-center gap-1 rounded-sm border px-1 py-0.5 text-[9px]",
+              glow(`tool:${t.id}`),
               onNow
                 ? "border-[#c7e0f4] bg-white text-[#323130]"
                 : "border-dashed border-[#a19f9d] text-[#a19f9d] line-through",
@@ -350,8 +454,16 @@ export function ReferenceCanvas({
       onClick={select ? pick(select) : undefined}
       onMouseEnter={() => setHover(anchor)}
       onMouseLeave={() => setHover(null)}
+      style={
+        offsets[anchor]
+          ? { transform: `translate(${offsets[anchor]!.x}px, ${offsets[anchor]!.y}px)` }
+          : undefined
+      }
       className={cn(
-        "relative rounded-md border p-2.5 transition",
+        "group/box relative rounded-md border p-2.5",
+        dragging === anchor ? "z-40 shadow-xl" : "transition-[box-shadow,border-color]",
+        offsets[anchor] && "z-20 shadow-md",
+        glow(anchor),
         select && "cursor-pointer",
         tone === "sub" &&
           (isOn ? "border-[#c7e0f4] bg-[#eff6fc]" : "border-dashed border-[#a19f9d] bg-white"),
@@ -362,6 +474,14 @@ export function ReferenceCanvas({
       )}
     >
       <header className="mb-1.5 flex items-start gap-1.5">
+        <span
+          onPointerDown={startDrag(anchor)}
+          onClick={(e) => e.stopPropagation()}
+          title="Drag to move"
+          className="-ml-1 hidden cursor-grab touch-none text-[#a19f9d] group-hover/box:block active:cursor-grabbing"
+        >
+          <GripVertical className="size-3.5" />
+        </span>
         {letter && (
           <span className="grid size-5 shrink-0 place-items-center rounded-full bg-[#107c10] text-[10px] font-bold text-white">
             {letter}
@@ -416,6 +536,7 @@ export function ReferenceCanvas({
       onClick={pick(select)}
       className={cn(
         "cursor-pointer rounded border border-[#8ac7ea] bg-[#e5f4fc] p-1.5",
+        glow(anchor),
         isSel(select.kind, select.id) && "ring-2 ring-[#0078d4]",
       )}
     >
@@ -519,6 +640,7 @@ export function ReferenceCanvas({
         className={cn(
           "rounded border bg-white px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap hover:border-[#0078d4]",
           isSel("mg", n.libraryId) ? "border-[#0078d4] ring-2 ring-[#0078d4]" : "border-[#c8c6c4]",
+          glow(n.parentId ? `mg:${n.libraryId}` : "mg-root"),
         )}
         title={`${n.enforced} policy assignments here · ${n.inherited} inherited`}
       >
@@ -584,13 +706,102 @@ export function ReferenceCanvas({
     </div>
   );
 
+  // Subscriptions the design adds by hand: each is vended with its own spoke network, and peered to the hub
+  // (or connected to the Virtual WAN hub) when chosen — exactly what the generated Terraform deploys.
+  const extraCards = (group: string) =>
+    extras
+      .filter((e) => e.x.group === group)
+      .map((e) => (
+        <div
+          key={e.x.id}
+          data-anchor={`extra:${e.x.id}`}
+          onClick={pick({ kind: "mg", id: e.x.group })}
+          className={cn(
+            "group/extra relative cursor-pointer rounded border border-[#0078d4]/50 bg-white p-1.5",
+            glow(`extra:${e.x.id}`),
+          )}
+        >
+          <p className="flex items-center gap-1 truncate text-[10.5px] font-semibold">
+            <KeyRound className="size-3 shrink-0 text-[#e8a900]" />
+            {e.x.name}
+            <span className="rounded-sm bg-[#fff4ce] px-1 text-[9px] font-normal">
+              {e.x.environment}
+            </span>
+          </p>
+          {e.vnet ? (
+            <div className="mt-1 flex flex-wrap items-center gap-1 text-[9px]">
+              <span className="rounded-sm border border-[#8ac7ea] bg-[#e5f4fc] px-1 font-mono">
+                vnet {e.cidr}
+              </span>
+              <span className="rounded-sm border border-[#c7e0f4] px-1">
+                workload + private endpoint subnets
+              </span>
+              {hub && (
+                <button
+                  disabled={!edit}
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    set?.({
+                      extraSubscriptions: answers.extraSubscriptions.map((y) =>
+                        y.id === e.x.id ? { ...y, peer: !e.peered } : y,
+                      ),
+                    });
+                  }}
+                  title={e.peered ? "Disconnect from the hub" : "Connect to the hub"}
+                  className={cn(
+                    "rounded-sm border px-1",
+                    e.peered
+                      ? "border-[#0078d4] bg-[#0078d4] text-white"
+                      : "border-dashed border-[#8a8886] text-[#605e5c]",
+                  )}
+                >
+                  {e.peered
+                    ? wan
+                      ? "✓ connected to vWAN hub"
+                      : "✓ peered to hub"
+                    : "+ peer to hub"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="mt-1 text-[9px] text-[#605e5c]">No virtual network</p>
+          )}
+          {edit && (
+            <button
+              onClick={(ev) => {
+                ev.stopPropagation();
+                set?.({
+                  extraSubscriptions: answers.extraSubscriptions.filter((y) => y.id !== e.x.id),
+                });
+              }}
+              title="Remove this subscription"
+              className="absolute top-1 right-1 hidden text-[#a4262c] group-hover/extra:block"
+            >
+              <Trash2 className="size-3" />
+            </button>
+          )}
+        </div>
+      ));
+
   return (
     <div className="relative w-full bg-white">
       <div className="flex items-center justify-end gap-1 border-b border-[#edebe9] bg-white px-3 py-1 text-[11px]">
         <span className="mr-auto text-[#605e5c]">
-          Hover a subscription to see where it lives · click anything for details · ✓ / + to change
-          the design
+          Click anything for details · ✓ / + to change the design · drag a box by its grip to move
+          it · <span className="cd-glow-key rounded-sm px-1">amber</span> = not saved yet
         </span>
+        {Object.keys(offsets).length > 0 && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setOffsets({});
+              globalThis.localStorage?.removeItem(layoutKey);
+            }}
+            className="rounded-sm border border-[#c8c6c4] px-1.5 py-0.5 text-[#605e5c] hover:border-[#0078d4] hover:text-[#0078d4]"
+          >
+            Reset layout
+          </button>
+        )}
         {(["fit", 0.75, 1] as const).map((z) => (
           <button
             key={String(z)}
@@ -960,6 +1171,7 @@ export function ReferenceCanvas({
                           ? "border-[#e8c65b] bg-[#fff4ce] hover:border-[#0078d4]"
                           : "border-dashed border-[#a19f9d] text-[#8a8886] line-through",
                         isSel("sub", c.id) && "ring-2 ring-[#0078d4]",
+                        glow(`chip:${c.id}`),
                       )}
                     >
                       {c.label}
@@ -1050,6 +1262,7 @@ export function ReferenceCanvas({
                 >
                   <div className="space-y-1">
                     {corp.slice(0, 4).map(spokeCard)}
+                    {extraCards("corp")}
                     {corp.length > 4 && (
                       <p className="text-[10px] text-[#605e5c]">+{corp.length - 4} more installs</p>
                     )}
@@ -1071,7 +1284,10 @@ export function ReferenceCanvas({
                 toggle={set && (() => toggleLz("online"))}
                 select={{ kind: "mg", id: "online" }}
               >
-                <div className="grid grid-cols-3 gap-1">{online.slice(0, 6).map(spokeCard)}</div>
+                <div className="grid grid-cols-3 gap-1">
+                  {online.slice(0, 6).map(spokeCard)}
+                  {extraCards("online")}
+                </div>
                 {online.length > 6 && (
                   <p className="mt-1 text-[10px] text-[#605e5c]">
                     +{online.length - 6} more installs
@@ -1082,6 +1298,26 @@ export function ReferenceCanvas({
                   onClick={() => setAdding({ kind: "subscription", parent: "online" })}
                 />
               </Box>
+
+              {answers.customGroups.length > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  {answers.customGroups.map((g) => (
+                    <Box
+                      key={g.id}
+                      anchor={`sub:${g.id}`}
+                      title={`${answers.groupNames[g.id] || g.name} landing zones`}
+                      subtitle={`Your management group · ${g.archetype} policies`}
+                      select={{ kind: "mg", id: g.id }}
+                    >
+                      <div className="space-y-1">{extraCards(g.id)}</div>
+                      <AddButton
+                        label="Add a subscription"
+                        onClick={() => setAdding({ kind: "subscription", parent: g.id })}
+                      />
+                    </Box>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* --------------------------------------------------------- right */}
@@ -1172,6 +1408,7 @@ export function ReferenceCanvas({
                     </span>
                   ))}
                 </div>
+                <div className="mt-1 space-y-1">{extraCards("sandbox")}</div>
                 <AddButton
                   label="Add a sandbox subscription"
                   onClick={() => setAdding({ kind: "subscription", parent: "sandbox" })}

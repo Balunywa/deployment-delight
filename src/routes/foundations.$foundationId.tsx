@@ -234,6 +234,7 @@ function FoundationDetail() {
             readOnlyOwner={managed ? undefined : (f.customers?.name ?? "the customer")}
             name={f.name}
             assessment={assessment}
+            baseline={saved}
           />
         )}
         {view === "design" && managed && (

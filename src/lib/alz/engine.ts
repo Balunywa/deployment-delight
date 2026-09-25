@@ -82,7 +82,30 @@ export type RemovableGroup = (typeof REMOVABLE_GROUPS)[number];
 /** ALZ policy sets a new group can be built on; "inherit" adds nothing beyond what its parents assign. */
 export type CustomArchetype = "corp" | "online" | "local" | "sandbox" | "inherit";
 export type CustomGroup = { id: string; name: string; parent: string; archetype: CustomArchetype };
-export type ExtraSubscription = { id: string; name: string; group: string; environment: string };
+export type ExtraSubscription = {
+  id: string;
+  name: string;
+  group: string;
+  environment: string;
+  /** Spoke virtual network in the subscription (default: yes). */
+  vnet?: boolean | undefined;
+  /** Address space of the spoke, e.g. 10.100.0.0/24 (default: next free /24 from 10.100.0.0). */
+  cidr?: string | undefined;
+  /** Peer the spoke to the hub, or connect it to the Virtual WAN hub (default: yes in Corp-style groups). */
+  peer?: boolean | undefined;
+};
+
+/** Where an added subscription's spoke network lands and whether it's connected to the hub. */
+export function spokeOf(answers: Answers, lib: AlzLibrary, x: ExtraSubscription, index: number) {
+  const archetypes = includedGroups(lib, answers).find((g) => g.id === x.group)?.archetypes ?? [];
+  const corpLike = archetypes.some((a) => a.startsWith("corp"));
+  return {
+    vnet: x.vnet !== false,
+    cidr: x.cidr || `10.${100 + index}.0.0/24`,
+    peered: x.vnet !== false && hasHub(answers) && (x.peer ?? corpLike),
+    corpLike,
+  };
+}
 
 export type Answers = {
   intermediateRootId: string;
@@ -1228,9 +1251,10 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
       const alias = `${answers.intermediateRootId || "alz"}-${x.name}`
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, "-");
-      const archetypes = groups.find((g) => g.id === x.group)?.archetypes ?? [];
-      const peered = hasHub(answers) && archetypes.some((a) => a.startsWith("corp"));
-      const cidr = `10.${100 + i}.0.0/24`;
+      const spoke = spokeOf(answers, library, x, i);
+      const peered = spoke.peered;
+      const cidr = spoke.cidr;
+      const prefix = cidr.split("/")[0]!.split(".").slice(0, 3).join(".");
       const network = [
         ``,
         `  resource_group_creation_enabled = true`,
@@ -1273,14 +1297,14 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         `      subnets = {`,
         `        workload = {`,
         `          name             = "snet-workload"`,
-        `          address_prefixes = [${q(cidr.replace(/\.0\/24$/, ".0/25"))}]`,
+        `          address_prefixes = [${q(`${prefix}.0/25`)}]`,
         ...(peered && hub && fw
           ? [`          route_table      = { key_reference = "spoke" }`]
           : []),
         `        }`,
         `        private_endpoints = {`,
         `          name             = "snet-private-endpoints"`,
-        `          address_prefixes = [${q(cidr.replace(/\.0\/24$/, ".128/26"))}]`,
+        `          address_prefixes = [${q(`${prefix}.128/26`)}]`,
         `        }`,
         `      }`,
         ...(peered && hub
@@ -1322,7 +1346,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         ``,
         `  subscription_management_group_association_enabled = true`,
         `  subscription_management_group_id                  = ${q(mg(x.group))}`,
-        ...network,
+        ...(spoke.vnet ? network : []),
         ``,
         `  depends_on = [module.alz]`,
         `}`,

@@ -229,3 +229,28 @@
     animation: none;
   }
 }
+
+/* Design changes that aren't saved yet pulse amber on the landing zone canvas. */
+@keyframes cd-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.2);
+  }
+}
+.cd-glow {
+  border-color: #f59e0b !important;
+  animation: cd-glow 1.6s ease-in-out infinite;
+}
+.cd-glow-key {
+  background: #fef3c7;
+  box-shadow: 0 0 0 1px #f59e0b;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cd-glow {
+    animation: none;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.5);
+  }
+}

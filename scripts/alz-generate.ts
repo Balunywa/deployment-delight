@@ -64,6 +64,15 @@ const cases: { name: string; answers: Partial<Answers> }[] = [
       secondaryRegion: "westeurope",
       extraSubscriptions: [
         { id: "app-one", name: "App one prod", group: "corp", environment: "prod" },
+        {
+          id: "app-two",
+          name: "App two dev",
+          group: "corp",
+          environment: "dev",
+          cidr: "10.120.0.0/22",
+          peer: false,
+        },
+        { id: "no-net", name: "Data only", group: "corp", environment: "prod", vnet: false },
       ],
     },
   },
