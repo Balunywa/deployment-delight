@@ -1624,3 +1624,65 @@ export const deployFoundation = createServerFn({ method: "POST" })
     });
     return { deployedRef: f.library_ref };
   });
+
+/** New platform landing zone for a customer tenant, starting from one of Microsoft's accelerator scenarios. */
+export const createFoundation = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        customerId: z.string().uuid(),
+        name: z.string().min(3).max(80),
+        prefix: z
+          .string()
+          .min(2)
+          .max(10)
+          .regex(/^[a-z][a-z0-9-]*$/, "Lowercase letters, numbers and hyphens"),
+        displayName: z.string().min(2).max(60),
+        region: z.string().min(3).max(40),
+        secondaryRegion: z.string().max(40).default(""),
+        scenario: z.string().max(40),
+        securityContactEmail: z.string().email().max(120),
+        tenantId: z.string().max(64).default(""),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const { SCENARIOS } = await import("./alz/scenarios");
+    const { DEFAULT_ANSWERS, LATEST_REF } = await import("./alz/engine");
+    const s = SCENARIOS.find((x) => x.id === data.scenario && x.supported);
+    if (!s) throw new Error("Pick a supported scenario.");
+    if (s.multiRegion && (!data.secondaryRegion || data.secondaryRegion === data.region))
+      throw new Error("Multi-region scenarios need a second, different region.");
+    const db = await admin();
+    const existing = await db.maybeOne("select id from public.foundations where customer_id = $1", [
+      data.customerId,
+    ]);
+    if (existing) throw new Error("This customer already has a landing zone.");
+    const answers = {
+      ...DEFAULT_ANSWERS,
+      ...s.answers,
+      intermediateRootId: data.prefix,
+      intermediateRootName: data.displayName,
+      primaryRegion: data.region,
+      secondaryRegion: s.multiRegion ? data.secondaryRegion : "",
+      securityContactEmail: data.securityContactEmail,
+    };
+    const f = await db.insert<Tables<"foundations">>("foundations", {
+      organization_id: ORG_ID,
+      customer_id: data.customerId,
+      name: data.name,
+      tenant_id: data.tenantId || null,
+      mode: "managed",
+      library_ref: LATEST_REF,
+      answers,
+      status: "draft",
+    });
+    await audit(db, {
+      event_type: "foundation.created",
+      customer_id: data.customerId,
+      resource_type: "foundation",
+      resource_id: data.name,
+      new_value: { scenario: s.id, prefix: data.prefix, region: data.region },
+    });
+    return { foundationId: f.id };
+  });

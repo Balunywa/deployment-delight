@@ -1,8 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { ArrowUpCircle, Building2, Eye, Server } from "lucide-react";
 
+import { NewLandingZone } from "@/components/lz/NewLandingZone";
 import { EmptyState, Pill } from "@/components/Primitives";
+import { Button } from "@/components/ui/button";
 import { withDefaults, LATEST_REF, hierarchy, libraryFor, shortRef } from "@/lib/alz/engine";
 import { placements, placementsFor } from "@/lib/alz/placement";
 import { relative } from "@/lib/format";
@@ -40,9 +43,17 @@ function Foundations() {
   const isv = list.filter((f) => !f.customer_id);
   const built = list.filter((f) => f.customer_id && f.mode === "managed");
   const existing = list.filter((f) => f.mode === "existing");
+  const [creating, setCreating] = useState(false);
+  const available = (customers.data ?? [])
+    .filter((c) => !list.some((f) => f.customer_id === c.id))
+    .map((c) => ({ id: c.id, name: c.name }));
 
   return (
     <>
+      <NewLandingZone open={creating} onOpenChange={setCreating} customers={available} />
+      <div className="mb-2 flex justify-end">
+        <Button onClick={() => setCreating(true)}>New landing zone</Button>
+      </div>
       <div className="mb-6 max-w-3xl">
         <p className="text-xs text-muted-foreground">Platform</p>
         <h1 className="mt-0.5 text-[22px] font-semibold">Landing zones</h1>
