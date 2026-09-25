@@ -1220,11 +1220,93 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
   ].join("\n");
 
   const extraSubs = answers.extraSubscriptions.filter((x) => included.has(x.group));
+  // Application landing zones: each added subscription is vended with its own resource group and spoke
+  // network. Spokes in Corp-style groups are peered to the hub (or connected to the Virtual WAN hub) and send
+  // traffic through the firewall; Online and Sandbox spokes stand alone. Microsoft's sub-vending module.
   const subscriptionsTf = extraSubs
-    .map((x) => {
+    .map((x, i) => {
       const alias = `${answers.intermediateRootId || "alz"}-${x.name}`
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, "-");
+      const archetypes = groups.find((g) => g.id === x.group)?.archetypes ?? [];
+      const peered = hasHub(answers) && archetypes.some((a) => a.startsWith("corp"));
+      const cidr = `10.${100 + i}.0.0/24`;
+      const network = [
+        ``,
+        `  resource_group_creation_enabled = true`,
+        `  resource_groups = {`,
+        `    network = { name = ${q(`rg-network-${alias}`)}, location = ${q(region)} }`,
+        `  }`,
+        ...(peered && hub && fw
+          ? [
+              ``,
+              `  # Everything leaving the spoke goes through the hub firewall.`,
+              `  route_table_enabled = true`,
+              `  route_tables = {`,
+              `    spoke = {`,
+              `      name                          = ${q(`rt-${alias}`)}`,
+              `      location                      = ${q(region)}`,
+              `      resource_group_key            = "network"`,
+              `      bgp_route_propagation_enabled = false`,
+              `      routes = {`,
+              `        default = {`,
+              `          name                   = "default-via-firewall"`,
+              `          address_prefix         = "0.0.0.0/0"`,
+              `          next_hop_type          = "VirtualAppliance"`,
+              `          next_hop_in_ip_address = module.connectivity.firewall_private_ip_addresses["primary"]`,
+              `        }`,
+              `      }`,
+              `    }`,
+              `  }`,
+            ]
+          : []),
+        ``,
+        `  virtual_network_enabled = true`,
+        `  virtual_networks = {`,
+        `    spoke = {`,
+        `      name               = ${q(`vnet-${alias}`)}`,
+        `      address_space      = [${q(cidr)}]`,
+        `      resource_group_key = "network"`,
+        ...(peered && hub && dns
+          ? [`      dns_servers        = [module.connectivity.dns_server_ip_addresses["primary"]]`]
+          : []),
+        `      subnets = {`,
+        `        workload = {`,
+        `          name             = "snet-workload"`,
+        `          address_prefixes = [${q(cidr.replace(/\.0\/24$/, ".0/25"))}]`,
+        ...(peered && hub && fw
+          ? [`          route_table      = { key_reference = "spoke" }`]
+          : []),
+        `        }`,
+        `        private_endpoints = {`,
+        `          name             = "snet-private-endpoints"`,
+        `          address_prefixes = [${q(cidr.replace(/\.0\/24$/, ".128/26"))}]`,
+        `        }`,
+        `      }`,
+        ...(peered && hub
+          ? [
+              `      hub_peering_enabled     = true`,
+              `      hub_network_resource_id = module.connectivity.resource_id["primary"]`,
+            ]
+          : []),
+        ...(peered && wan
+          ? [
+              `      vwan_connection_enabled = true`,
+              `      vwan_hub_resource_id    = module.connectivity.virtual_hub_resource_ids["primary"]`,
+              ...(fw
+                ? [
+                    `      vwan_security_configuration = {`,
+                    `        secure_internet_traffic = true`,
+                    `        secure_private_traffic  = true`,
+                    `        routing_intent_enabled  = true`,
+                    `      }`,
+                  ]
+                : []),
+            ]
+          : []),
+        `    }`,
+        `  }`,
+      ];
       return [
         `module "sub_${x.id.replace(/[^a-z0-9]+/gi, "_")}" {`,
         `  source  = "Azure/avm-ptn-alz-sub-vending/azure"`,
@@ -1240,6 +1322,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         ``,
         `  subscription_management_group_association_enabled = true`,
         `  subscription_management_group_id                  = ${q(mg(x.group))}`,
+        ...network,
         ``,
         `  depends_on = [module.alz]`,
         `}`,

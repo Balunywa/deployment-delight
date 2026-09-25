@@ -62,6 +62,9 @@ const cases: { name: string; answers: Partial<Answers> }[] = [
       ddosPlan: "yes",
       vpnGateway: "yes",
       secondaryRegion: "westeurope",
+      extraSubscriptions: [
+        { id: "app-one", name: "App one prod", group: "corp", environment: "prod" },
+      ],
     },
   },
   {
@@ -79,6 +82,7 @@ const cases: { name: string; answers: Partial<Answers> }[] = [
       groupNames: { online: "Hosted customers" },
       extraSubscriptions: [
         { id: "shared-prod", name: "Shared services prod", group: "online", environment: "prod" },
+        { id: "aks-dev", name: "AKS dev", group: "aks", environment: "dev" },
       ],
       workloads: [{ group: "aks", id: "aks" }],
       intermediateRootId: "isv",
