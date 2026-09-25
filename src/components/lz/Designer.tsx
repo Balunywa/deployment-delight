@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Boxes,
   Check,
+  ChevronLeft,
   CircleAlert,
   Lock,
   Maximize2,
@@ -23,7 +24,6 @@ import {
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { ReferenceCanvas } from "./ReferenceCanvas";
-import { ArchitectureDiagram } from "@/components/lz/ArchitectureDiagram";
 import { AccessPanel, AdvisorPanel, PolicyAddsPanel } from "@/components/lz/Panels";
 import type { Assessment } from "@/lib/alz/assess";
 import { designContext } from "@/lib/alz/context";
@@ -187,11 +187,9 @@ export function LandingZoneDesigner({
   baseline?: Answers | undefined;
 }) {
   const editable = !!setAnswers && !readOnlyOwner;
-  const [panel, setPanel] = useState<"design" | "details" | "traffic" | "access" | "advisor">(
-    editable ? "design" : "details",
-  );
+  // One panel follows the canvas: nothing selected shows the landing zone settings, a click shows that part.
+  const [panel, setPanel] = useState<"design" | "traffic" | "access" | "advisor">("design");
   const [sel, setSel] = useState<Sel | null>(null);
-  const [layout, setLayout] = useState<"reference" | "detailed">("reference");
   const [flowId, setFlowId] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -228,11 +226,11 @@ export function LandingZoneDesigner({
   const select = (s: Sel | null) => {
     setSel(s);
     if (s) {
-      setPanel("details");
+      setPanel("design");
       setOpen(true);
     }
   };
-  const omitted = lib.managementGroups.length - includedGroups(lib, answers).length;
+  const omitted = Math.max(0, lib.managementGroups.length - includedGroups(lib, answers).length);
   const changeCount =
     groupChanges(changes.filter((c) => c.action === "remove")).length +
     changes.filter((c) => c.action === "audit").length +
@@ -308,30 +306,6 @@ export function LandingZoneDesigner({
   ];
   const nav = (
     <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5 text-[11.5px]">
-      <div className="mr-2 flex rounded-sm border border-border bg-card p-0.5">
-        {(
-          [
-            ["reference", "Reference layout"],
-            ["detailed", "Detailed"],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={(e) => {
-              e.stopPropagation();
-              setLayout(id);
-            }}
-            className={cn(
-              "rounded-sm px-2 py-0.5",
-              layout === id
-                ? "bg-accent font-medium text-accent-foreground"
-                : "text-muted-foreground",
-            )}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
       <span className="mr-1 text-muted-foreground">Jump to</span>
       {sections.map(([id, label]) => (
         <button
@@ -346,7 +320,7 @@ export function LandingZoneDesigner({
         </button>
       ))}
       <span className="ml-auto text-muted-foreground">
-        Click anything in the drawing to see and change its details.
+        Click any part of the drawing — its settings open on the right.
       </span>
     </div>
   );
@@ -396,32 +370,18 @@ export function LandingZoneDesigner({
           className={cn("overflow-x-auto", full && "min-h-0 flex-1 overflow-y-auto")}
           onClick={() => setSel(null)}
         >
-          {layout === "reference" ? (
-            <ReferenceCanvas
-              lib={lib}
-              tree={tree}
-              answers={answers}
-              set={editable ? set : undefined}
-              spokes={spokes}
-              sel={sel}
-              onSelect={select}
-              flow={flow}
-              step={step}
-              baseline={baseline}
-            />
-          ) : (
-            <ArchitectureDiagram
-              lib={lib}
-              tree={tree}
-              answers={answers}
-              set={editable ? set : undefined}
-              spokes={spokes}
-              sel={sel}
-              onSelect={select}
-              flow={flow}
-              step={step}
-            />
-          )}
+          <ReferenceCanvas
+            lib={lib}
+            tree={tree}
+            answers={answers}
+            set={editable ? set : undefined}
+            spokes={spokes}
+            sel={sel}
+            onSelect={select}
+            flow={flow}
+            step={step}
+            baseline={baseline}
+          />
         </div>
       </section>
       <aside
@@ -434,8 +394,7 @@ export function LandingZoneDesigner({
         <div className="flex border-b border-border px-2 pt-2">
           {(
             [
-              ["design", editable ? "Design" : "About"],
-              ["details", "Details"],
+              ["design", sel ? "Selected" : editable ? "Design" : "About"],
               ["traffic", "Traffic"],
               ["access", "Access"],
               ["advisor", "✦ Advisor"],
@@ -463,7 +422,9 @@ export function LandingZoneDesigner({
             </button>
           ))}
         </div>
-        {panel === "design" ? (
+        {panel === "design" && sel ? (
+          <div className="min-h-0 flex-1 overflow-y-auto">{inspector}</div>
+        ) : panel === "design" ? (
           <div className="flex min-h-0 flex-1 flex-col">
             {editable ? (
               <Palette
@@ -998,8 +959,14 @@ function Inspector(props: {
   if (!sel) return <Overview {...props} />;
   return (
     <div>
-      <div className="flex items-center justify-between border-b border-border px-4 py-2">
-        <p className="text-[10.5px] font-semibold tracking-wider text-muted-foreground uppercase">
+      <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
+        <button
+          onClick={() => props.setSel(null)}
+          className="flex items-center gap-1 text-[11.5px] text-primary hover:underline"
+        >
+          <ChevronLeft className="size-3.5" /> All settings
+        </button>
+        <p className="ml-auto text-[10.5px] font-semibold tracking-wider text-muted-foreground uppercase">
           {sel.kind === "mg"
             ? "Management group"
             : sel.kind === "sub"

@@ -1356,16 +1356,59 @@ function Install({ ctx, spokes }: { ctx: Ctx; spokes: Spoke[] }) {
   );
 }
 
+/** The management group tree with add / remove / tick controls, for use on other canvases. */
+export function ManagementTree({
+  lib,
+  tree,
+  answers,
+  set,
+  sel,
+  onSelect,
+  spokes,
+  onAdd,
+  changed,
+  onHover,
+}: {
+  lib: AlzLibrary;
+  tree: MgNode[];
+  answers: Answers;
+  set?: Patch | undefined;
+  sel: Sel | null;
+  onSelect: (s: Sel) => void;
+  spokes: Spoke[];
+  onAdd: (a: Adding) => void;
+  changed?: Set<string>;
+  onHover?: (id: string | null) => void;
+}) {
+  return (
+    <OrgChart
+      ctx={{ answers, tree, lib, set, sel, onSelect, involved: null }}
+      spokes={spokes}
+      exists={(id) => lib.managementGroups.some((m) => m.id === id)}
+      onAdd={onAdd}
+      bare
+      changed={changed}
+      onHover={onHover}
+    />
+  );
+}
+
 function OrgChart({
   ctx,
   spokes,
   exists,
   onAdd,
+  bare,
+  changed,
+  onHover,
 }: {
   ctx: Ctx;
   spokes: Spoke[];
   exists: (id: string) => boolean;
   onAdd: (a: Adding) => void;
+  bare?: boolean;
+  changed?: Set<string> | undefined;
+  onHover?: ((id: string | null) => void) | undefined;
 }) {
   const { tree, answers } = ctx;
   const root = tree.find((n) => !n.parentId);
@@ -1378,10 +1421,14 @@ function OrgChart({
     ["connectivity", "Connectivity", hasHub(answers)],
   ];
   const tags = (id: string) => {
-    const out: { label: string; on: boolean; pending?: boolean }[] = [];
+    const out: { label: string; on: boolean; pending?: boolean; anchor?: string }[] = [];
     for (const [g, label, isOn] of platformSubs)
       if (placementGroup(answers, g) === id)
-        out.push({ label: id === g ? "Subscription" : `${label} subscription`, on: isOn });
+        out.push({
+          label: id === g ? "Subscription" : `${label} subscription`,
+          on: isOn,
+          anchor: `chip:${g}`,
+        });
     if (id === "decommissioned") out.push({ label: "Cancelled subs", on: true });
     const n = installs(id);
     const underLandingZones = (() => {
@@ -1392,13 +1439,14 @@ function OrgChart({
       }
       return false;
     })();
-    if (n) out.push({ label: `${n} subscription${n === 1 ? "" : "s"}`, on: true });
+    if (n)
+      out.push({ label: `${n} subscription${n === 1 ? "" : "s"}`, on: true, anchor: `chip:${id}` });
     else if (underLandingZones && id !== "landingzones")
-      out.push({ label: "1 per install × env", on: true, pending: true });
+      out.push({ label: "1 per install × env", on: true, pending: true, anchor: `chip:${id}` });
     else if (id === "sandbox")
-      out.push({ label: "Sandbox subscriptions", on: true, pending: true });
+      out.push({ label: "Sandbox subscriptions", on: true, pending: true, anchor: "chip:sandbox" });
     const extra = answers.extraSubscriptions.filter((x) => x.group === id).length;
-    if (extra) out.push({ label: `+${extra} added`, on: true });
+    if (extra) out.push({ label: `+${extra} added`, on: true, anchor: `chip:added-${id}` });
     return out;
   };
   const removable = (id: string) =>
@@ -1412,7 +1460,7 @@ function OrgChart({
     return (
       <div className="group/mg relative flex flex-col items-center gap-1">
         {ctx.set && (
-          <span className="absolute bottom-full left-1/2 z-10 hidden -translate-x-1/2 gap-0.5 pb-0.5 group-focus-within/mg:flex group-hover/mg:flex">
+          <span className="absolute bottom-full left-1/2 z-10 hidden -translate-x-1/2 gap-0.5 pb-0.5 whitespace-nowrap group-focus-within/mg:flex group-hover/mg:flex">
             {id !== "decommissioned" && (
               <button
                 title="Add a management group under this one"
@@ -1456,12 +1504,16 @@ function OrgChart({
         <div
           role="button"
           tabIndex={0}
+          data-anchor={n.parentId ? `mg:${id}` : "mg-root"}
+          onMouseEnter={() => onHover?.(id)}
+          onMouseLeave={() => onHover?.(null)}
           onClick={(e) => {
             e.stopPropagation();
             ctx.onSelect({ kind: "mg", id });
           }}
           className={cn(
             "relative min-w-[88px] rounded border px-2 py-1 text-center transition",
+            changed?.has(n.parentId ? `mg:${id}` : "mg-root") && "cd-glow",
             included
               ? "border-[#c8c6c4] bg-white hover:border-[#0078d4]"
               : "border-dashed border-[#a19f9d] bg-transparent text-[#8a8886]",
@@ -1488,9 +1540,13 @@ function OrgChart({
           tags(id).map((t) => (
             <span
               key={t.label}
+              data-anchor={t.anchor}
+              onMouseEnter={() => t.anchor && onHover?.(t.anchor.slice(5))}
+              onMouseLeave={() => onHover?.(null)}
               title={t.pending ? "Created when a customer is onboarded" : undefined}
               className={cn(
                 "rounded-sm border px-1.5 py-0.5 text-[10px] whitespace-nowrap",
+                t.anchor && changed?.has(t.anchor) && "cd-glow",
                 t.pending
                   ? "border-dashed border-[#e8c65b] bg-[#fffbeb] text-[#605e5c]"
                   : t.on
@@ -1560,7 +1616,10 @@ function OrgChart({
   if (!root) return null;
   return (
     <div
-      className="overflow-x-auto rounded-lg border border-[#c7e0f4] bg-[#eff6fc] p-3"
+      className={cn(
+        "overflow-x-auto rounded-lg border border-[#c7e0f4] bg-[#eff6fc]",
+        bare ? "px-2 pt-6 pb-2" : "p-3",
+      )}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="flex min-w-max flex-col items-center">

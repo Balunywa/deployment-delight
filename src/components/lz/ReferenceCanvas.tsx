@@ -15,6 +15,7 @@ import {
   GitBranch,
   Globe,
   KeyRound,
+  Minus,
   Plus,
   ShieldHalf,
   UserCog,
@@ -38,7 +39,7 @@ import type { Flow, Sel, Spoke } from "@/lib/alz/scene";
 import { AZURE_REGIONS } from "@/lib/regions";
 import { cn } from "@/lib/utils";
 
-import { ICON, TONE, TOOLS, toggleTool, toolOn } from "./ArchitectureDiagram";
+import { ICON, ManagementTree, TONE, TOOLS, toggleTool, toolOn } from "./ArchitectureDiagram";
 import { type Adding, AddDialog } from "./HierarchyEditor";
 
 type Patch = (p: Partial<Answers>) => void;
@@ -78,8 +79,12 @@ export function ReferenceCanvas({
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
-  // "fit" scales the whole drawing to the width; a number is a fixed zoom with scrolling.
-  const [zoom, setZoom] = useState<"fit" | number>("fit");
+  // "auto" = fit the width but never smaller than readable; "fit" = the whole width; a number = fixed zoom.
+  // The canvas scrolls and pans (drag empty space or hold Space), and Ctrl/⌘ + wheel zooms.
+  const [zoom, setZoom] = useState<"auto" | "fit" | number>("auto");
+  const zoomAt = useRef<{ px: number; py: number; cx: number; cy: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; l: number; t: number; moved: boolean } | null>(null);
+  const [space, setSpace] = useState(false);
   const [height, setHeight] = useState(900);
   const [hover, setHover] = useState<string | null>(null);
   const [adding, setAdding] = useState<Adding>(null);
@@ -213,6 +218,11 @@ export function ReferenceCanvas({
     ...(has("corp") ? [{ from: "chip:corp", to: "sub:corp", kind: "org" as const }] : []),
     ...(has("online") ? [{ from: "chip:online", to: "sub:online", kind: "org" as const }] : []),
     ...(has("sandbox") ? [{ from: "chip:sandbox", to: "sub:sandbox", kind: "org" as const }] : []),
+    ...answers.customGroups.map((g) => ({
+      from: `chip:${g.id}`,
+      to: `sub:${g.id}`,
+      kind: "org" as const,
+    })),
     ...(on(answers.securitySubscription)
       ? [{ from: "law", to: "seclaw", kind: "logs" as const, label: "Subset" }]
       : []),
@@ -258,7 +268,13 @@ export function ReferenceCanvas({
     const el = inner.current;
     if (!o || !el) return;
     const measure = () => {
-      const s = zoom === "fit" ? Math.min(1, o.clientWidth / W) : zoom;
+      const fit = (o.clientWidth - 4) / W;
+      const s =
+        zoom === "fit"
+          ? Math.min(1, fit)
+          : zoom === "auto"
+            ? Math.min(1, Math.max(0.9, fit))
+            : zoom;
       setScale(s);
       setHeight(el.scrollHeight);
       const base = el.getBoundingClientRect();
@@ -316,6 +332,92 @@ export function ReferenceCanvas({
     return () => ro.disconnect();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, zoom]);
+
+  // Keep the point under the cursor still while zooming.
+  useLayoutEffect(() => {
+    const o = outer.current;
+    const a = zoomAt.current;
+    if (!o || !a) return;
+    o.scrollLeft = a.cx * scale - a.px;
+    o.scrollTop = a.cy * scale - a.py;
+    zoomAt.current = null;
+  }, [scale]);
+
+  const zoomBy = (factor: number, px?: number, py?: number) => {
+    const o = outer.current;
+    if (!o) return;
+    const x = px ?? o.clientWidth / 2;
+    const y = py ?? o.clientHeight / 2;
+    zoomAt.current = {
+      px: x,
+      py: y,
+      cx: (o.scrollLeft + x) / scale,
+      cy: (o.scrollTop + y) / scale,
+    };
+    setZoom(Math.min(1.5, Math.max(0.4, Math.round(scale * factor * 20) / 20)));
+  };
+  useEffect(() => {
+    const o = outer.current;
+    if (!o) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      const r = o.getBoundingClientRect();
+      zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1, e.clientX - r.left, e.clientY - r.top);
+    };
+    const key = (down: boolean) => (e: KeyboardEvent) => {
+      if (e.code !== "Space") return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest("input, textarea, select, [contenteditable=true]")) return;
+      if (down) e.preventDefault();
+      setSpace(down);
+    };
+    const kd = key(true);
+    const ku = key(false);
+    o.addEventListener("wheel", onWheel, { passive: false });
+    window.addEventListener("keydown", kd);
+    window.addEventListener("keyup", ku);
+    return () => {
+      o.removeEventListener("wheel", onWheel);
+      window.removeEventListener("keydown", kd);
+      window.removeEventListener("keyup", ku);
+    };
+  });
+
+  const startPan = (e: React.PointerEvent) => {
+    const o = outer.current;
+    if (!o || e.button > 1) return;
+    const t = e.target as HTMLElement;
+    if (
+      !space &&
+      e.button === 0 &&
+      t.closest("button, input, select, a, [role=button], [data-anchor]")
+    )
+      return;
+    pan.current = { x: e.clientX, y: e.clientY, l: o.scrollLeft, t: o.scrollTop, moved: false };
+    const move = (ev: PointerEvent) => {
+      const p = pan.current;
+      if (!p) return;
+      const dx = ev.clientX - p.x;
+      const dy = ev.clientY - p.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) p.moved = true;
+      o.scrollLeft = p.l - dx;
+      o.scrollTop = p.t - dy;
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      // A pan shouldn't count as a click on the background (which clears the selection).
+      if (pan.current?.moved)
+        window.addEventListener("click", (ev) => ev.stopPropagation(), {
+          capture: true,
+          once: true,
+        });
+      pan.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   const related = (l: Link) =>
     !!hover &&
@@ -628,54 +730,6 @@ export function ReferenceCanvas({
         : [...answers.landingZones, g],
     });
 
-  /* ------------------------------------------------------ org chart (C) */
-  const kids = (id: string | null) => tree.filter((n) => n.parentId === id);
-  const mgBox = (n: MgNode): ReactNode => (
-    <div key={n.id} className="flex flex-col items-center">
-      <button
-        data-anchor={n.parentId ? `mg:${n.libraryId}` : "mg-root"}
-        onClick={pick({ kind: "mg", id: n.libraryId })}
-        onMouseEnter={() => setHover(n.libraryId)}
-        onMouseLeave={() => setHover(null)}
-        className={cn(
-          "rounded border bg-white px-1.5 py-0.5 text-[10px] font-medium whitespace-nowrap hover:border-[#0078d4]",
-          isSel("mg", n.libraryId) ? "border-[#0078d4] ring-2 ring-[#0078d4]" : "border-[#c8c6c4]",
-          glow(n.parentId ? `mg:${n.libraryId}` : "mg-root"),
-        )}
-        title={`${n.enforced} policy assignments here · ${n.inherited} inherited`}
-      >
-        {n.displayName}
-      </button>
-      {kids(n.id).length > 0 && (
-        <>
-          <span className="h-2 w-px bg-[#8a8886]" />
-          <div className="flex items-start gap-1 border-t border-[#8a8886] px-1 pt-2">
-            {kids(n.id).map(mgBox)}
-          </div>
-        </>
-      )}
-    </div>
-  );
-  const roots = kids(null);
-  const chips: { id: string; label: string; on: boolean }[] = [
-    { id: "security", label: "Security subscription", on: on(answers.securitySubscription) },
-    { id: "management", label: "Management subscription", on: true },
-    { id: "identity", label: "Identity subscription", on: on(answers.identity) },
-    { id: "connectivity", label: "Connectivity subscription", on: hub },
-    {
-      id: "corp",
-      label: `Corp · ${liveCorp.length} install${liveCorp.length === 1 ? "" : "s"}`,
-      on: has("corp"),
-    },
-    {
-      id: "online",
-      label: `Online · ${online.filter((s) => !s.ghost).length} installs`,
-      on: has("online"),
-    },
-    { id: "sandbox", label: "Sandbox subscriptions", on: has("sandbox") },
-    ...answers.extraSubscriptions.map((x) => ({ id: `extra-${x.id}`, label: x.name, on: true })),
-  ];
-
   const spokeCard = (s: Spoke, i: number) => (
     <div
       key={`${s.id}-${i}`}
@@ -787,8 +841,9 @@ export function ReferenceCanvas({
     <div className="relative w-full bg-white">
       <div className="flex items-center justify-end gap-1 border-b border-[#edebe9] bg-white px-3 py-1 text-[11px]">
         <span className="mr-auto text-[#605e5c]">
-          Click anything for details · ✓ / + to change the design · drag a box by its grip to move
-          it · <span className="cd-glow-key rounded-sm px-1">amber</span> = not saved yet
+          Click anything to see and change it · drag empty space to move around · Ctrl/⌘ + scroll to
+          zoom · drag a box by its grip · <span className="cd-glow-key rounded-sm px-1">amber</span>{" "}
+          = not saved yet
         </span>
         {Object.keys(offsets).length > 0 && (
           <button
@@ -802,342 +857,340 @@ export function ReferenceCanvas({
             Reset layout
           </button>
         )}
-        {(["fit", 0.75, 1] as const).map((z) => (
-          <button
-            key={String(z)}
-            onClick={(e) => {
-              e.stopPropagation();
-              setZoom(z);
-            }}
-            className={cn(
-              "rounded-sm border px-1.5 py-0.5",
-              zoom === z
-                ? "border-[#0078d4] bg-[#eff6fc] text-[#0078d4]"
-                : "border-[#c8c6c4] text-[#605e5c]",
-            )}
-          >
-            {z === "fit" ? "Fit" : `${Math.round(z * 100)}%`}
-          </button>
-        ))}
       </div>
-      <div
-        ref={outer}
-        className={cn(
-          "relative w-full bg-white",
-          zoom === "fit" ? "overflow-hidden" : "overflow-auto",
-        )}
-        style={{ height: zoom === "fit" ? height * scale : Math.min(height * scale, 860) }}
-      >
-        {zoom !== "fit" && <div style={{ width: W * scale, height: height * scale }} />}
+      <div className="relative">
         <div
-          ref={inner}
-          className="absolute top-0 left-0 origin-top-left p-3 text-[#1b1b1b]"
-          style={{ width: W, transform: `scale(${scale})` }}
+          ref={outer}
+          onPointerDown={startPan}
+          className={cn(
+            "relative w-full overflow-auto overscroll-contain bg-white",
+            space ? "cursor-grab" : "cursor-default",
+          )}
+          style={{
+            height: height * scale + 8,
+            maxHeight: "max(560px, calc(100vh - 170px))",
+            backgroundImage: "radial-gradient(#e1dfdd 1px, transparent 1px)",
+            backgroundSize: `${16 * scale}px ${16 * scale}px`,
+          }}
         >
-          <svg
-            className="pointer-events-none absolute inset-0 z-10 overflow-visible"
-            width={W}
-            height={height}
-            aria-hidden
+          <div style={{ width: W * scale, height: height * scale }} />
+          <div
+            ref={inner}
+            className="absolute top-0 left-0 origin-top-left p-3 text-[#1b1b1b]"
+            style={{ width: W, transform: `scale(${scale})` }}
           >
-            <defs>
-              <marker
-                id="rc-arrow"
-                viewBox="0 0 10 10"
-                refX="9"
-                refY="5"
-                markerWidth="6"
-                markerHeight="6"
-                orient="auto-start-reverse"
-              >
-                <path d="M0,0 L10,5 L0,10 z" fill="#605e5c" />
-              </marker>
-            </defs>
-            {geo.links.map((l, i) => {
-              const hot = related(l);
-              // Subscription placement arrows would cross everything; they appear when you hover either end.
-              if (l.kind === "org" && l.from.startsWith("chip:") && !hot) return null;
-              const color =
-                l.kind === "peering"
-                  ? "#0078d4"
-                  : l.kind === "onprem"
-                    ? "#8661c5"
-                    : l.kind === "logs"
-                      ? "#ca5010"
-                      : "#8a8886";
-              return (
-                <g key={i} opacity={hover && !hot ? 0.2 : flow?.available ? 0.3 : 1}>
-                  <path
-                    d={l.d}
-                    fill="none"
-                    stroke={color}
-                    strokeWidth={hot ? 2.4 : 1.3}
-                    strokeDasharray={l.kind === "onprem" || l.kind === "deploy" ? "5 4" : undefined}
-                    markerEnd={
-                      l.kind === "org" || l.kind === "logs" || l.kind === "deploy"
-                        ? "url(#rc-arrow)"
-                        : undefined
-                    }
-                    className={l.kind === "peering" && hot ? "lz-dash" : undefined}
-                  />
-                  {l.label && (hot || l.kind !== "org") && (
-                    <text
-                      x={l.mid.x}
-                      y={l.mid.y - 3}
-                      textAnchor="middle"
-                      fontSize="9.5"
-                      fill={color}
-                      className="font-sans"
-                    >
-                      {l.label}
-                    </text>
-                  )}
-                </g>
-              );
-            })}
-            {flow?.available &&
-              geo.flow.map((d, i) => (
-                <g key={`f${i}`}>
-                  <path
-                    d={d}
-                    fill="none"
-                    stroke={flow.color}
-                    strokeOpacity={0.25}
-                    strokeWidth={9}
-                    strokeLinecap="round"
-                  />
-                  <path
-                    d={d}
-                    fill="none"
-                    stroke={flow.color}
-                    strokeWidth={2.5}
-                    strokeDasharray="7 6"
-                    className="lz-dash"
-                  />
-                </g>
-              ))}
-          </svg>
-          {geo.hops.map((h, i) => (
-            <span
-              key={i}
-              className={cn(
-                "absolute z-20 grid size-5 place-items-center rounded-full text-[10px] font-bold text-white shadow",
-                i === step && "ring-4",
-              )}
-              style={{
-                left: h.x,
-                top: h.y,
-                background: flow?.color,
-                ["--tw-ring-color" as string]: `${flow?.color}55`,
-              }}
+            <svg
+              className="pointer-events-none absolute inset-0 z-10 overflow-visible"
+              width={W}
+              height={height}
+              aria-hidden
             >
-              {i + 1}
-            </span>
-          ))}
+              <defs>
+                <marker
+                  id="rc-arrow"
+                  viewBox="0 0 10 10"
+                  refX="9"
+                  refY="5"
+                  markerWidth="6"
+                  markerHeight="6"
+                  orient="auto-start-reverse"
+                >
+                  <path d="M0,0 L10,5 L0,10 z" fill="#605e5c" />
+                </marker>
+              </defs>
+              {geo.links.map((l, i) => {
+                const hot = related(l);
+                // Subscription placement arrows would cross everything; they appear when you hover either end.
+                if (l.kind === "org" && l.from.startsWith("chip:") && !hot) return null;
+                const color =
+                  l.kind === "peering"
+                    ? "#0078d4"
+                    : l.kind === "onprem"
+                      ? "#8661c5"
+                      : l.kind === "logs"
+                        ? "#ca5010"
+                        : "#8a8886";
+                return (
+                  <g key={i} opacity={hover && !hot ? 0.2 : flow?.available ? 0.3 : 1}>
+                    <path
+                      d={l.d}
+                      fill="none"
+                      stroke={color}
+                      strokeWidth={hot ? 2.4 : 1.3}
+                      strokeDasharray={
+                        l.kind === "onprem" || l.kind === "deploy" ? "5 4" : undefined
+                      }
+                      markerEnd={
+                        l.kind === "org" || l.kind === "logs" || l.kind === "deploy"
+                          ? "url(#rc-arrow)"
+                          : undefined
+                      }
+                      className={l.kind === "peering" && hot ? "lz-dash" : undefined}
+                    />
+                    {l.label && (hot || l.kind !== "org") && (
+                      <text
+                        x={l.mid.x}
+                        y={l.mid.y - 3}
+                        textAnchor="middle"
+                        fontSize="9.5"
+                        fill={color}
+                        className="font-sans"
+                      >
+                        {l.label}
+                      </text>
+                    )}
+                  </g>
+                );
+              })}
+              {flow?.available &&
+                geo.flow.map((d, i) => (
+                  <g key={`f${i}`}>
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={flow.color}
+                      strokeOpacity={0.25}
+                      strokeWidth={9}
+                      strokeLinecap="round"
+                    />
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={flow.color}
+                      strokeWidth={2.5}
+                      strokeDasharray="7 6"
+                      className="lz-dash"
+                    />
+                  </g>
+                ))}
+            </svg>
+            {geo.hops.map((h, i) => (
+              <span
+                key={i}
+                className={cn(
+                  "absolute z-20 grid size-5 place-items-center rounded-full text-[10px] font-bold text-white shadow",
+                  i === step && "ring-4",
+                )}
+                style={{
+                  left: h.x,
+                  top: h.y,
+                  background: flow?.color,
+                  ["--tw-ring-color" as string]: `${flow?.color}55`,
+                }}
+              >
+                {i + 1}
+              </span>
+            ))}
 
-          <div className="grid grid-cols-[330px_minmax(0,1fr)_360px] gap-4">
-            {/* ---------------------------------------------------------- left */}
-            <div className="space-y-4">
-              <Box
-                anchor="sub:security"
-                title="Security subscription"
-                subtitle="Security team tooling and logs"
-                isOn={on(answers.securitySubscription)}
-                toggle={
-                  set &&
-                  (() =>
-                    set({ securitySubscription: on(answers.securitySubscription) ? "no" : "yes" }))
-                }
-                select={{ kind: "sub", id: "security" }}
-              >
-                <div className="grid grid-cols-2 gap-1">
-                  <Item
-                    id="seclaw"
-                    label="Log Analytics workspace"
-                    detail="For security logs"
-                    icon={ICON["law"]!}
-                    tone={TONE["law"]!}
-                    isOn={answers.siem === "sentinel"}
-                    select={{ kind: "res", id: "law" }}
-                  />
-                  <Item
-                    id="sentinel"
-                    label="Microsoft Sentinel"
-                    detail="SIEM on the workspace"
-                    icon={ICON["sentinel"]!}
-                    tone={TONE["sentinel"]!}
-                    isOn={answers.siem === "sentinel"}
-                    toggle={
-                      set &&
-                      (() => set({ siem: answers.siem === "sentinel" ? "other" : "sentinel" }))
-                    }
-                  />
-                </div>
-                <Toolset scope="security" />
-              </Box>
-              <Box
-                anchor="sub:management"
-                letter="D"
-                title="Management subscription"
-                subtitle="Platform logs and monitoring"
-                select={{ kind: "sub", id: "management" }}
-              >
-                <div className="grid grid-cols-2 gap-1">
-                  <Item
-                    id="law"
-                    label="Log Analytics workspace"
-                    detail={`Platform logs · ${answers.logRetentionDays} days`}
-                    icon={ICON["law"]!}
-                    tone={TONE["law"]!}
-                    isOn={res.has("law")}
-                  />
-                  <Item
-                    id="dcr"
-                    label="Data collection rules"
-                    detail="VM insights, change tracking"
-                    icon={ICON["dcr"]!}
-                    tone={TONE["dcr"]!}
-                    isOn={res.has("dcr")}
-                  />
-                  <Item
-                    id="ama"
-                    label="AMA managed identity"
-                    icon={ICON["ama"]!}
-                    tone={TONE["ama"]!}
-                    isOn={res.has("ama")}
-                    toggle={
-                      set &&
-                      (() =>
-                        set({
-                          monitoring:
-                            answers.monitoring === "azure_monitor"
-                              ? "third_party"
-                              : "azure_monitor",
-                        }))
-                    }
-                  />
-                  <Item
-                    id="dashboards"
-                    label="Dashboards (Azure portal)"
-                    detail="Queries, alerting, inventory"
-                    icon={Boxes}
-                    tone="#0078d4"
-                    isOn
-                    select={{ kind: "sub", id: "management" }}
-                  />
-                </div>
-                <Toolset scope="management" />
-              </Box>
-              <Box
-                anchor="sub:identity"
-                title="Identity subscription"
-                subtitle="Domain controllers, peered to the hub"
-                isOn={on(answers.identity)}
-                toggle={set && (() => set({ identity: on(answers.identity) ? "no" : "yes" }))}
-                select={{ kind: "sub", id: "identity" }}
-              >
-                <Vnet
-                  anchor="identityvnet"
-                  title={`Virtual network · ${answers.primaryRegion}`}
+            <div className="grid grid-cols-[330px_minmax(0,1fr)_360px] gap-4">
+              {/* ---------------------------------------------------------- left */}
+              <div className="space-y-4">
+                <Box
+                  anchor="sub:security"
+                  title="Security subscription"
+                  subtitle="Security team tooling and logs"
+                  isOn={on(answers.securitySubscription)}
+                  toggle={
+                    set &&
+                    (() =>
+                      set({
+                        securitySubscription: on(answers.securitySubscription) ? "no" : "yes",
+                      }))
+                  }
+                  select={{ kind: "sub", id: "security" }}
+                >
+                  <div className="grid grid-cols-2 gap-1">
+                    <Item
+                      id="seclaw"
+                      label="Log Analytics workspace"
+                      detail="For security logs"
+                      icon={ICON["law"]!}
+                      tone={TONE["law"]!}
+                      isOn={answers.siem === "sentinel"}
+                      select={{ kind: "res", id: "law" }}
+                    />
+                    <Item
+                      id="sentinel"
+                      label="Microsoft Sentinel"
+                      detail="SIEM on the workspace"
+                      icon={ICON["sentinel"]!}
+                      tone={TONE["sentinel"]!}
+                      isOn={answers.siem === "sentinel"}
+                      toggle={
+                        set &&
+                        (() => set({ siem: answers.siem === "sentinel" ? "other" : "sentinel" }))
+                      }
+                    />
+                  </div>
+                  <Toolset scope="security" />
+                </Box>
+                <Box
+                  anchor="sub:management"
+                  letter="D"
+                  title="Management subscription"
+                  subtitle="Platform logs and monitoring"
+                  select={{ kind: "sub", id: "management" }}
+                >
+                  <div className="grid grid-cols-2 gap-1">
+                    <Item
+                      id="law"
+                      label="Log Analytics workspace"
+                      detail={`Platform logs · ${answers.logRetentionDays} days`}
+                      icon={ICON["law"]!}
+                      tone={TONE["law"]!}
+                      isOn={res.has("law")}
+                    />
+                    <Item
+                      id="dcr"
+                      label="Data collection rules"
+                      detail="VM insights, change tracking"
+                      icon={ICON["dcr"]!}
+                      tone={TONE["dcr"]!}
+                      isOn={res.has("dcr")}
+                    />
+                    <Item
+                      id="ama"
+                      label="AMA managed identity"
+                      icon={ICON["ama"]!}
+                      tone={TONE["ama"]!}
+                      isOn={res.has("ama")}
+                      toggle={
+                        set &&
+                        (() =>
+                          set({
+                            monitoring:
+                              answers.monitoring === "azure_monitor"
+                                ? "third_party"
+                                : "azure_monitor",
+                          }))
+                      }
+                    />
+                    <Item
+                      id="dashboards"
+                      label="Dashboards (Azure portal)"
+                      detail="Queries, alerting, inventory"
+                      icon={Boxes}
+                      tone="#0078d4"
+                      isOn
+                      select={{ kind: "sub", id: "management" }}
+                    />
+                  </div>
+                  <Toolset scope="management" />
+                </Box>
+                <Box
+                  anchor="sub:identity"
+                  title="Identity subscription"
+                  subtitle="Domain controllers, peered to the hub"
+                  isOn={on(answers.identity)}
+                  toggle={set && (() => set({ identity: on(answers.identity) ? "no" : "yes" }))}
                   select={{ kind: "sub", id: "identity" }}
                 >
-                  <div className="flex flex-wrap gap-1 text-[9.5px]">
-                    {[
-                      "DNS",
-                      "UDRs",
-                      "NSGs/ASGs",
-                      "DC1 · DC2 · DC3 or Entra Domain Services",
-                      "Recovery Services vault",
-                    ].map((x) => (
-                      <span key={x} className="rounded-sm border border-[#c7e0f4] bg-white px-1">
-                        {x}
-                      </span>
-                    ))}
-                  </div>
-                </Vnet>
-                <Toolset scope="identity" />
-              </Box>
-            </div>
-
-            {/* -------------------------------------------------------- center */}
-            <div className="space-y-4">
-              <div className="grid grid-cols-[1fr_150px_190px] gap-3">
-                <Box
-                  anchor="iam"
-                  letter="B"
-                  title="Identity and access management"
-                  tone="plain"
-                  select={{ kind: "ext", id: "operator" }}
-                >
-                  <ul className="grid grid-cols-2 gap-x-2 text-[9.5px] text-[#323130]">
-                    {[
-                      "Approval workflow",
-                      "Multifactor authentication",
-                      "Access reviews",
-                      "Audit reports",
-                    ].map((x) => (
-                      <li key={x}>· {x}</li>
-                    ))}
-                  </ul>
-                  <div className="mt-1.5 flex flex-wrap gap-1">
-                    <span className="rounded-sm bg-[#c7e0f4] px-1 text-[9.5px]">
-                      Privileged Identity Management
-                    </span>
-                    <span className="rounded-sm border border-[#c8c6c4] bg-white px-1 text-[9.5px]">
-                      {answers.rbac.length} role assignment{answers.rbac.length === 1 ? "" : "s"} in
-                      the design
-                    </span>
-                  </div>
-                </Box>
-                <Box
-                  anchor="entra"
-                  title="Microsoft Entra ID"
-                  tone="plain"
-                  select={{ kind: "ext", id: "operator" }}
-                >
-                  <ul className="text-[9.5px] text-[#323130]">
-                    <li>· Service principals</li>
-                    <li>· Security groups</li>
-                    <li>· Users</li>
-                  </ul>
-                </Box>
-                <Box
-                  anchor="billing"
-                  letter="A"
-                  title="EA / Microsoft Customer Agreement"
-                  tone="plain"
-                >
-                  <div className="space-y-0.5 text-[9.5px]">
-                    {["Billing account", "Billing profile", "Invoice section"].map((x) => (
-                      <div
-                        key={x}
-                        className="rounded-sm border border-[#c8c6c4] bg-white px-1 text-center"
-                      >
-                        {x}
-                      </div>
-                    ))}
-                    <div className="rounded-sm bg-[#fff4ce] px-1 text-center">
-                      Subscription vending
+                  <Vnet
+                    anchor="identityvnet"
+                    title={`Virtual network · ${answers.primaryRegion}`}
+                    select={{ kind: "sub", id: "identity" }}
+                  >
+                    <div className="flex flex-wrap gap-1 text-[9.5px]">
+                      {[
+                        "DNS",
+                        "UDRs",
+                        "NSGs/ASGs",
+                        "DC1 · DC2 · DC3 or Entra Domain Services",
+                        "Recovery Services vault",
+                      ].map((x) => (
+                        <span key={x} className="rounded-sm border border-[#c7e0f4] bg-white px-1">
+                          {x}
+                        </span>
+                      ))}
                     </div>
-                  </div>
+                  </Vnet>
+                  <Toolset scope="identity" />
                 </Box>
               </div>
 
-              <Box
-                anchor="mg-box"
-                letter="C"
-                title="Management group and subscription organization"
-                tone="plain"
-              >
-                <div className="overflow-x-auto rounded border border-[#c7e0f4] bg-[#eff6fc] p-2">
-                  <div className="flex min-w-max justify-center">
-                    <div className="flex flex-col items-center">
-                      <span className="rounded border border-dashed border-[#8a8886] bg-white px-1.5 text-[9.5px] text-[#605e5c]">
-                        Tenant root group
+              {/* -------------------------------------------------------- center */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-[1fr_150px_190px] gap-3">
+                  <Box
+                    anchor="iam"
+                    letter="B"
+                    title="Identity and access management"
+                    tone="plain"
+                    select={{ kind: "ext", id: "operator" }}
+                  >
+                    <ul className="grid grid-cols-2 gap-x-2 text-[9.5px] text-[#323130]">
+                      {[
+                        "Approval workflow",
+                        "Multifactor authentication",
+                        "Access reviews",
+                        "Audit reports",
+                      ].map((x) => (
+                        <li key={x}>· {x}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-1.5 flex flex-wrap gap-1">
+                      <span className="rounded-sm bg-[#c7e0f4] px-1 text-[9.5px]">
+                        Privileged Identity Management
                       </span>
-                      <span className="h-2 w-px bg-[#8a8886]" />
-                      {roots.map(mgBox)}
+                      <span className="rounded-sm border border-[#c8c6c4] bg-white px-1 text-[9.5px]">
+                        {answers.rbac.length} role assignment{answers.rbac.length === 1 ? "" : "s"}{" "}
+                        in the design
+                      </span>
                     </div>
+                  </Box>
+                  <Box
+                    anchor="entra"
+                    title="Microsoft Entra ID"
+                    tone="plain"
+                    select={{ kind: "ext", id: "operator" }}
+                  >
+                    <ul className="text-[9.5px] text-[#323130]">
+                      <li>· Service principals</li>
+                      <li>· Security groups</li>
+                      <li>· Users</li>
+                    </ul>
+                  </Box>
+                  <Box
+                    anchor="billing"
+                    letter="A"
+                    title="EA / Microsoft Customer Agreement"
+                    tone="plain"
+                  >
+                    <div className="space-y-0.5 text-[9.5px]">
+                      {["Billing account", "Billing profile", "Invoice section"].map((x) => (
+                        <div
+                          key={x}
+                          className="rounded-sm border border-[#c8c6c4] bg-white px-1 text-center"
+                        >
+                          {x}
+                        </div>
+                      ))}
+                      <div className="rounded-sm bg-[#fff4ce] px-1 text-center">
+                        Subscription vending
+                      </div>
+                    </div>
+                  </Box>
+                </div>
+
+                <Box
+                  anchor="mg-box"
+                  letter="C"
+                  title="Management group and subscription organization"
+                  tone="plain"
+                >
+                  <div data-anchor="subs-row">
+                    <ManagementTree
+                      lib={lib}
+                      tree={tree}
+                      answers={answers}
+                      set={set}
+                      sel={sel}
+                      onSelect={onSelect}
+                      spokes={spokes}
+                      onAdd={setAdding}
+                      changed={changed}
+                      onHover={setHover}
+                    />
                   </div>
                   {edit && (
                     <button
@@ -1145,317 +1198,376 @@ export function ReferenceCanvas({
                         e.stopPropagation();
                         setAdding({ kind: "group", parent: "landingzones" });
                       }}
-                      className="mt-2 flex items-center gap-1 text-[10px] text-[#0078d4] hover:underline"
+                      className="mt-1.5 flex items-center gap-1 text-[10.5px] text-[#0078d4] hover:underline"
                     >
                       <Plus className="size-3" /> Add a management group
                     </button>
                   )}
-                </div>
-                <div
-                  data-anchor="subs-row"
-                  className="mt-2 flex flex-wrap gap-1 rounded border border-[#e8c65b]/60 bg-[#fffbeb] p-1.5"
-                >
-                  <span className="mr-1 flex items-center gap-1 text-[10px] font-semibold text-[#8a6d00]">
-                    <KeyRound className="size-3 text-[#e8a900]" /> Subscriptions
-                  </span>
-                  {chips.map((c) => (
-                    <button
-                      key={c.id}
-                      data-anchor={`chip:${c.id}`}
-                      onClick={pick({ kind: "sub", id: c.id })}
-                      onMouseEnter={() => setHover(c.id)}
-                      onMouseLeave={() => setHover(null)}
-                      className={cn(
-                        "rounded-sm border px-1.5 py-0.5 text-[9.5px]",
-                        c.on
-                          ? "border-[#e8c65b] bg-[#fff4ce] hover:border-[#0078d4]"
-                          : "border-dashed border-[#a19f9d] text-[#8a8886] line-through",
-                        isSel("sub", c.id) && "ring-2 ring-[#0078d4]",
-                        glow(`chip:${c.id}`),
-                      )}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
-              </Box>
+                </Box>
 
-              <div className="grid grid-cols-2 gap-3">
-                <Box
-                  anchor="sub:connectivity"
-                  letter="E"
-                  title="Connectivity subscription"
-                  subtitle={wan ? "Virtual WAN" : "Hub and spoke"}
-                  isOn={hub}
-                  toggle={set && (() => set({ connectivity: hub ? "none" : "hub_and_spoke" }))}
-                  select={{ kind: "sub", id: "connectivity" }}
-                >
-                  <div className="mb-1.5 grid grid-cols-2 gap-1">
-                    <Item
-                      id="ddos"
-                      label="DDoS Network Protection"
-                      icon={ICON["ddos"]!}
-                      tone={TONE["ddos"]!}
-                      isOn={on(answers.ddosPlan)}
-                      toggle={set && (() => set({ ddosPlan: on(answers.ddosPlan) ? "no" : "yes" }))}
-                    />
-                    <Item
-                      id="dnszones"
-                      label="Private DNS zones"
-                      icon={ICON["dnszones"]!}
-                      tone={TONE["dnszones"]!}
-                      isOn={answers.privateDns === "platform"}
-                      toggle={
-                        set &&
-                        (() =>
-                          set({
-                            privateDns: answers.privateDns === "platform" ? "none" : "platform",
-                          }))
-                      }
-                    />
-                  </div>
-                  <Vnet
-                    anchor="hub1"
-                    select={{ kind: "res", id: wan ? "vhub" : "hubvnet" }}
-                    title={`${wan ? "Virtual hub" : "Hub virtual network"} · ${answers.primaryRegion}`}
+                <div className="grid grid-cols-2 gap-3">
+                  <Box
+                    anchor="sub:connectivity"
+                    letter="E"
+                    title="Connectivity subscription"
+                    subtitle={wan ? "Virtual WAN" : "Hub and spoke"}
+                    isOn={hub}
+                    toggle={set && (() => set({ connectivity: hub ? "none" : "hub_and_spoke" }))}
+                    select={{ kind: "sub", id: "connectivity" }}
                   >
-                    {hubItems(1)}
-                  </Vnet>
-                  {second ? (
-                    <div className="mt-1.5">
-                      <Vnet
-                        anchor="hub2"
-                        select={{ kind: "res", id: wan ? "vhub2" : "hubvnet2" }}
-                        title={`${wan ? "Virtual hub" : "Hub virtual network"} · ${answers.secondaryRegion}`}
-                      >
-                        {hubItems(2)}
-                      </Vnet>
-                      {edit && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            set?.({ secondaryRegion: "" });
-                          }}
-                          className="mt-1 text-[10px] text-[#a4262c] hover:underline"
+                    {edit && (
+                      <div className="mb-1.5 flex rounded-sm border border-[#c8c6c4] bg-white p-0.5 text-[10px]">
+                        {(
+                          [
+                            ["hub_and_spoke", "Hub and spoke"],
+                            ["virtual_wan", "Virtual WAN"],
+                          ] as const
+                        ).map(([v, label]) => (
+                          <button
+                            key={v}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              set?.({ connectivity: v });
+                            }}
+                            className={cn(
+                              "flex-1 rounded-sm px-1.5 py-0.5",
+                              answers.connectivity === v
+                                ? "bg-[#0078d4] font-medium text-white"
+                                : "text-[#605e5c] hover:text-[#0078d4]",
+                            )}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="mb-1.5 grid grid-cols-2 gap-1">
+                      <Item
+                        id="ddos"
+                        label="DDoS Network Protection"
+                        icon={ICON["ddos"]!}
+                        tone={TONE["ddos"]!}
+                        isOn={on(answers.ddosPlan)}
+                        toggle={
+                          set && (() => set({ ddosPlan: on(answers.ddosPlan) ? "no" : "yes" }))
+                        }
+                      />
+                      <Item
+                        id="dnszones"
+                        label="Private DNS zones"
+                        icon={ICON["dnszones"]!}
+                        tone={TONE["dnszones"]!}
+                        isOn={answers.privateDns === "platform"}
+                        toggle={
+                          set &&
+                          (() =>
+                            set({
+                              privateDns: answers.privateDns === "platform" ? "none" : "platform",
+                            }))
+                        }
+                      />
+                    </div>
+                    <Vnet
+                      anchor="hub1"
+                      select={{ kind: "res", id: wan ? "vhub" : "hubvnet" }}
+                      title={`${wan ? "Virtual hub" : "Hub virtual network"} · ${answers.primaryRegion}`}
+                    >
+                      {hubItems(1)}
+                    </Vnet>
+                    {second ? (
+                      <div className="mt-1.5">
+                        <Vnet
+                          anchor="hub2"
+                          select={{ kind: "res", id: wan ? "vhub2" : "hubvnet2" }}
+                          title={`${wan ? "Virtual hub" : "Hub virtual network"} · ${answers.secondaryRegion}`}
                         >
-                          Remove the second region
-                        </button>
+                          {hubItems(2)}
+                        </Vnet>
+                        {edit && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              set?.({ secondaryRegion: "" });
+                            }}
+                            className="mt-1 text-[10px] text-[#a4262c] hover:underline"
+                          >
+                            Remove the second region
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <AddButton
+                        label="Add a hub in a second region"
+                        onClick={() => set?.({ secondaryRegion: nextRegion })}
+                      />
+                    )}
+                    <Toolset scope="connectivity" />
+                  </Box>
+
+                  <Box
+                    anchor="sub:corp"
+                    letter="F"
+                    title="Corp landing zones"
+                    subtitle="Peered to the hub · egress through the firewall"
+                    isOn={has("corp")}
+                    toggle={set && (() => toggleLz("corp"))}
+                    select={{ kind: "mg", id: "corp" }}
+                  >
+                    <div className="space-y-1">
+                      {corp.slice(0, 4).map(spokeCard)}
+                      {extraCards("corp")}
+                      {corp.length > 4 && (
+                        <p className="text-[10px] text-[#605e5c]">
+                          +{corp.length - 4} more installs
+                        </p>
                       )}
                     </div>
-                  ) : (
                     <AddButton
-                      label="Add a hub in a second region"
-                      onClick={() => set?.({ secondaryRegion: nextRegion })}
+                      label="Add a subscription"
+                      onClick={() => setAdding({ kind: "subscription", parent: "corp" })}
                     />
-                  )}
-                  <Toolset scope="connectivity" />
-                </Box>
+                    <Toolset scope="corp" />
+                  </Box>
+                </div>
 
                 <Box
-                  anchor="sub:corp"
+                  anchor="sub:online"
                   letter="F"
-                  title="Corp landing zones"
-                  subtitle="Peered to the hub · egress through the firewall"
-                  isOn={has("corp")}
-                  toggle={set && (() => toggleLz("corp"))}
-                  select={{ kind: "mg", id: "corp" }}
+                  title="Online landing zones"
+                  subtitle="Internet-facing, not peered to the hub"
+                  isOn={has("online")}
+                  toggle={set && (() => toggleLz("online"))}
+                  select={{ kind: "mg", id: "online" }}
                 >
-                  <div className="space-y-1">
-                    {corp.slice(0, 4).map(spokeCard)}
-                    {extraCards("corp")}
-                    {corp.length > 4 && (
-                      <p className="text-[10px] text-[#605e5c]">+{corp.length - 4} more installs</p>
-                    )}
+                  <div className="grid grid-cols-3 gap-1">
+                    {online.slice(0, 6).map(spokeCard)}
+                    {extraCards("online")}
                   </div>
+                  {online.length > 6 && (
+                    <p className="mt-1 text-[10px] text-[#605e5c]">
+                      +{online.length - 6} more installs
+                    </p>
+                  )}
                   <AddButton
                     label="Add a subscription"
-                    onClick={() => setAdding({ kind: "subscription", parent: "corp" })}
+                    onClick={() => setAdding({ kind: "subscription", parent: "online" })}
                   />
-                  <Toolset scope="corp" />
                 </Box>
-              </div>
 
-              <Box
-                anchor="sub:online"
-                letter="F"
-                title="Online landing zones"
-                subtitle="Internet-facing, not peered to the hub"
-                isOn={has("online")}
-                toggle={set && (() => toggleLz("online"))}
-                select={{ kind: "mg", id: "online" }}
-              >
-                <div className="grid grid-cols-3 gap-1">
-                  {online.slice(0, 6).map(spokeCard)}
-                  {extraCards("online")}
-                </div>
-                {online.length > 6 && (
-                  <p className="mt-1 text-[10px] text-[#605e5c]">
-                    +{online.length - 6} more installs
-                  </p>
-                )}
-                <AddButton
-                  label="Add a subscription"
-                  onClick={() => setAdding({ kind: "subscription", parent: "online" })}
-                />
-              </Box>
-
-              {answers.customGroups.length > 0 && (
-                <div className="grid grid-cols-2 gap-3">
-                  {answers.customGroups.map((g) => (
-                    <Box
-                      key={g.id}
-                      anchor={`sub:${g.id}`}
-                      title={`${answers.groupNames[g.id] || g.name} landing zones`}
-                      subtitle={`Your management group · ${g.archetype} policies`}
-                      select={{ kind: "mg", id: g.id }}
-                    >
-                      <div className="space-y-1">{extraCards(g.id)}</div>
-                      <AddButton
-                        label="Add a subscription"
-                        onClick={() => setAdding({ kind: "subscription", parent: g.id })}
-                      />
-                    </Box>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* --------------------------------------------------------- right */}
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-2">
-                <Box
-                  anchor="onprem"
-                  title="On-premises"
-                  subtitle="Active Directory Domain Services"
-                  tone="ext"
-                  select={{ kind: "ext", id: "onprem" }}
-                >
-                  <p className="text-[9.5px] text-[#605e5c]">
-                    {on(answers.expressRoute)
-                      ? "Connected over ExpressRoute"
-                      : on(answers.vpnGateway)
-                        ? "Connected over site-to-site VPN"
-                        : "Not connected"}
-                  </p>
-                </Box>
-                <div className="space-y-2">
-                  <Box
-                    anchor="internet"
-                    title="Internet"
-                    tone="ext"
-                    select={{ kind: "ext", id: "internet" }}
-                  >
-                    <Globe className="size-3.5 text-[#605e5c]" />
-                  </Box>
-                  <Box
-                    anchor="users"
-                    title="Your customers' users"
-                    tone="ext"
-                    select={{ kind: "ext", id: "users" }}
-                  >
-                    <Users className="size-3.5 text-[#605e5c]" />
-                  </Box>
-                </div>
-              </div>
-              <Box
-                anchor="operator"
-                title="Operators"
-                subtitle="Microsoft Entra ID sign-in, Bastion"
-                tone="ext"
-                select={{ kind: "ext", id: "operator" }}
-              >
-                <UserCog className="size-3.5 text-[#605e5c]" />
-              </Box>
-              <Box anchor="devops" letter="I" title="DevOps · platform team" tone="plain">
-                <div className="grid grid-cols-2 gap-2 text-[9.5px]">
-                  <div className="rounded border border-[#c8c6c4] bg-white p-1.5">
-                    <p className="flex items-center gap-1 font-semibold">
-                      <GitBranch className="size-3" /> Git repository
-                    </p>
-                    <ul className="mt-0.5 text-[#605e5c]">
-                      <li>· Policy and role definitions</li>
-                      <li>· Policy assignments</li>
-                      <li>· Terraform (this design)</li>
-                    </ul>
-                  </div>
-                  <div className="rounded border border-[#c8c6c4] bg-white p-1.5">
-                    <p className="font-semibold">Deployment pipelines</p>
-                    <ul className="mt-0.5 text-[#605e5c]">
-                      <li>· Subscription provisioning</li>
-                      <li>· Policy deployment</li>
-                      <li>· Platform deployment</li>
-                    </ul>
-                  </div>
-                </div>
-              </Box>
-              <Box
-                anchor="sub:sandbox"
-                letter="H"
-                title="Sandbox subscription"
-                subtitle="Isolated experiments, not connected to the hub"
-                isOn={has("sandbox")}
-                toggle={set && (() => toggleLz("sandbox"))}
-                select={{ kind: "mg", id: "sandbox" }}
-              >
-                <div className="flex flex-wrap gap-1 text-[9.5px]">
-                  {["Applications", "Applications", "Applications"].map((x, i) => (
-                    <span
-                      key={i}
-                      className="rounded-sm border border-[#c7e0f4] bg-white px-1.5 py-0.5"
-                    >
-                      <Building2 className="mr-0.5 inline size-3" />
-                      {x}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-1 space-y-1">{extraCards("sandbox")}</div>
-                <AddButton
-                  label="Add a sandbox subscription"
-                  onClick={() => setAdding({ kind: "subscription", parent: "sandbox" })}
-                />
-              </Box>
-              <Box
-                anchor="templates"
-                letter="G"
-                title="Workload landing zones and templates"
-                tone="plain"
-              >
-                <div className="flex flex-wrap gap-1 text-[9.5px]">
-                  {answers.workloads.length ? (
-                    answers.workloads.map((w) => (
-                      <span
-                        key={`${w.group}-${w.id}`}
-                        className="rounded-sm border border-[#c8c6c4] bg-white px-1.5 py-0.5"
+                {(answers.customGroups.length > 0 || edit) && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {answers.customGroups.map((g) => (
+                      <Box
+                        key={g.id}
+                        anchor={`sub:${g.id}`}
+                        title={`${answers.groupNames[g.id] || g.name} landing zones`}
+                        subtitle={`Your management group · ${g.archetype} policies`}
+                        select={{ kind: "mg", id: g.id }}
                       >
-                        <ShieldHalf className="mr-0.5 inline size-3" />
-                        {w.id} · {w.group}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-[#605e5c]">
-                      None yet — add AKS, App Service, AI and others to a landing zone group.
-                    </span>
-                  )}
+                        <div className="space-y-1">{extraCards(g.id)}</div>
+                        <AddButton
+                          label="Add a subscription"
+                          onClick={() => setAdding({ kind: "subscription", parent: g.id })}
+                        />
+                      </Box>
+                    ))}
+                    {edit && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAdding({ kind: "group", parent: "landingzones" });
+                        }}
+                        className="flex min-h-20 flex-col items-center justify-center rounded-md border border-dashed border-[#8a8886] p-2 text-[11px] text-[#605e5c] hover:border-[#0078d4] hover:text-[#0078d4]"
+                      >
+                        <span className="flex items-center gap-1 font-medium">
+                          <Plus className="size-3.5" /> Add a landing zone group
+                        </span>
+                        <span className="text-[10px]">
+                          e.g. Confidential, AKS platform, Regulated
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* --------------------------------------------------------- right */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <Box
+                    anchor="onprem"
+                    title="On-premises"
+                    subtitle="Active Directory Domain Services"
+                    tone="ext"
+                    select={{ kind: "ext", id: "onprem" }}
+                  >
+                    <p className="text-[9.5px] text-[#605e5c]">
+                      {on(answers.expressRoute)
+                        ? "Connected over ExpressRoute"
+                        : on(answers.vpnGateway)
+                          ? "Connected over site-to-site VPN"
+                          : "Not connected"}
+                    </p>
+                  </Box>
+                  <div className="space-y-2">
+                    <Box
+                      anchor="internet"
+                      title="Internet"
+                      tone="ext"
+                      select={{ kind: "ext", id: "internet" }}
+                    >
+                      <Globe className="size-3.5 text-[#605e5c]" />
+                    </Box>
+                    <Box
+                      anchor="users"
+                      title="Your customers' users"
+                      tone="ext"
+                      select={{ kind: "ext", id: "users" }}
+                    >
+                      <Users className="size-3.5 text-[#605e5c]" />
+                    </Box>
+                  </div>
                 </div>
-              </Box>
-              <div className="flex items-center gap-2 rounded border border-[#d2d0ce] bg-[#faf9f8] px-2 py-1.5 text-[9.5px] text-[#605e5c]">
-                <CreditCard className="size-3.5" />
-                Legend: <span className="text-[#0078d4]">── peering</span>{" "}
-                <span className="text-[#8661c5]">- - on-premises</span>{" "}
-                <span className="text-[#ca5010]">── logs</span> <span>→ organization</span>
+                <Box
+                  anchor="operator"
+                  title="Operators"
+                  subtitle="Microsoft Entra ID sign-in, Bastion"
+                  tone="ext"
+                  select={{ kind: "ext", id: "operator" }}
+                >
+                  <UserCog className="size-3.5 text-[#605e5c]" />
+                </Box>
+                <Box anchor="devops" letter="I" title="DevOps · platform team" tone="plain">
+                  <div className="grid grid-cols-2 gap-2 text-[9.5px]">
+                    <div className="rounded border border-[#c8c6c4] bg-white p-1.5">
+                      <p className="flex items-center gap-1 font-semibold">
+                        <GitBranch className="size-3" /> Git repository
+                      </p>
+                      <ul className="mt-0.5 text-[#605e5c]">
+                        <li>· Policy and role definitions</li>
+                        <li>· Policy assignments</li>
+                        <li>· Terraform (this design)</li>
+                      </ul>
+                    </div>
+                    <div className="rounded border border-[#c8c6c4] bg-white p-1.5">
+                      <p className="font-semibold">Deployment pipelines</p>
+                      <ul className="mt-0.5 text-[#605e5c]">
+                        <li>· Subscription provisioning</li>
+                        <li>· Policy deployment</li>
+                        <li>· Platform deployment</li>
+                      </ul>
+                    </div>
+                  </div>
+                </Box>
+                <Box
+                  anchor="sub:sandbox"
+                  letter="H"
+                  title="Sandbox subscription"
+                  subtitle="Isolated experiments, not connected to the hub"
+                  isOn={has("sandbox")}
+                  toggle={set && (() => toggleLz("sandbox"))}
+                  select={{ kind: "mg", id: "sandbox" }}
+                >
+                  <div className="flex flex-wrap gap-1 text-[9.5px]">
+                    {["Applications", "Applications", "Applications"].map((x, i) => (
+                      <span
+                        key={i}
+                        className="rounded-sm border border-[#c7e0f4] bg-white px-1.5 py-0.5"
+                      >
+                        <Building2 className="mr-0.5 inline size-3" />
+                        {x}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-1 space-y-1">{extraCards("sandbox")}</div>
+                  <AddButton
+                    label="Add a sandbox subscription"
+                    onClick={() => setAdding({ kind: "subscription", parent: "sandbox" })}
+                  />
+                </Box>
+                <Box
+                  anchor="templates"
+                  letter="G"
+                  title="Workload landing zones and templates"
+                  tone="plain"
+                >
+                  <div className="flex flex-wrap gap-1 text-[9.5px]">
+                    {answers.workloads.length ? (
+                      answers.workloads.map((w) => (
+                        <span
+                          key={`${w.group}-${w.id}`}
+                          className="rounded-sm border border-[#c8c6c4] bg-white px-1.5 py-0.5"
+                        >
+                          <ShieldHalf className="mr-0.5 inline size-3" />
+                          {w.id} · {w.group}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-[#605e5c]">
+                        None yet — add AKS, App Service, AI and others to a landing zone group.
+                      </span>
+                    )}
+                  </div>
+                </Box>
+                <div className="flex items-center gap-2 rounded border border-[#d2d0ce] bg-[#faf9f8] px-2 py-1.5 text-[9.5px] text-[#605e5c]">
+                  <CreditCard className="size-3.5" />
+                  Legend: <span className="text-[#0078d4]">── peering</span>{" "}
+                  <span className="text-[#8661c5]">- - on-premises</span>{" "}
+                  <span className="text-[#ca5010]">── logs</span> <span>→ organization</span>
+                </div>
               </div>
             </div>
           </div>
+          {adding && set && (
+            <AddDialog
+              adding={adding}
+              onClose={() => setAdding(null)}
+              tree={tree}
+              answers={answers}
+              set={set}
+            />
+          )}
         </div>
-        {adding && set && (
-          <AddDialog
-            adding={adding}
-            onClose={() => setAdding(null)}
-            tree={tree}
-            answers={answers}
-            set={set}
-          />
-        )}
+        <div
+          className="absolute right-3 bottom-3 z-30 flex items-center gap-0.5 rounded-md border border-[#c8c6c4] bg-white p-0.5 text-[11px] shadow-sm"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            aria-label="Zoom out"
+            onClick={() => zoomBy(1 / 1.15)}
+            className="grid size-6 place-items-center rounded-sm hover:bg-[#f3f2f1]"
+          >
+            <Minus className="size-3.5" />
+          </button>
+          <span className="w-10 text-center tabular-nums text-[#605e5c]">
+            {Math.round(scale * 100)}%
+          </span>
+          <button
+            aria-label="Zoom in"
+            onClick={() => zoomBy(1.15)}
+            className="grid size-6 place-items-center rounded-sm hover:bg-[#f3f2f1]"
+          >
+            <Plus className="size-3.5" />
+          </button>
+          <span className="mx-0.5 h-4 w-px bg-[#e1dfdd]" />
+          {(
+            [
+              ["fit", "Whole picture"],
+              ["auto", "Readable"],
+            ] as const
+          ).map(([z, label]) => (
+            <button
+              key={z}
+              onClick={() => setZoom(z)}
+              className={cn(
+                "rounded-sm px-1.5 py-0.5",
+                zoom === z ? "bg-[#eff6fc] text-[#0078d4]" : "text-[#605e5c] hover:bg-[#f3f2f1]",
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
