@@ -53,6 +53,28 @@ export async function terraformBinary(log: (l: string) => void) {
   return bin;
 }
 
+/** Terraform fetches modules and the ALZ Library with git. App Service's Node image doesn't ship it. */
+async function ensureGit(log: Logger) {
+  if (await which("git")) return;
+  if (!(await which("apt-get")))
+    throw new Error("git isn't installed and can't be installed here. Install git on this host.");
+  log("Installing git (one time per app restart)…");
+  const sh = (cmd: string) =>
+    new Promise<number>((resolve) => {
+      const p = spawn("sh", ["-c", cmd], {
+        env: { ...process.env, DEBIAN_FRONTEND: "noninteractive" },
+      });
+      p.stdout.on("data", () => {});
+      p.stderr.on("data", (d) => log(String(d).trim()));
+      p.on("close", (c) => resolve(c ?? 1));
+    });
+  const code = await sh(
+    "apt-get update -qq && apt-get install -y -qq --no-install-recommends git ca-certificates",
+  );
+  if (code !== 0 || !(await which("git"))) throw new Error("Installing git failed.");
+  log("git installed.");
+}
+
 /** Environment Terraform authenticates with — the same identity as the app's own Azure calls. */
 async function authEnv(): Promise<Record<string, string>> {
   const me = await whoAmI();
@@ -216,6 +238,7 @@ export async function terraform(
 ): Promise<{ ok: boolean; summary: PlanSummary | Record<string, unknown> }> {
   const dir = workDir(foundationId);
   const bin = await terraformBinary(log);
+  await ensureGit(log);
   const cache = path.join(home(), "plugin-cache");
   await mkdir(cache, { recursive: true });
   const env = {
