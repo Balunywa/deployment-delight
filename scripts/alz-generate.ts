@@ -105,20 +105,6 @@ for (const lib of LIBRARIES) {
     };
     const dir = `${out}/${shortRef(lib.ref)}/${c.name}`;
     for (const f of terraformFor(lib.ref, answers)) await Bun.write(`${dir}/${f.path}`, f.content);
-    await Bun.write(
-      `${dir}/versions.tf`,
-      [
-        `terraform {`,
-        `  required_version = ">= 1.9"`,
-        `  required_providers {`,
-        `    alz     = { source = "Azure/alz", version = "~> 0.20" }`,
-        `    azapi   = { source = "Azure/azapi", version = "~> 2.4" }`,
-        `    azurerm = { source = "hashicorp/azurerm", version = "~> 4.0" }`,
-        `  }`,
-        `}`,
-        ``,
-      ].join("\n"),
-    );
     // Metadata so alzlibtool can resolve the custom library on its own (the provider uses library_references).
     if (changesFor(libraryFor(lib.ref), answers).length || answers.intermediateRootId !== "alz")
       await Bun.write(

@@ -5,10 +5,10 @@ import { ArrowRight, Minus, Plus, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { type JobStatus, PipelineGraph } from "@/components/architecture/PipelineGraph";
 import { CodeBlock } from "@/components/CodeBlock";
 import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
+import { RealDeploy } from "@/components/lz/RealDeploy";
 import { assess } from "@/lib/alz/assess";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
@@ -23,20 +23,14 @@ import {
   diffLibraries,
   hierarchy,
   libraryFor,
-  platformSubscriptions,
   shortRef,
   terraformFor,
   vendingFor,
   withDefaults,
 } from "@/lib/alz/engine";
 import { type Placement, placements, placementsFor } from "@/lib/alz/placement";
-import {
-  deployFoundation,
-  pinFoundationLibrary,
-  saveFoundationAnswers,
-} from "@/lib/factory.functions";
+import { pinFoundationLibrary, saveFoundationAnswers } from "@/lib/factory.functions";
 import { relative } from "@/lib/format";
-import type { Stage } from "@/lib/pipeline";
 import { customersQuery, foundationQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
@@ -214,16 +208,7 @@ function FoundationDetail() {
         {view === "iac" && (
           <IacView libraryRef={f.library_ref} answers={answers} placed={placed} dirty={dirty} />
         )}
-        {view === "deploy" && (
-          <DeployView
-            foundationId={f.id}
-            status={f.status}
-            libraryRef={f.library_ref}
-            deployedRef={f.deployed_ref}
-            answers={saved}
-            dirty={dirty}
-          />
-        )}
+        {view === "deploy" && <DeployView foundationId={f.id} dirty={dirty} />}
       </div>
     </div>
   );
@@ -601,147 +586,6 @@ function IacView({
 
 /* ------------------------------------------------------------------- deploy */
 
-function DeployView({
-  foundationId,
-  status,
-  libraryRef,
-  deployedRef,
-  answers,
-  dirty,
-}: {
-  foundationId: string;
-  status: string;
-  libraryRef: string;
-  deployedRef: string | null;
-  answers: Answers;
-  dirty: boolean;
-}) {
-  const queryClient = useQueryClient();
-  const [replay, setReplay] = useState<number | null>(null);
-  const subs = platformSubscriptions(answers).filter((s) => s.created);
-  const stages: Stage[] = [
-    {
-      id: "validate",
-      name: "Validate",
-      jobs: [
-        { id: "tf-validate", name: "terraform validate", detail: "Modules and provider resolve" },
-        {
-          id: "library",
-          name: `Resolve ALZ ${shortRef(libraryRef)}`,
-          detail: "platform/alz + custom overrides",
-        },
-        { id: "defaults", name: "Policy default values", detail: "Every required value is set" },
-      ],
-    },
-    {
-      id: "plan",
-      name: "Plan",
-      jobs: [
-        {
-          id: "tf-plan",
-          name: "terraform plan",
-          detail: "Management groups, policy, subscriptions",
-        },
-      ],
-    },
-    {
-      id: "approve",
-      name: "Approve",
-      jobs: [
-        {
-          id: "approval",
-          name: "Platform owner approval",
-          detail: "Tenant-level change",
-          gate: true,
-        },
-      ],
-    },
-    {
-      id: "deploy-mg",
-      name: "Deploy · Governance",
-      jobs: [
-        { id: "mgs", name: "Management groups", detail: `${answers.intermediateRootId} hierarchy` },
-        { id: "defs", name: "Policy & role definitions", detail: "At the intermediate root" },
-        {
-          id: "assign",
-          name: "Policy assignments",
-          detail: "Per archetype, with managed identities",
-        },
-      ],
-    },
-    {
-      id: "deploy-platform",
-      name: "Deploy · Platform subscriptions",
-      jobs: subs.map((s) => ({ id: `sub-${s.managementGroup}`, name: s.name, detail: s.purpose })),
-    },
-    {
-      id: "verify",
-      name: "Verify",
-      jobs: [
-        {
-          id: "compliance",
-          name: "Policy compliance scan",
-          detail: "Initial evaluation of every scope",
-        },
-      ],
-    },
-  ];
-  const upToDate = status === "deployed" && deployedRef === libraryRef && !dirty;
-  const order = stages.flatMap((s) => s.jobs.map((j) => j.id));
-  const deploy = useMutation({
-    mutationFn: useServerFn(deployFoundation),
-    onSuccess: () => {
-      setReplay(0);
-      void queryClient.invalidateQueries({ queryKey: ["foundation", foundationId] });
-      void queryClient.invalidateQueries({ queryKey: ["foundations"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-  useEffect(() => {
-    if (replay === null) return;
-    if (replay > order.length) {
-      setReplay(null);
-      toast.success(
-        `Landing zone deployed on ALZ ${shortRef(libraryRef)} (demo engine — no Azure calls).`,
-      );
-      return;
-    }
-    const t = setTimeout(() => setReplay((r) => (r === null ? null : r + 1)), 420);
-    return () => clearTimeout(t);
-  }, [replay, order.length, libraryRef]);
-
-  const jobStatus = (job: { id: string }): JobStatus => {
-    const i = order.indexOf(job.id);
-    if (replay !== null) return i < replay ? "succeeded" : i === replay ? "running" : "queued";
-    if (upToDate) return "succeeded";
-    return job.id === "approval" ? "waiting" : "queued";
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-[13px] font-semibold">
-            {upToDate
-              ? `Deployed on ALZ ${shortRef(libraryRef)}`
-              : `Ready to deploy ALZ ${shortRef(libraryRef)}`}
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            {dirty
-              ? "Save your design first — the deployment uses the saved design."
-              : upToDate
-                ? "The tenant matches the saved design and pinned library."
-                : "Runs the generated Terraform through the platform pipeline. Tenant-level changes need approval."}
-          </p>
-        </div>
-        <Button
-          disabled={dirty || upToDate || deploy.isPending || replay !== null}
-          onClick={() => deploy.mutate({ data: { foundationId, approvedBy: "Sarah Chen" } })}
-        >
-          {deploy.isPending || replay !== null ? "Deploying…" : "Approve & deploy"}
-        </Button>
-      </div>
-      <PipelineGraph stages={stages} status={jobStatus} />
-    </div>
-  );
+function DeployView({ foundationId, dirty }: { foundationId: string; dirty: boolean }) {
+  return <RealDeploy foundationId={foundationId} dirty={dirty} />;
 }

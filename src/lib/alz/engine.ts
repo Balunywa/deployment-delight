@@ -759,28 +759,63 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
           `      }`,
         ]
       : [];
+  // Default values must be known at plan time (the ALZ provider reads them while planning), so they are
+  // built from names rather than taken from module outputs — Microsoft's documented pattern for avm-ptn-alz.
+  const mgmtRg = `rg-management-${region}`;
+  const connRg = `rg-connectivity-${region}`;
+  const ddosName = wan ? `ddos-connectivity-${region}` : `ddos-hub-${region}`;
+  const rid = (sub: string, rg: string, type: string, name: string) =>
+    `provider::azapi::resource_group_resource_id(${sub}, ${q(rg)}, ${q(type)}, [${q(name)}])`;
   const defaultValue = (name: string) => {
     switch (name) {
       case "log_analytics_workspace_id":
-        return "module.management.resource_id";
+        return rid(
+          "var.management_subscription_id",
+          mgmtRg,
+          "Microsoft.OperationalInsights/workspaces",
+          `law-management-${region}`,
+        );
       case "ama_user_assigned_managed_identity_id":
-        return "module.management.user_assigned_identity_ids.ama.id";
+        return rid(
+          "var.management_subscription_id",
+          mgmtRg,
+          "Microsoft.ManagedIdentity/userAssignedIdentities",
+          "uami-ama",
+        );
       case "ama_user_assigned_managed_identity_name":
         return q("uami-ama");
       case "ama_vm_insights_data_collection_rule_id":
-        return "module.management.data_collection_rule_ids.vm_insights.id";
+        return rid(
+          "var.management_subscription_id",
+          mgmtRg,
+          "Microsoft.Insights/dataCollectionRules",
+          "dcr-vm-insights",
+        );
       case "ama_change_tracking_data_collection_rule_id":
-        return "module.management.data_collection_rule_ids.change_tracking.id";
+        return rid(
+          "var.management_subscription_id",
+          mgmtRg,
+          "Microsoft.Insights/dataCollectionRules",
+          "dcr-change-tracking",
+        );
       case "ama_mdfc_sql_data_collection_rule_id":
-        return "module.management.data_collection_rule_ids.defender_sql.id";
+        return rid(
+          "var.management_subscription_id",
+          mgmtRg,
+          "Microsoft.Insights/dataCollectionRules",
+          "dcr-defender-sql",
+        );
       case "ddos_protection_plan_id":
-        return wan
-          ? "azurerm_network_ddos_protection_plan.this.id"
-          : "module.connectivity.ddos_protection_plan_resource_id";
+        return rid(
+          "var.connectivity_subscription_id",
+          connRg,
+          "Microsoft.Network/ddosProtectionPlans",
+          ddosName,
+        );
       case "private_dns_zone_subscription_id":
         return "var.connectivity_subscription_id";
       case "private_dns_zone_resource_group_name":
-        return "azurerm_resource_group.connectivity.name";
+        return q(connRg);
       case "private_dns_zone_region":
       case "resource_group_location":
         return q(region);
@@ -829,6 +864,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         ...(ddos
           ? [
               `    ddos_protection_plan = {`,
+              `      name                = ${q(ddosName)}`,
               `      resource_group_name = azurerm_resource_group.connectivity.name`,
               `      location            = ${q(region)}`,
               `    }`,
@@ -1036,10 +1072,11 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
       ? [
           ``,
           `  # New subscriptions land here instead of the tenant root, and only authorized principals can create groups.`,
-          `  management_group_hierarchy_settings = {`,
+          `  # This is a tenant-wide setting, so it only applies when var.apply_tenant_hierarchy_settings is true.`,
+          `  management_group_hierarchy_settings = var.apply_tenant_hierarchy_settings ? {`,
           `    default_management_group_name            = ${q(mg(answers.defaultGroup))}`,
           `    require_authorization_for_group_creation = true`,
-          `  }`,
+          `  } : null`,
         ]
       : []),
     ...(rbac.length
@@ -1065,7 +1102,19 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         ]
       : []),
     ``,
-    `  depends_on = [module.management${hasHub(answers) ? ", module.connectivity" : ""}]`,
+    `  # The platform resources the policies point at must exist before the policies are assigned. The ALZ`,
+    `  # provider can't wait with depends_on, so the dependency is passed as values (Microsoft's pattern).`,
+    `  policy_assignments_dependencies = [`,
+    `    module.management.data_collection_rule_ids,`,
+    `    module.management.resource_id,`,
+    `    module.management.user_assigned_identity_ids,`,
+    ...(hub
+      ? [`    module.connectivity.private_dns_zone_resource_ids,`]
+      : wan
+        ? [`    module.connectivity,`]
+        : []),
+    ...(wan && ddos ? [`    azurerm_network_ddos_protection_plan.this.id,`] : []),
+    `  ]`,
     `}`,
     ...adds.flatMap((a) => [
       ``,
@@ -1126,6 +1175,10 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
       `Object ID of the Microsoft Entra ${persona === "delivery" ? "workload identity" : "group"} for: ${p.label}.`,
     ]);
   }
+  const hierarchyVar =
+    answers.defaultGroup && included.has(answers.defaultGroup)
+      ? `\n\nvariable "apply_tenant_hierarchy_settings" {\n  type        = bool\n  default     = false\n  description = "Set the tenant's default management group for new subscriptions and require authorization to create groups. Tenant-wide."\n}`
+      : "";
   const variables = subscriptionVars
     .map(([name, description]) =>
       [
@@ -1216,9 +1269,24 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
     { path: "main.tf", content: alignHcl(main) + "\n" },
     { path: "providers.tf", content: alignHcl(providers) + "\n" },
     {
+      path: "versions.tf",
+      content: [
+        `terraform {`,
+        `  required_version = ">= 1.9"`,
+        `  required_providers {`,
+        `    alz     = { source = "Azure/alz", version = "~> 0.20" }`,
+        `    azapi   = { source = "Azure/azapi", version = "~> 2.4" }`,
+        `    azurerm = { source = "hashicorp/azurerm", version = "~> 4.0" }`,
+        `  }`,
+        `}`,
+        ``,
+      ].join("\n"),
+    },
+    {
       path: "variables.tf",
       content:
         variables +
+        hierarchyVar +
         (extraSubs.length
           ? `\n\nvariable "billing_scope" {\n  type        = string\n  description = "Billing scope for new subscriptions: an EA enrollment account or MCA invoice section ID."\n}`
           : "") +
