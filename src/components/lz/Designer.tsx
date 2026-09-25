@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
+import { ReferenceCanvas } from "./ReferenceCanvas";
 import { ArchitectureDiagram } from "@/components/lz/ArchitectureDiagram";
 import { AccessPanel, AdvisorPanel, PolicyAddsPanel } from "@/components/lz/Panels";
 import type { Assessment } from "@/lib/alz/assess";
@@ -187,6 +188,7 @@ export function LandingZoneDesigner({
     editable ? "design" : "details",
   );
   const [sel, setSel] = useState<Sel | null>(null);
+  const [layout, setLayout] = useState<"reference" | "detailed">("reference");
   const [flowId, setFlowId] = useState<string | null>(null);
   const [step, setStep] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -282,9 +284,13 @@ export function LandingZoneDesigner({
 
   // Jump straight to a part of the drawing; the canvas is tall.
   const jump = (target: string) => {
-    const el = document.querySelector(
-      target.startsWith("sub:") ? `[data-anchor="${target}"]` : `[data-section="${target}"]`,
-    );
+    const el =
+      document.querySelector(
+        target.startsWith("sub:") ? `[data-anchor="${target}"]` : `[data-section="${target}"]`,
+      ) ??
+      document.querySelector(
+        `[data-anchor="${target === "mg" ? "mg-box" : target === "landing" ? "sub:corp" : target}"]`,
+      );
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
   const sections: [string, string][] = [
@@ -299,6 +305,30 @@ export function LandingZoneDesigner({
   ];
   const nav = (
     <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5 text-[11.5px]">
+      <div className="mr-2 flex rounded-sm border border-border bg-card p-0.5">
+        {(
+          [
+            ["reference", "Reference layout"],
+            ["detailed", "Detailed"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={(e) => {
+              e.stopPropagation();
+              setLayout(id);
+            }}
+            className={cn(
+              "rounded-sm px-2 py-0.5",
+              layout === id
+                ? "bg-accent font-medium text-accent-foreground"
+                : "text-muted-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <span className="mr-1 text-muted-foreground">Jump to</span>
       {sections.map(([id, label]) => (
         <button
@@ -363,17 +393,31 @@ export function LandingZoneDesigner({
           className={cn("overflow-x-auto", full && "min-h-0 flex-1 overflow-y-auto")}
           onClick={() => setSel(null)}
         >
-          <ArchitectureDiagram
-            lib={lib}
-            tree={tree}
-            answers={answers}
-            set={editable ? set : undefined}
-            spokes={spokes}
-            sel={sel}
-            onSelect={select}
-            flow={flow}
-            step={step}
-          />
+          {layout === "reference" ? (
+            <ReferenceCanvas
+              lib={lib}
+              tree={tree}
+              answers={answers}
+              set={editable ? set : undefined}
+              spokes={spokes}
+              sel={sel}
+              onSelect={select}
+              flow={flow}
+              step={step}
+            />
+          ) : (
+            <ArchitectureDiagram
+              lib={lib}
+              tree={tree}
+              answers={answers}
+              set={editable ? set : undefined}
+              spokes={spokes}
+              sel={sel}
+              onSelect={select}
+              flow={flow}
+              step={step}
+            />
+          )}
         </div>
       </section>
       <aside

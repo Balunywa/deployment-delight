@@ -60,7 +60,7 @@ import { cn } from "@/lib/utils";
 type Patch = (p: Partial<Answers>) => void;
 
 /** Governance capabilities Microsoft draws in every subscription, and the ALZ assignment that provides each. */
-const TOOLS: {
+export const TOOLS: {
   id: string;
   label: string;
   icon: LucideIcon;
@@ -121,17 +121,17 @@ const TOOLS: {
   },
 ];
 
-const toolOn = (t: (typeof TOOLS)[number], a: Answers) =>
+export const toolOn = (t: (typeof TOOLS)[number], a: Answers) =>
   !t.answer ? true : t.onValue ? a[t.answer] === t.onValue : a[t.answer] === "yes";
 
-const toggleTool = (t: (typeof TOOLS)[number], a: Answers): Partial<Answers> =>
+export const toggleTool = (t: (typeof TOOLS)[number], a: Answers): Partial<Answers> =>
   !t.answer
     ? {}
     : ({
         [t.answer]: toolOn(t, a) ? (t.offValue ?? "no") : (t.onValue ?? "yes"),
       } as Partial<Answers>);
 
-const ICON: Record<string, LucideIcon> = {
+export const ICON: Record<string, LucideIcon> = {
   firewall: BrickWall,
   vpngw: KeyRound,
   ergw: Cable,
@@ -146,7 +146,7 @@ const ICON: Record<string, LucideIcon> = {
   vwan: Waypoints,
 };
 
-const TONE: Record<string, string> = {
+export const TONE: Record<string, string> = {
   firewall: "#d13438",
   vpngw: "#8661c5",
   ergw: "#5c2e91",
