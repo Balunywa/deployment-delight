@@ -219,11 +219,32 @@ export async function importResource(
     TF_PLUGIN_CACHE_DIR: path.join(home(), "plugin-cache"),
     TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true",
     CHECKPOINT_DISABLE: "1",
+    // /home on App Service is a network share owned by another user; git refuses it without this.
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "safe.directory",
+    GIT_CONFIG_VALUE_0: "*",
   };
+  // azapi_resource imports need an API version; use the newest stable one Azure offers for the type.
+  let importId = id;
+  if (address.includes("azapi_resource") && !id.includes("api-version")) {
+    const at = id.lastIndexOf("/providers/");
+    const [ns, ...rest] = id.slice(at + "/providers/".length).split("/");
+    const type = rest.filter((_, i) => i % 2 === 0).join("/");
+    const { arm } = await import("./arm.server");
+    const meta = await arm<{ resourceTypes?: { resourceType: string; apiVersions: string[] }[] }>(
+      "GET",
+      `/providers/${ns}?api-version=2021-04-01`,
+    );
+    const versions =
+      meta.data.resourceTypes?.find((r) => r.resourceType.toLowerCase() === type.toLowerCase())
+        ?.apiVersions ?? [];
+    const stable = versions.find((v) => !v.includes("preview")) ?? versions[0];
+    if (stable) importId = `${id}?api-version=${stable}`;
+  }
   return (
     (await run(
       bin,
-      ["import", "-input=false", "-no-color", "-lock-timeout=60s", address, id],
+      ["import", "-input=false", "-no-color", "-lock-timeout=60s", address, importId],
       dir,
       env,
       log,
@@ -248,6 +269,10 @@ export async function terraform(
     TF_PLUGIN_CACHE_DIR: cache,
     TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true",
     CHECKPOINT_DISABLE: "1",
+    // /home on App Service is a network share owned by another user; git refuses it without this.
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "safe.directory",
+    GIT_CONFIG_VALUE_0: "*",
   };
   if (action !== "apply") {
     const init = await run(bin, ["init", "-input=false", "-no-color"], dir, env, log);
