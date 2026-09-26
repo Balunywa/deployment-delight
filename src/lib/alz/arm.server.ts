@@ -220,6 +220,8 @@ export async function vendSubscription(opts: {
   displayName: string;
   billingScope: string;
   workload: "Production" | "DevTest";
+  /** Management group to create the subscription in (it must exist); otherwise the tenant's default group. */
+  managementGroupId?: string | undefined;
   log: (line: string) => void;
 }): Promise<string> {
   const path = `/providers/Microsoft.Subscription/aliases/${opts.alias}?api-version=2021-10-01`;
@@ -241,6 +243,13 @@ export async function vendSubscription(opts: {
       displayName: opts.displayName,
       billingScope: opts.billingScope,
       workload: opts.workload,
+      ...(opts.managementGroupId
+        ? {
+            additionalProperties: {
+              managementGroupId: `/providers/Microsoft.Management/managementGroups/${opts.managementGroupId}`,
+            },
+          }
+        : {}),
     },
   });
   if (put.status >= 400)

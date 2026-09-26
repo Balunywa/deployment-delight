@@ -72,7 +72,8 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [billingScope, setBillingScope] = useState("");
   const [principals, setPrincipals] = useState<Record<string, string>>({});
-  const [hierarchy, setHierarchy] = useState(false);
+  // On by default: without it every new subscription in the tenant lands directly under the root.
+  const [hierarchy, setHierarchy] = useState(true);
   const [cancelVended, setCancelVended] = useState(true);
   const [confirmDestroy, setConfirmDestroy] = useState("");
   const [open, setOpen] = useState<string | null>(null);
@@ -315,9 +316,11 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
           {r.hierarchySettings && (
             <label className="flex items-center justify-between gap-3 rounded-sm border border-warning/40 bg-warning/5 px-3 py-2">
               <span className="text-xs">
-                <b className="font-medium">Tenant-wide hierarchy settings</b> — new subscriptions
-                default to the design's group, and creating management groups needs permission.
-                Affects the whole tenant.
+                <b className="font-medium">Send new subscriptions to the landing zone</b> — without
+                this, every subscription created in the tenant lands directly under the Tenant Root
+                Group. On: they land in the group chosen under "New subscriptions go to", and only
+                authorized people can create management groups. Tenant-wide; removed when the
+                landing zone is destroyed.
               </span>
               <Switch checked={hierarchy} onCheckedChange={setHierarchy} />
             </label>

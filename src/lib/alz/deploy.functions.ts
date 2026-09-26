@@ -7,6 +7,7 @@ import {
   LATEST_REF,
   hasHub,
   on,
+  placementGroup,
   shortRef,
   terraformFor,
   withDefaults,
@@ -255,11 +256,20 @@ export const startDeployRun = createServerFn({ method: "POST" })
               if (!data.billingScope)
                 throw new Error(`Pick a billing scope to create the ${t.label} subscription.`);
               const alias = `${answers.intermediateRootId || "alz"}-${t.key}`;
+              // Straight into its platform group when the landing zone already exists; on a first deploy
+              // it's created in the tenant's default group and Terraform moves it during apply.
+              const group = `${answers.intermediateRootId || "alz"}-${placementGroup(answers, t.key)}`;
+              const exists = await arm.managementGroupExists(group).catch(() => false);
+              if (!exists)
+                log(
+                  `${t.label} subscription is created in the tenant's default management group; apply moves it into ${group}.`,
+                );
               const id = await arm.vendSubscription({
                 alias,
                 displayName: `${answers.intermediateRootName || "ALZ"} ${t.label}`,
                 billingScope: data.billingScope,
                 workload: "Production",
+                managementGroupId: exists ? group : undefined,
                 log,
               });
               targets[t.key] = id;
