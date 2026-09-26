@@ -159,6 +159,12 @@ export function DeployTab({
   const nets = useQuery({ queryKey: ["networks"], queryFn: () => netFn(), staleTime: 120_000 });
   const needed = useMemo(() => requiredSubnets(selected, topology), [selected, topology]);
   const hub = nets.data?.vnets.find((v) => v.id === hubId);
+  // The private DNS zones the hub resolves: zones linked to the hub VNet.
+  const hubDns = hub
+    ? nets.data?.dnsGroups
+        .filter((g) => g.linked.includes(hub.id.toLowerCase()))
+        .sort((a, b) => b.count - a.count)[0]
+    : undefined;
   const vnet = nets.data?.vnets.find((v) => v.id === vnetId);
   const rangeOk = /^\d{1,3}(\.\d{1,3}){3}\/(1[2-9])$/.test(baseRange);
   const [confirm, setConfirm] = useState(false);
@@ -210,9 +216,7 @@ export function DeployTab({
                 baseRange,
                 ...(hubId ? { hubId } : {}),
                 ...(hub?.firewallIp && useFw ? { firewallIp: hub.firewallIp } : {}),
-                ...(hubId && useDns && nets.data?.dnsZoneResourceGroupId
-                  ? { dnsZoneResourceGroupId: nets.data.dnsZoneResourceGroupId }
-                  : {}),
+                ...(hubId && useDns && hubDns ? { dnsZoneResourceGroupId: hubDns.id } : {}),
               },
       },
     });
@@ -473,14 +477,15 @@ export function DeployTab({
                           Egress through the hub firewall ({hub.firewallIp})
                         </label>
                       )}
-                      {nets.data?.dnsZoneResourceGroupId && (
+                      {hubDns && (
                         <label className="flex items-center gap-1.5">
                           <input
                             type="checkbox"
                             checked={useDns}
                             onChange={(e) => setUseDns(e.target.checked)}
                           />
-                          Use the platform's private DNS zones ({nets.data.dnsZoneCount})
+                          Use the hub's private DNS zones ({hubDns.count} in{" "}
+                          {hubDns.id.split("/").pop()})
                         </label>
                       )}
                     </div>

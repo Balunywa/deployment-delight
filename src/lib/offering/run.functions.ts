@@ -616,9 +616,53 @@ export const startOfferingRun = createServerFn({ method: "POST" })
               end(current, "skipped", "Nothing deployed");
             } else {
               await runner.terraformCmd(key, ["init", "-input=false", "-no-color"], logTo(current));
-              const r = await runner.terraform("destroy", key, logTo(current));
+              let r = await runner.terraform("destroy", key, logTo(current));
+              // Azure releases NICs, endpoints and delegations a little after their owner is gone.
+              for (
+                let attempt = 2;
+                !r.ok &&
+                attempt <= 4 &&
+                /InUseSubnetCannotBeDeleted|InUse|AnotherOperationInProgress|Conflict|RetryableError/.test(
+                  current.log.slice(-8000),
+                );
+                attempt++
+              ) {
+                logTo(current)(
+                  `Azure is still releasing resources — retrying in a minute (attempt ${attempt} of 4).`,
+                );
+                await new Promise((res) => setTimeout(res, 60_000));
+                r = await runner.terraform("destroy", key, logTo(current));
+              }
+              // A failed deploy can leave resources Azure created outside Terraform's state (scale set
+              // instances and their NICs). The install owns its resource group, so delete the group itself.
+              if (
+                !r.ok &&
+                settings.resourceGroup.mode === "new" &&
+                /InUseSubnetCannotBeDeleted|InUse/.test(current.log.slice(-8000))
+              ) {
+                const rg = rgNameFor(settings, e);
+                const path = `/subscriptions/${data.subscriptionId}/resourcegroups/${rg}`;
+                const g = await arm.arm<{ tags?: Record<string, string> }>(
+                  "GET",
+                  `${path}?api-version=2021-04-01`,
+                );
+                if (g.status === 200 && g.data.tags?.["managed-by"] === "cloud-delivery") {
+                  logTo(current)(
+                    `${rg} still holds resources Azure created outside Terraform (e.g. scale set instances from a failed deploy) — deleting the install's resource group.`,
+                  );
+                  await arm.arm("DELETE", `${path}?api-version=2021-04-01`);
+                  for (let i = 0; i < 120; i++) {
+                    await new Promise((res) => setTimeout(res, 15_000));
+                    if ((await arm.arm("GET", `${path}?api-version=2021-04-01`)).status === 404)
+                      break;
+                  }
+                  logTo(current)(`${rg} deleted. Clearing Terraform state.`);
+                  r = await runner.terraform("destroy", key, logTo(current));
+                }
+              }
               end(current, r.ok ? "succeeded" : "failed");
-              if (!r.ok) throw new Error(`Destroy failed in ${ENV_LABEL[e]}.`);
+              if (!r.ok)
+                throw new Error(`Destroy failed in ${ENV_LABEL[e]}: ${azureErrors(current.log)}`);
             }
             stage.status = "succeeded";
             stage.finishedAt = now();
@@ -724,7 +768,12 @@ export const startOfferingRun = createServerFn({ method: "POST" })
               .map(([t, n]) => `${t.split("/").slice(-1)[0]}×${n}`)
               .join(", ")}`,
           );
-          const url = (shown["app_url"] ?? shown["front_door_url"]) as string | undefined;
+          const edge = shown["web_tier_endpoint"] ?? shown["gateway_public_ip"];
+          const url = (shown["app_url"] ??
+            shown["front_door_url"] ??
+            (typeof edge === "string" && /^\d/.test(edge) && !edge.startsWith("10.")
+              ? `http://${edge}`
+              : undefined)) as string | undefined;
           let probe: number | null = null;
           if (url && arch.topology.publicAccess) {
             try {
@@ -1180,7 +1229,7 @@ export const discoverNetworks = createServerFn({ method: "POST" }).handler(async
   const arm = await import("../alz/arm.server");
   const subs = (await arm.listSubscriptions()).filter((s) => s.state === "Enabled");
   const vnets: DiscoveredVnet[] = [];
-  const dnsGroups = new Map<string, number>();
+  const dnsGroups = new Map<string, { count: number; linked: Set<string> }>();
   await Promise.all(
     subs.map(async (sub) => {
       const [nets, fws, hubs, zones] = await Promise.all([
@@ -1284,19 +1333,28 @@ export const discoverNetworks = createServerFn({ method: "POST" }).handler(async
           firewallIp: fwByVnet.get(h.id.toLowerCase()) ?? null,
           kind: "vhub",
         });
-      for (const z of zones.data.value ?? [])
-        if (z.name.startsWith("privatelink.")) {
-          const rg = z.id.split("/providers/")[0]!;
-          dnsGroups.set(rg, (dnsGroups.get(rg) ?? 0) + 1);
-        }
+      await Promise.all(
+        (zones.data.value ?? [])
+          .filter((z) => z.name.startsWith("privatelink."))
+          .map(async (z) => {
+            const rg = z.id.split("/providers/")[0]!;
+            const g = dnsGroups.get(rg) ?? { count: 0, linked: new Set<string>() };
+            g.count++;
+            dnsGroups.set(rg, g);
+            const links = await arm.arm<{
+              value?: { properties: { virtualNetwork?: { id: string } } }[];
+            }>("GET", `${z.id}/virtualNetworkLinks?api-version=2024-06-01`);
+            for (const l of links.data.value ?? [])
+              if (l.properties.virtualNetwork?.id)
+                g.linked.add(l.properties.virtualNetwork.id.toLowerCase());
+          }),
+      );
     }),
   );
-  // The platform's DNS zones: the resource group holding the most privatelink zones.
-  const dns = [...dnsGroups].sort((a, b) => b[1] - a[1])[0];
+  // Platform DNS: the resource groups of privatelink zones and the VNets (hubs) they're linked to.
   return {
     vnets: vnets.sort((a, b) => Number(b.hub) - Number(a.hub) || a.name.localeCompare(b.name)),
-    dnsZoneResourceGroupId: dns && dns[1] >= 3 ? dns[0] : null,
-    dnsZoneCount: dns?.[1] ?? 0,
+    dnsGroups: [...dnsGroups].map(([id, g]) => ({ id, count: g.count, linked: [...g.linked] })),
   };
 });
 
