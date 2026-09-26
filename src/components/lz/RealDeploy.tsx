@@ -93,10 +93,19 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
     if (!r) return;
     setChoices((c) => {
       const next = { ...c };
+      // Without a billing scope the app can't create subscriptions, so start from existing ones.
+      const spare = r.billingScopes.length
+        ? []
+        : [...r.subscriptions].sort((a, b) => a.resourceGroups - b.resourceGroups).map((s) => s.id);
+      const used = new Set(
+        Object.values(next).flatMap((x) => (x.mode === "existing" ? [x.subscriptionId] : [])),
+      );
       for (const t of r.targets) {
         if (next[t.key]) continue;
         const existing = r.deployment.targets?.[t.key as keyof typeof r.deployment.targets];
-        next[t.key] = existing ? { mode: "existing", subscriptionId: existing } : { mode: "new" };
+        const pick = existing ?? spare.find((id) => !used.has(id));
+        if (pick) used.add(pick);
+        next[t.key] = pick ? { mode: "existing", subscriptionId: pick } : { mode: "new" };
       }
       return next;
     });
@@ -128,8 +137,26 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
   const missingPrincipals = r.principals.filter(
     (p) => !/^[0-9a-f-]{36}$/i.test(principals[p] ?? ""),
   );
-  const canPlan =
-    !dirty && !blocking && !busy && (!needsScope || !!billingScope) && !missingPrincipals.length;
+  const picked = Object.values(choices).flatMap((c) =>
+    c.mode === "existing" ? [c.subscriptionId] : [],
+  );
+  const duplicate = picked.length !== new Set(picked).size;
+  // Say exactly why Plan is off, instead of a silent grey button.
+  const blockers = [
+    dirty && "Save the design first.",
+    blocking && "Fix the failed checks above.",
+    busy && "A run is in progress.",
+    duplicate &&
+      "Each platform subscription must be different — a subscription can only sit in one management group.",
+    needsScope &&
+      !billingScope &&
+      (r.billingScopes.length
+        ? "Pick the billing scope new subscriptions are billed to."
+        : `Creating subscriptions needs a billing scope, and ${r.identity?.name ?? "this identity"} can't see one. Pick an existing subscription for each role${r.subscriptions.length < r.targets.length ? ` (only ${r.subscriptions.length} are available for ${r.targets.length} roles — turn off the Identity or Security subscription in the design, or add subscriptions)` : ""}, or give the identity a billing role (MCA invoice section Azure subscription creator, or EA enrollment account subscription creator).`),
+    missingPrincipals.length > 0 &&
+      `Enter the Microsoft Entra object ID for ${missingPrincipals.join(", ")}.`,
+  ].filter(Boolean) as string[];
+  const canPlan = blockers.length === 0;
   const payload = (action: "plan" | "apply" | "destroy") => ({
     data: {
       foundationId,
@@ -229,7 +256,10 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
                       <SelectValue placeholder="Choose" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="new">Create a new subscription (vending)</SelectItem>
+                      <SelectItem value="new" disabled={!r.billingScopes.length}>
+                        Create a new subscription (vending)
+                        {r.billingScopes.length ? "" : " — needs a billing scope"}
+                      </SelectItem>
                       {r.subscriptions.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.name} · {s.id.slice(0, 8)}… · {s.resourceGroups} resource group
@@ -303,7 +333,13 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
           >
             <Rocket className="size-3.5" /> Apply plan
           </Button>
-          {dirty && <span className="text-xs text-warning">Save the design first.</span>}
+          {blockers.length > 0 && (
+            <ul className="w-full space-y-0.5 text-xs text-warning">
+              {blockers.map((b) => (
+                <li key={b}>• {b}</li>
+              ))}
+            </ul>
+          )}
           {!canApply && !busy && lastPlan?.status === "succeeded" && (
             <span className="text-xs text-muted-foreground">
               Plan again to apply the latest design.
