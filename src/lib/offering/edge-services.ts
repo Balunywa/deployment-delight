@@ -1,37 +1,38 @@
 /*
  * Edge, observability and governance services for an offering's Terraform.
  */
-import { type ServiceTf, diag, q } from "./hcl";
+import { sizing } from "@/lib/skus";
+
+import { type ServiceTf, bool, diag, envSel, q } from "./hcl";
 
 type S = Record<string, string>;
 
 const APIM_SKU: Record<string, string> = {
-  "Premium v2": "PremiumV2_1",
-  "Standard v2": "StandardV2_1",
+  Consumption: "Consumption_0",
   Developer: "Developer_1",
+  Basic: "Basic_1",
+  Standard: "Standard_1",
+  Premium: "Premium_1",
+  "Basic v2": "BasicV2_1",
+  "Standard v2": "StandardV2_1",
+  "Premium v2": "PremiumV2_1",
 };
 
-export const apim = (s: S): ServiceTf => ({
-  subnets: ["apim"],
-  providers: ["Microsoft.ApiManagement"],
-  outputs: { apim_gateway_url: "azurerm_api_management.this.gateway_url" },
-  body: `
+// The gateway is public (it's the product's API edge); backends are reached through the install's network.
+export const apim = (s: S): ServiceTf => {
+  const [t] = sizing("apim", s);
+  return {
+    providers: ["Microsoft.ApiManagement"],
+    outputs: { apim_gateway_url: "azurerm_api_management.this.gateway_url" },
+    body: `
 resource "azurerm_api_management" "this" {
   name                 = "apim-\${local.name}-\${random_string.suffix.result}"
   location             = var.location
   resource_group_name  = local.rg_name
   publisher_name       = var.apim_publisher_name
   publisher_email      = var.apim_publisher_email
-  sku_name             = local.prod ? ${q(APIM_SKU[s["sku"] ?? ""] ?? "StandardV2_1")} : "BasicV2_1"
-  virtual_network_type = local.prod ? "External" : "None"
+  sku_name             = ${envSel(q(APIM_SKU[t!.prod.value] ?? "StandardV2_1"), q(APIM_SKU[t!.dev.value] ?? "Consumption_0"))}
   tags                 = local.tags
-
-  dynamic "virtual_network_configuration" {
-    for_each = local.prod ? [1] : []
-    content {
-      subnet_id = local.subnet_ids["snet-apim"]
-    }
-  }
 
   identity {
     type         = "UserAssigned"
@@ -46,12 +47,17 @@ resource "azurerm_api_management" "this" {
   }
 }
 ${diag("apim", "azurerm_api_management.this.id")}`,
-});
+  };
+};
 
-export const appGateway = (s: S): ServiceTf => ({
-  subnets: ["appgw"],
-  outputs: { gateway_public_ip: "azurerm_public_ip.appgw.ip_address" },
-  body: `
+export const appGateway = (s: S): ServiceTf => {
+  const [g] = sizing("app-gateway", s);
+  const waf = envSel(bool(g!.prod.value === "WAF_v2"), bool(g!.dev.value === "WAF_v2"));
+  const anyWaf = g!.prod.value === "WAF_v2" || g!.dev.value === "WAF_v2";
+  return {
+    subnets: ["appgw"],
+    outputs: { gateway_public_ip: "azurerm_public_ip.appgw.ip_address" },
+    body: `
 resource "azurerm_public_ip" "appgw" {
   name                = "pip-\${local.name}-agw"
   location            = var.location
@@ -62,7 +68,14 @@ resource "azurerm_public_ip" "appgw" {
   tags                = local.tags
 }
 
+locals {
+  appgw_waf = ${waf}
+}
+${
+  anyWaf
+    ? `
 resource "azurerm_web_application_firewall_policy" "this" {
+  count               = local.appgw_waf ? 1 : 0
   name                = "waf-\${local.name}"
   location            = var.location
   resource_group_name = local.rg_name
@@ -86,19 +99,21 @@ resource "azurerm_web_application_firewall_policy" "this" {
     }
   }
 }
-
+`
+    : ""
+}
 # HTTP listener to the app; add the customer's certificate from Key Vault for HTTPS on their domain.
 resource "azurerm_application_gateway" "this" {
   name                = "agw-\${local.name}"
   location            = var.location
   resource_group_name = local.rg_name
-  firewall_policy_id  = azurerm_web_application_firewall_policy.this.id
+  firewall_policy_id  = ${anyWaf ? "one(azurerm_web_application_firewall_policy.this[*].id)" : "null"}
   zones               = local.prod ? ["1", "2", "3"] : null
   tags                = local.tags
 
   sku {
-    name = ${q(s["sku"] ?? "WAF_v2")}
-    tier = ${q(s["sku"] ?? "WAF_v2")}
+    name = ${envSel(q(g!.prod.value), q(g!.dev.value))}
+    tier = ${envSel(q(g!.prod.value), q(g!.dev.value))}
   }
 
   autoscale_configuration {
@@ -158,16 +173,20 @@ resource "azurerm_application_gateway" "this" {
   }
 }
 ${diag("appgw", "azurerm_application_gateway.this.id")}`,
-});
+  };
+};
 
-export const frontDoor = (s: S): ServiceTf => ({
-  providers: ["Microsoft.Cdn"],
-  outputs: { front_door_url: '"https://${azurerm_cdn_frontdoor_endpoint.this.host_name}"' },
-  body: `
+export const frontDoor = (s: S): ServiceTf => {
+  const [t] = sizing("front-door", s);
+  const premium = envSel(bool(t!.prod.value === "Premium"), bool(t!.dev.value === "Premium"));
+  return {
+    providers: ["Microsoft.Cdn"],
+    outputs: { front_door_url: '"https://${azurerm_cdn_frontdoor_endpoint.this.host_name}"' },
+    body: `
 resource "azurerm_cdn_frontdoor_profile" "this" {
   name                = "afd-\${local.name}"
   resource_group_name = local.rg_name
-  sku_name            = ${q(s["tier"] === "Standard" ? "Standard_AzureFrontDoor" : "Premium_AzureFrontDoor")}
+  sku_name            = ${envSel(q(`${t!.prod.value}_AzureFrontDoor`), q(`${t!.dev.value}_AzureFrontDoor`))}
   tags                = local.tags
 }
 
@@ -218,17 +237,17 @@ resource "azurerm_cdn_frontdoor_firewall_policy" "this" {
   sku_name            = azurerm_cdn_frontdoor_profile.this.sku_name
   mode                = local.prod ? "Prevention" : "Detection"
   tags                = local.tags
-${
-  s["tier"] === "Standard"
-    ? ""
-    : `
-  managed_rule {
-    type    = "Microsoft_DefaultRuleSet"
-    version = "2.1"
-    action  = "Block"
+
+  # Managed rule sets are a Premium feature.
+  dynamic "managed_rule" {
+    for_each = (${premium}) ? [1] : []
+    content {
+      type    = "Microsoft_DefaultRuleSet"
+      version = "2.1"
+      action  = "Block"
+    }
   }
-`
-}}
+}
 
 resource "azurerm_cdn_frontdoor_security_policy" "this" {
   name                     = "waf"
@@ -247,7 +266,8 @@ resource "azurerm_cdn_frontdoor_security_policy" "this" {
   }
 }
 ${diag("front_door", "azurerm_cdn_frontdoor_profile.this.id")}`,
-});
+  };
+};
 
 export const appInsights = (): ServiceTf => ({
   outputs: {

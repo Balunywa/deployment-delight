@@ -27,10 +27,13 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { regionLabel } from "@/lib/onboarding";
 import { relative } from "@/lib/format";
 import {
   type OfferingRun,
@@ -223,17 +226,41 @@ export function DeployTab({
                 </SelectContent>
               </Select>
             </Field>
-            <Field label="Region">
+            <Field
+              label="Region"
+              hint={
+                o && !o.regions.includes(reg)
+                  ? "Not one of the offering's approved regions — fine for a test; add it to the offering before onboarding customers there."
+                  : `${o?.available.length ?? 0} regions can run this architecture; ${o?.regions.length ?? 0} are approved for customers.`
+              }
+            >
               <Select value={reg} onValueChange={setRegion}>
                 <SelectTrigger className="h-8 text-xs">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {o?.regions.map((r) => (
-                    <SelectItem key={r} value={r} className="text-xs">
-                      {r}
-                    </SelectItem>
-                  ))}
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] tracking-wider uppercase">
+                      Offered regions
+                    </SelectLabel>
+                    {o?.regions.map((r) => (
+                      <SelectItem key={r} value={r} className="text-xs">
+                        {regionLabel(r)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] tracking-wider uppercase">
+                      Every other region that runs this architecture · test only
+                    </SelectLabel>
+                    {o?.available
+                      .filter((r) => !o.regions.includes(r))
+                      .map((r) => (
+                        <SelectItem key={r} value={r} className="text-xs">
+                          {regionLabel(r)}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
             </Field>

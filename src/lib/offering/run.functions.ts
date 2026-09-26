@@ -8,6 +8,8 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import type { Json } from "../db-types";
+import { regionsSupporting } from "../onboarding";
+import { SKU_OPTIONS } from "../skus";
 
 export type StepStatus = "queued" | "running" | "succeeded" | "failed" | "skipped" | "waiting";
 export type RunStep = {
@@ -121,6 +123,7 @@ export const getOfferingDeployOptions = createServerFn({ method: "POST" })
         identity: { name: identity.name, tenantId: identity.tenantId, mode: identity.mode },
         subscriptions: subscriptions.map((s) => ({ id: s.id, name: s.name })),
         regions: arch.topology.regions,
+        available: regionsSupporting(arch.selected),
         environments: ENV_ORDER.filter((e) => arch.topology.environments.includes(e)),
         error: null as string | null,
       };
@@ -129,6 +132,7 @@ export const getOfferingDeployOptions = createServerFn({ method: "POST" })
         identity: null,
         subscriptions: [],
         regions: arch.topology.regions,
+        available: regionsSupporting(arch.selected),
         environments: ENV_ORDER.filter((e) => arch.topology.environments.includes(e)),
         error: (e as Error).message,
       };
@@ -205,8 +209,10 @@ export const startOfferingRun = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { db, offering, version, arch } = await loadOffering(data.offeringId, data.versionId);
-    if (!arch.topology.regions.includes(data.region))
-      throw new Error(`This offering supports ${arch.topology.regions.join(", ")}.`);
+    // Test deploys can go to any region where every service exists; customer installs stay in the
+    // offering's approved regions.
+    if (!regionsSupporting(arch.selected).includes(data.region))
+      throw new Error(`Not every service in this architecture is available in ${data.region}.`);
     if (running.has(offering.id))
       throw new Error("A run is already in progress for this offering.");
     const active = await db.maybeOne(
@@ -352,6 +358,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         const { reviewOffering, verdict } = await import("../onboarding");
 
         // ---------------------------------------------------------------- Land
+        let aiVersions: Record<string, string> = {};
         current = stepOf(land, "access");
         start(land, current);
         const log = logTo(current);
@@ -364,6 +371,10 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         if (sub.status !== 200)
           throw new Error(`Can't read subscription ${data.subscriptionId} (${sub.status}).`);
         log(`Subscription ${sub.data.displayName} (${data.subscriptionId}) · ${sub.data.state}.`);
+        if (!arch.topology.regions.includes(data.region))
+          log(
+            `${data.region} isn't one of the offering's approved regions (${arch.topology.regions.join(", ")}) — test deploy only; add it to the offering before onboarding customers there.`,
+          );
         end(current, "succeeded", sub.data.displayName);
 
         current = stepOf(land, "providers");
@@ -406,7 +417,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         if (data.action !== "destroy") {
           current = stepOf(land, "quota");
           start(land, current);
-          const problems = await quotaCheck(
+          const { problems, versions } = await quotaCheck(
             arm,
             data.subscriptionId,
             data.region,
@@ -417,9 +428,10 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           if (problems.length) {
             end(current, "failed", `${problems.length} short`);
             throw new Error(
-              `Not enough quota in ${data.region}: ${problems.join("; ")}. Request more quota, or pick another subscription or region — nothing was created.`,
+              `Can't deploy to ${data.region} with this subscription yet: ${problems.join("; ")}. Pick the suggested size or tier, request quota, or choose another region — nothing was created.`,
             );
           }
+          aiVersions = versions;
           end(current, "succeeded");
         }
 
@@ -435,6 +447,8 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           // A /22 per environment so rings never overlap if they're peered later.
           address_space: `10.60.${i * 4}.0/22`,
           private_dns_mode: "local",
+          allowed_regions: [...new Set([...arch.topology.regions, data.region])],
+          ai_model_versions: aiVersions,
           enable_defender: data.enableDefender,
         });
         for (const e of envs) {
@@ -715,11 +729,104 @@ export const startOfferingRun = createServerFn({ method: "POST" })
   });
 
 type Arm = typeof import("../alz/arm.server");
+
+const SKU_LABEL: Record<string, string> = {
+  Standard: "Standard",
+  GlobalStandard: "Global standard",
+  DataZoneStandard: "Data zone standard",
+  ProvisionedManaged: "Provisioned (PTU)",
+};
+const skuLabel = (s: string) => SKU_LABEL[s] ?? s;
+
+export type AiModel = {
+  name: string;
+  kind: "chat" | "embedding";
+  versions: { version: string; lifecycle: string; retires: string | null; skus: string[] }[];
+};
+const aiCache = new Map<string, { at: number; models: AiModel[] }>();
+
+/** Current OpenAI chat and embedding models in a region, from Azure's model catalog (cached an hour). */
+async function aiCatalog(arm: Arm, subscriptionId: string, region: string): Promise<AiModel[]> {
+  const hit = aiCache.get(region);
+  if (hit && Date.now() - hit.at < 3600_000) return hit.models;
+  const r = await arm.arm<{
+    value?: {
+      kind: string;
+      model: {
+        name: string;
+        version: string;
+        format?: string;
+        lifecycleStatus?: string;
+        isDefaultVersion?: boolean;
+        deprecation?: { inference?: string };
+        skus?: { name: string; deprecationDate?: string }[];
+      };
+    }[];
+  }>(
+    "GET",
+    `/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/locations/${region}/models?api-version=2024-10-01`,
+  );
+  const now = Date.now();
+  const by = new Map<string, AiModel>();
+  for (const x of r.data.value ?? []) {
+    const m = x.model;
+    if (x.kind !== "OpenAI" || m.format !== "OpenAI") continue;
+    const kind = /^text-embedding/.test(m.name)
+      ? "embedding"
+      : /^(gpt-|o\d)/.test(m.name) &&
+          !/audio|realtime|transcribe|tts|image|sora|codex|chat-latest|live|oss|search|35/.test(
+            m.name,
+          )
+        ? "chat"
+        : null;
+    if (!kind || m.lifecycleStatus === "Preview") continue;
+    if (m.deprecation?.inference && new Date(m.deprecation.inference).getTime() < now) continue;
+    const skus = [
+      ...new Set(
+        (m.skus ?? [])
+          .filter((k) => !k.deprecationDate || new Date(k.deprecationDate).getTime() > now)
+          .map((k) => k.name)
+          .filter((k) => k in SKU_LABEL),
+      ),
+    ];
+    if (!skus.length) continue;
+    const entry = by.get(m.name) ?? { name: m.name, kind, versions: [] };
+    entry.versions.push({
+      version: m.version,
+      lifecycle: m.lifecycleStatus ?? "",
+      retires: m.deprecation?.inference?.slice(0, 10) ?? null,
+      skus,
+    });
+    by.set(m.name, entry);
+  }
+  // Newest version first, so the first one offering a SKU is the one to deploy.
+  const models = [...by.values()]
+    .map((m) => ({ ...m, versions: m.versions.sort((a, b) => b.version.localeCompare(a.version)) }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  aiCache.set(region, { at: Date.now(), models });
+  return models;
+}
+
+/** The live model catalog for the offering designer, read with the app's Azure identity. */
+export const listAiModels = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ region: z.string().min(3).max(40) }).parse(d))
+  .handler(async ({ data }) => {
+    try {
+      const arm = await import("../alz/arm.server");
+      const sub = (await arm.listSubscriptions()).find((s) => s.state === "Enabled");
+      if (!sub)
+        return { models: [] as AiModel[], error: "No subscription to read the catalog with." };
+      return { models: await aiCatalog(arm, sub.id, data.region), error: null as string | null };
+    } catch (e) {
+      return { models: [] as AiModel[], error: (e as Error).message };
+    }
+  });
 type Usage = { name: { value: string }; limit: number; currentValue: number };
 
 /**
- * Checks the quotas Azure would otherwise reject minutes into an apply: model capacity for AI Foundry
- * deployments and vCPUs for AKS node pools. Returns what's short; logs everything it checked.
+ * Checks what Azure would otherwise reject minutes into an apply: whether each model and VM size is
+ * offered in the region to this subscription, and whether there's quota for it. Returns what's short;
+ * logs everything it checked.
  */
 async function quotaCheck(
   arm: Arm,
@@ -730,79 +837,234 @@ async function quotaCheck(
   log: (l: string) => void,
 ) {
   const problems: string[] = [];
+  const envOf = (e: string) => (e === "production" ? ("prod" as const) : ("dev" as const));
+  const versions: Record<string, string> = {};
   const ai = selected.find((s) => s.id === "ai-foundry");
   if (ai) {
-    const { MODELS, DEPLOYMENT_SKU } = await import("./ai-services");
-    const models = MODELS[ai.settings["models"] ?? ""] ?? MODELS["gpt-4.1-mini"]!;
-    const sku = DEPLOYMENT_SKU[ai.settings["deployment"] ?? ""] ?? "DataZoneStandard";
-    const u = await arm.arm<{ value?: Usage[] }>(
-      "GET",
-      `/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/locations/${region}/usages?api-version=2024-10-01`,
-    );
-    const usages = u.data.value ?? [];
+    const { aiDeployments } = await import("./ai-services");
+    const { models, capacity } = aiDeployments(ai.settings);
+    const [usage, catalog] = await Promise.all([
+      arm.arm<{ value?: Usage[] }>(
+        "GET",
+        `/subscriptions/${subscriptionId}/providers/Microsoft.CognitiveServices/locations/${region}/usages?api-version=2024-10-01`,
+      ),
+      aiCatalog(arm, subscriptionId, region),
+    ]);
+    const usages = usage.data.value ?? [];
     for (const m of models) {
-      // Each environment is its own AI account, so capacity adds up across environments.
-      const need = envs.reduce(
-        (n, e) =>
-          n +
-          (sku === "ProvisionedManaged"
-            ? e === "production"
-              ? 50
-              : 15
-            : e === "production"
-              ? 100
-              : 10),
-        0,
+      const offered = catalog.find((x) => x.name === m.name);
+      const version = offered?.versions.find((v) => v.skus.includes(m.sku));
+      if (!version) {
+        const other = offered?.versions[0]?.skus ?? [];
+        log(
+          `${m.name}: no current ${m.sku} version in ${region}${other.length ? ` (offered as ${other.join(", ")})` : ""}.`,
+        );
+        problems.push(
+          `${m.name} isn't offered as ${m.sku} in ${region}${other.length ? ` — pick ${other.map(skuLabel).join(" or ")}` : " — pick another model"}`,
+        );
+        continue;
+      }
+      versions[m.name] = version.version;
+      log(
+        `${m.name} ${version.version} (${version.lifecycle}, retires ${version.retires ?? "—"}) as ${m.sku}.`,
       );
-      const key = `OpenAI.${sku}.${m.name}`;
-      const q = usages.find((x) => x.name.value === key);
+      // Each environment is its own AI account, so capacity adds up across environments.
+      const need = envs.reduce((n, e) => n + capacity(m, envOf(e)), 0);
+      // Quota names drop the dash in some model names (OpenAI.Standard.gpt4.1-mini).
+      const keys = [
+        `OpenAI.${m.sku}.${m.name}`,
+        `OpenAI.${m.sku}.${m.name.replace(/^gpt-(\d)/, "gpt$1")}`,
+      ];
+      const q = usages.find((x) => keys.includes(x.name.value));
       const free = q ? q.limit - q.currentValue : 0;
       log(
-        `${key}: ${free} available, ${need} needed (${sku === "ProvisionedManaged" ? "PTU" : "thousand tokens per minute"}).`,
+        `Quota ${q?.name.value ?? keys[0]}: ${free} available, ${need} needed (${m.sku === "ProvisionedManaged" ? "PTU" : "thousand tokens per minute"}).`,
       );
       if (free < need) {
         const alt = usages
           .filter(
             (x) =>
-              x.name.value.endsWith(`.${m.name}`) &&
-              !x.name.value.includes("Batch") &&
-              x.limit - x.currentValue > 0,
+              keys.some((k) => x.name.value.endsWith(`.${k.split(".").pop()}`)) &&
+              !/Batch|finetune/i.test(x.name.value) &&
+              x.limit - x.currentValue >= need,
           )
-          .map((x) => `${x.name.value.split(".")[1]} has ${x.limit - x.currentValue}`);
+          .map((x) => `${skuLabel(x.name.value.split(".")[1]!)} has ${x.limit - x.currentValue}`);
         problems.push(
-          `${m.name} ${sku} needs ${need}, ${free} available${alt.length ? ` (${alt.join(", ")})` : ""}`,
+          `${m.name} ${skuLabel(m.sku)} needs ${need}K TPM, ${free} available${alt.length ? ` (${alt.join(", ")})` : ""}`,
         );
       }
     }
   }
   const aks = selected.find((s) => s.id === "aks");
   if (aks) {
-    const [sys, user] = (aks.settings["nodes"] ?? "3 + 3 (zonal)").match(/\d+/g)?.map(Number) ?? [
-      3, 3,
-    ];
-    const vcpus = envs.reduce((n, e) => n + 4 * (e === "production" ? sys! + user! : 2), 0);
-    const u = await arm.arm<{ value?: Usage[] }>(
-      "GET",
-      `/subscriptions/${subscriptionId}/providers/Microsoft.Compute/locations/${region}/usages?api-version=2023-07-01`,
-    );
-    for (const key of ["standardDDSv5Family", "cores"]) {
-      const q = u.data.value?.find((x) => x.name.value === key);
+    const { sizing } = await import("../skus");
+    const [, node] = sizing("aks", aks.settings);
+    const count = (v: string | undefined, d: number[]) => v?.match(/\d+/g)?.map(Number) ?? d;
+    const [sys, user] = count(aks.settings["nodes"], [3, 3]);
+    const [dsys, duser] = count(aks.settings["devNodes"], [1, 1]);
+    const [skus, usage] = await Promise.all([
+      arm.arm<{
+        value?: {
+          name: string;
+          family?: string;
+          capabilities?: { name: string; value: string }[];
+          restrictions?: { type: string; reasonCode?: string }[];
+        }[];
+      }>(
+        "GET",
+        `/subscriptions/${subscriptionId}/providers/Microsoft.Compute/skus?api-version=2021-07-01&$filter=location eq '${region}'`,
+      ),
+      arm.arm<{ value?: Usage[] }>(
+        "GET",
+        `/subscriptions/${subscriptionId}/providers/Microsoft.Compute/locations/${region}/usages?api-version=2023-07-01`,
+      ),
+    ]);
+    // Sizes from the catalog this subscription can actually run here, for the error message.
+    const suggest = (nodes: number) => {
+      const catalog = SKU_OPTIONS["aks"]?.find((o) => o.key === "nodeSize")?.skus ?? [];
+      return catalog
+        .map((c) => {
+          const k = skus.data.value?.find((x) => x.name === c.value);
+          if (!k || k.restrictions?.some((r) => r.type === "Location")) return null;
+          const q = usage.data.value?.find(
+            (u) => u.name.value.toLowerCase() === (k.family ?? "").toLowerCase(),
+          );
+          const per = Number(k.capabilities?.find((x) => x.name === "vCPUs")?.value ?? 0);
+          return q && q.limit - q.currentValue >= per * nodes
+            ? `${c.value} (≈$${c.monthly}/mo)`
+            : null;
+        })
+        .filter(Boolean)
+        .slice(0, 3);
+    };
+    const need = new Map<string, { family: string; vcpus: number }>();
+    for (const e of envs) {
+      const size = envOf(e) === "prod" ? node!.prod.value : node!.dev.value;
+      const sku = skus.data.value?.find((k) => k.name === size);
+      if (!sku) {
+        problems.push(`${size} isn't offered in ${region}`);
+        log(`${size}: not offered in ${region}.`);
+        continue;
+      }
+      const blocked = sku.restrictions?.find((r) => r.type === "Location");
+      if (blocked) {
+        const alt = suggest(envOf(e) === "prod" ? sys! + user! : dsys! + duser!);
+        problems.push(
+          `AKS node size ${size} is restricted for this subscription in ${region} (${blocked.reasonCode})${alt.length ? ` — sizes that fit: ${alt.join(", ")}` : ""}`,
+        );
+        log(`${size}: restricted (${blocked.reasonCode}).`);
+        continue;
+      }
+      const per = Number(sku.capabilities?.find((c) => c.name === "vCPUs")?.value ?? 2);
+      const nodes = envOf(e) === "prod" ? sys! + user! : dsys! + duser!;
+      const cur = need.get(size) ?? { family: sku.family ?? "", vcpus: 0 };
+      cur.vcpus += per * nodes;
+      need.set(size, cur);
+    }
+    const byFamily = new Map<string, number>();
+    for (const n of need.values()) byFamily.set(n.family, (byFamily.get(n.family) ?? 0) + n.vcpus);
+    const total = [...byFamily.values()].reduce((a, b) => a + b, 0);
+    for (const [family, vcpus] of [...byFamily, ["cores", total] as [string, number]]) {
+      const q = usage.data.value?.find((x) => x.name.value.toLowerCase() === family.toLowerCase());
       const free = q ? q.limit - q.currentValue : 0;
-      log(
-        `${key === "cores" ? "Regional vCPUs" : "Ddsv5 vCPUs (Standard_D4ds_v5 nodes)"}: ${free} available, ${vcpus} needed.`,
-      );
+      log(`${family === "cores" ? "Regional vCPUs" : family}: ${free} available, ${vcpus} needed.`);
       if (free < vcpus)
         problems.push(
-          `AKS needs ${vcpus} ${key === "cores" ? "regional" : "Ddsv5"} vCPUs, ${free} available`,
+          `AKS needs ${vcpus} ${family === "cores" ? "regional" : family} vCPUs, ${free} available`,
         );
     }
   }
-  if (selected.some((s) => ["app-service", "functions"].includes(s.id)))
-    log(
-      "App Service plan quota isn't exposed by Azure's API — if the plan is refused, request App Service quota for the region.",
+  const pg = selected.find((s) => s.id === "postgres");
+  if (pg) {
+    const { sizing } = await import("../skus");
+    const [c] = sizing("postgres", pg.settings);
+    const cap = await arm.arm<{
+      value?: {
+        supportedServerEditions?: { name: string; supportedServerSkus?: { name: string }[] }[];
+      }[];
+    }>(
+      "GET",
+      `/subscriptions/${subscriptionId}/providers/Microsoft.DBforPostgreSQL/locations/${region}/capabilities?api-version=2024-08-01`,
     );
-  if (!ai && !aks) log("No quota-bound services in this architecture.");
-  return problems;
+    const offered = new Set(
+      (cap.data.value ?? []).flatMap((v) =>
+        (v.supportedServerEditions ?? []).flatMap((ed) =>
+          (ed.supportedServerSkus ?? []).map((k) => {
+            const prefix =
+              ed.name === "Burstable" ? "B" : ed.name === "GeneralPurpose" ? "GP" : "MO";
+            return `${prefix}_${k.name}`;
+          }),
+        ),
+      ),
+    );
+    for (const e of envs) {
+      const sku = envOf(e) === "prod" ? c!.prod.value : c!.dev.value;
+      if (!offered.size) {
+        log("PostgreSQL capabilities not returned for the region; skipping the SKU check.");
+        break;
+      }
+      log(`PostgreSQL ${sku}: ${offered.has(sku) ? "offered" : "not offered"} in ${region}.`);
+      if (!offered.has(sku)) problems.push(`PostgreSQL ${sku} isn't offered in ${region}`);
+    }
+  }
+  if (selected.some((s) => s.id === "sql")) {
+    const cap = await arm.arm<{ status?: string; reason?: string | null }>(
+      "GET",
+      `/subscriptions/${subscriptionId}/providers/Microsoft.Sql/locations/${region}/capabilities?api-version=2023-08-01&include=supportedEditions`,
+    );
+    log(
+      `Azure SQL in ${region}: ${cap.data.status ?? "unknown"}${cap.data.reason ? ` — ${cap.data.reason}` : ""}`,
+    );
+    if (cap.data.status && cap.data.status !== "Available")
+      problems.push(`Azure SQL provisioning is restricted for this subscription in ${region}`);
+  }
+  // App Service plans have per-SKU instance quotas (many new subscriptions only have Premium v4).
+  const { sizing } = await import("../skus");
+  const plans = new Map<string, number>();
+  for (const s of selected.filter((x) => x.id === "app-service" || x.id === "functions")) {
+    const [p] = sizing(s.id, s.settings);
+    for (const e of envs) {
+      const sku = envOf(e) === "prod" ? p!.prod : p!.dev;
+      if (sku.value === "FC1") continue;
+      const zoned = s.id === "app-service" && envOf(e) === "prod" && !!sku.zones;
+      const key = zoned ? `${sku.value}_AZ` : sku.value;
+      plans.set(key, (plans.get(key) ?? 0) + (zoned ? 3 : 1));
+    }
+  }
+  if (plans.size) {
+    await arm.arm(
+      "POST",
+      `/subscriptions/${subscriptionId}/providers/Microsoft.Quota/register?api-version=2021-04-01`,
+    );
+    const qs = await arm.arm<{
+      value?: { name: string; properties: { limit?: { value?: number } } }[];
+      error?: { code: string };
+    }>(
+      "GET",
+      `/subscriptions/${subscriptionId}/providers/Microsoft.Web/locations/${region}/providers/Microsoft.Quota/quotas?api-version=2023-02-01`,
+    );
+    const limit = (k: string) => qs.data.value?.find((x) => x.name === k)?.properties.limit?.value;
+    if (!qs.data.value)
+      log(
+        `App Service quota couldn't be read yet (${qs.data.error?.code ?? qs.status}); Azure checks it during apply.`,
+      );
+    else
+      for (const [k, n] of plans) {
+        const l = limit(k) ?? 0;
+        log(`App Service ${k}: quota ${l} instances, ${n} needed.`);
+        if (l < n) {
+          const alt = (SKU_OPTIONS["app-service"]?.[0]?.skus ?? [])
+            .filter((x) => (limit(k.endsWith("_AZ") ? `${x.value}_AZ` : x.value) ?? 0) >= n)
+            .slice(0, 3)
+            .map((x) => x.value);
+          problems.push(
+            `App Service plan ${k.replace("_AZ", " (zone redundant)")} has quota ${l}, needs ${n}${alt.length ? ` — plans with quota: ${alt.join(", ")}` : ""}`,
+          );
+        }
+      }
+  }
+  if (!ai && !aks && !pg && !plans.size) log("No quota-bound services in this architecture.");
+  return { problems, versions };
 }
 
 /** The Azure error codes and messages from a Terraform log, short enough for a headline. */

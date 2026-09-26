@@ -1,55 +1,75 @@
 /*
  * AI, analytics and messaging services for an offering's Terraform: keyless (local auth off), private by
- * default, diagnostics on, and data-plane roles for the install's managed identity.
+ * default, diagnostics on, and data-plane roles for the install's managed identity. Tiers without private
+ * endpoint support (Free, Basic) stay reachable on their public endpoint, still keyless.
  */
-import { type ServiceTf, diag, pe, q, role } from "./hcl";
+import { sizing } from "@/lib/skus";
+
+import { type ServiceTf, bool, diag, envSel, pe, q, role } from "./hcl";
 
 type S = Record<string, string>;
+const size = (id: string, s: S, i = 0) => sizing(id, s)[i]!;
 
-export const MODELS: Record<string, { name: string; format: string }[]> = {
-  "gpt-4.1 + gpt-4.1-mini": [
-    { name: "gpt-4.1", format: "OpenAI" },
-    { name: "gpt-4.1-mini", format: "OpenAI" },
-  ],
-  "gpt-4.1-mini": [{ name: "gpt-4.1-mini", format: "OpenAI" }],
-  "gpt-4.1 + text-embedding-3-large": [
-    { name: "gpt-4.1", format: "OpenAI" },
-    { name: "text-embedding-3-large", format: "OpenAI" },
-  ],
-};
 export const DEPLOYMENT_SKU: Record<string, string> = {
-  "Data zone standard": "DataZoneStandard",
+  Standard: "Standard",
   "Global standard": "GlobalStandard",
+  "Data zone standard": "DataZoneStandard",
   "Provisioned (PTU)": "ProvisionedManaged",
 };
 
-export const aiFoundry = (s: S): ServiceTf => {
-  const models = MODELS[s["models"] ?? ""] ?? MODELS["gpt-4.1-mini"]!;
+/** The model deployments an AI Foundry setting asks for, with capacity per environment. */
+export function aiDeployments(s: S) {
   const sku = DEPLOYMENT_SKU[s["deployment"] ?? ""] ?? "DataZoneStandard";
+  const models = [s["chatModel"] ?? "gpt-5-mini", s["embeddingModel"] ?? "none"]
+    .filter((m) => m && m !== "none")
+    .map((name) => ({
+      name,
+      // Embeddings aren't offered as data zone deployments; they deploy as regional Standard.
+      sku: name.startsWith("text-embedding") && sku === "DataZoneStandard" ? "Standard" : sku,
+    }));
+  const prod = Number(s["capacity"] ?? 100);
+  const dev = Number(s["devCapacity"] ?? 10);
+  // Provisioned throughput has a minimum of 15 units per deployment.
+  return {
+    models,
+    capacity: (m: { sku: string }, env: "prod" | "dev") =>
+      m.sku === "ProvisionedManaged"
+        ? Math.max(15, env === "prod" ? prod : dev)
+        : env === "prod"
+          ? prod
+          : dev,
+  };
+}
+
+export const aiFoundry = (s: S): ServiceTf => {
+  const { models, capacity } = aiDeployments(s);
   const zones = [
     "privatelink.cognitiveservices.azure.com",
     "privatelink.openai.azure.com",
     "privatelink.services.ai.azure.com",
   ];
+  const tfName = (n: string) => n.replace(/[^a-z0-9]/gi, "_");
   // Model deployments on one account must be created one at a time.
   const deployments = models
     .map(
       (m, i) => `
-resource "azurerm_cognitive_deployment" "${m.name.replace(/[^a-z0-9]/gi, "_")}" {
+resource "azurerm_cognitive_deployment" "${tfName(m.name)}" {
   name                   = ${q(m.name)}
   cognitive_account_id   = azurerm_cognitive_account.this.id
   version_upgrade_option = "OnceNewDefaultVersionAvailable"
 
   model {
-    format = ${q(m.format)}
+    format = "OpenAI"
     name   = ${q(m.name)}
+    # Resolved at deploy time to the newest version Azure offers for this SKU in the region.
+    version = lookup(var.ai_model_versions, ${q(m.name)}, null)
   }
 
   sku {
-    name     = ${q(sku)}
-    capacity = ${sku === "ProvisionedManaged" ? "local.prod ? 50 : 15" : "local.prod ? 100 : 10"}
+    name     = ${q(m.sku)}
+    capacity = ${envSel(String(capacity(m, "prod")), String(capacity(m, "dev")))}
   }
-${i > 0 ? `\n  depends_on = [azurerm_cognitive_deployment.${models[i - 1]!.name.replace(/[^a-z0-9]/gi, "_")}]\n` : ""}}
+${i > 0 ? `\n  depends_on = [azurerm_cognitive_deployment.${tfName(models[i - 1]!.name)}]\n` : ""}}
 `,
     )
     .join("");
@@ -84,32 +104,50 @@ ${deployments}${pe("ai", "azurerm_cognitive_account.this.id", "account", zones)}
   };
 };
 
-export const aiSearch = (s: S): ServiceTf => ({
-  subnets: ["endpoints"],
-  zones: ["privatelink.search.windows.net"],
-  providers: ["Microsoft.Search"],
-  outputs: { search_endpoint: '"https://${azurerm_search_service.this.name}.search.windows.net"' },
-  body: `
+export const aiSearch = (s: S): ServiceTf => {
+  const c = size("ai-search", s);
+  const peOk = envSel(bool(c.prod.pe !== false), bool(c.dev.pe !== false));
+  const replicas = (v: string) => (v === "free" || v === "basic" ? 1 : 2);
+  return {
+    subnets: ["endpoints"],
+    zones: ["privatelink.search.windows.net"],
+    providers: ["Microsoft.Search"],
+    outputs: {
+      search_endpoint: '"https://${azurerm_search_service.this.name}.search.windows.net"',
+    },
+    body: `
+locals {
+  search_private = var.private_endpoints && (${peOk})
+}
+
 resource "azurerm_search_service" "this" {
   name                          = "srch-\${local.name}-\${random_string.suffix.result}"
   location                      = var.location
   resource_group_name           = local.rg_name
-  sku                           = local.prod ? ${q(s["sku"] ?? "standard")} : "basic"
-  replica_count                 = local.prod && ${q(s["sku"] ?? "standard")} != "basic" ? 2 : 1
+  sku                           = ${envSel(q(c.prod.value), q(c.dev.value))}
+  replica_count                 = ${envSel(String(replicas(c.prod.value)), "1")}
   partition_count               = 1
   local_authentication_enabled  = false
-  public_network_access_enabled = !var.private_endpoints
+  public_network_access_enabled = !local.search_private
   tags                          = local.tags
 
   identity {
     type = "SystemAssigned"
   }
 }
-${pe("search", "azurerm_search_service.this.id", "searchService", ["privatelink.search.windows.net"])}${diag("search", "azurerm_search_service.this.id")}${role("search_index", "azurerm_search_service.this.id", "Search Index Data Contributor")}`,
-});
+${pe("search", "azurerm_search_service.this.id", "searchService", ["privatelink.search.windows.net"], peOk)}${diag("search", "azurerm_search_service.this.id")}${role("search_index", "azurerm_search_service.this.id", "Search Index Data Contributor")}`,
+  };
+};
 
 export const dataExplorer = (s: S): ServiceTf => {
-  const [size, count] = (s["sku"] ?? "Standard_E8ads_v5 × 2").split(" × ");
+  const c = size("data-explorer", s);
+  const split = (v: string) => {
+    const [name, n] = v.split(" × ");
+    return { name: name ?? "Standard_E2ads_v5", count: Number(n ?? 2) };
+  };
+  const p = split(c.prod.value);
+  const d = split(c.dev.value);
+  const devSku = (v: string) => v.startsWith("Dev(");
   const zones = [
     "privatelink.${var.location}.kusto.windows.net",
     "privatelink.blob.core.windows.net",
@@ -130,12 +168,12 @@ resource "azurerm_kusto_cluster" "this" {
   auto_stop_enabled             = !local.prod
   disk_encryption_enabled       = true
   streaming_ingestion_enabled   = true
-  zones                         = local.prod ? ["1", "2", "3"] : null
+  zones                         = ${envSel(devSku(p.name) ? "null" : '["1", "2", "3"]', "null")}
   tags                          = local.tags
 
   sku {
-    name     = local.prod ? ${q(size ?? "Standard_E8ads_v5")} : "Dev(No SLA)_Standard_E2a_v4"
-    capacity = local.prod ? ${Number(count ?? 2)} : 1
+    name     = ${envSel(q(p.name), q(d.name))}
+    capacity = ${envSel(String(p.count), String(d.count))}
   }
 
   identity {
@@ -167,12 +205,15 @@ ${pe("kusto", "azurerm_kusto_cluster.this.id", "cluster", zones)}${diag("kusto",
   };
 };
 
-export const iotHub = (s: S): ServiceTf => ({
-  subnets: ["endpoints"],
-  zones: ["privatelink.azure-devices.net"],
-  providers: ["Microsoft.Devices"],
-  outputs: { iot_hub_hostname: "azurerm_iothub.this.hostname" },
-  body: `
+export const iotHub = (s: S): ServiceTf => {
+  const c = size("iot-hub", s);
+  const peOk = envSel(bool(c.prod.pe !== false), bool(c.dev.pe !== false));
+  return {
+    subnets: ["endpoints"],
+    zones: ["privatelink.azure-devices.net"],
+    providers: ["Microsoft.Devices"],
+    outputs: { iot_hub_hostname: "azurerm_iothub.this.hostname" },
+    body: `
 # Field devices reach IoT Hub over the internet; services inside the network use the private endpoint.
 resource "azurerm_iothub" "this" {
   name                          = "iot-\${local.name}-\${random_string.suffix.result}"
@@ -183,7 +224,7 @@ resource "azurerm_iothub" "this" {
   tags                          = local.tags
 
   sku {
-    name     = local.prod ? ${q(s["sku"] ?? "S2")} : "S1"
+    name     = ${envSel(q(c.prod.value), q(c.dev.value))}
     capacity = 1
   }
 
@@ -192,25 +233,33 @@ resource "azurerm_iothub" "this" {
     identity_ids = [azurerm_user_assigned_identity.app.id]
   }
 }
-${pe("iot_hub", "azurerm_iothub.this.id", "iotHub", ["privatelink.azure-devices.net"])}${diag("iot_hub", "azurerm_iothub.this.id")}${role("iot_hub_data", "azurerm_iothub.this.id", "IoT Hub Data Contributor")}`,
-});
+${pe("iot_hub", "azurerm_iothub.this.id", "iotHub", ["privatelink.azure-devices.net"], peOk)}${diag("iot_hub", "azurerm_iothub.this.id")}${role("iot_hub_data", "azurerm_iothub.this.id", "IoT Hub Data Contributor")}`,
+  };
+};
 
-export const eventHubs = (s: S): ServiceTf => ({
-  subnets: ["endpoints"],
-  zones: ["privatelink.servicebus.windows.net"],
-  providers: ["Microsoft.EventHub"],
-  outputs: {
-    event_hubs_namespace: '"${azurerm_eventhub_namespace.this.name}.servicebus.windows.net"',
-  },
-  body: `
+export const eventHubs = (s: S): ServiceTf => {
+  const c = size("event-hubs", s);
+  const peOk = envSel(bool(c.prod.pe !== false), bool(c.dev.pe !== false));
+  return {
+    subnets: ["endpoints"],
+    zones: ["privatelink.servicebus.windows.net"],
+    providers: ["Microsoft.EventHub"],
+    outputs: {
+      event_hubs_namespace: '"${azurerm_eventhub_namespace.this.name}.servicebus.windows.net"',
+    },
+    body: `
+locals {
+  eventhub_private = var.private_endpoints && (${peOk})
+}
+
 resource "azurerm_eventhub_namespace" "this" {
   name                          = "evhns-\${local.name}-\${random_string.suffix.result}"
   location                      = var.location
   resource_group_name           = local.rg_name
-  sku                           = local.prod ? ${q(s["tier"] ?? "Premium")} : "Standard"
+  sku                           = ${envSel(q(c.prod.value), q(c.dev.value))}
   capacity                      = 1
   local_authentication_enabled  = false
-  public_network_access_enabled = !var.private_endpoints
+  public_network_access_enabled = !local.eventhub_private
   minimum_tls_version           = "1.2"
   tags                          = local.tags
 }
@@ -221,11 +270,13 @@ resource "azurerm_eventhub" "telemetry" {
   partition_count   = 4
   message_retention = 1
 }
-${pe("event_hubs", "azurerm_eventhub_namespace.this.id", "namespace", ["privatelink.servicebus.windows.net"])}${diag("event_hubs", "azurerm_eventhub_namespace.this.id")}${role("event_hubs_data", "azurerm_eventhub_namespace.this.id", "Azure Event Hubs Data Owner")}`,
-});
+${pe("event_hubs", "azurerm_eventhub_namespace.this.id", "namespace", ["privatelink.servicebus.windows.net"], peOk)}${diag("event_hubs", "azurerm_eventhub_namespace.this.id")}${role("event_hubs_data", "azurerm_eventhub_namespace.this.id", "Azure Event Hubs Data Owner")}`,
+  };
+};
 
 export const serviceBus = (s: S): ServiceTf => {
-  const premium = (s["tier"] ?? "Premium") === "Premium";
+  const c = size("service-bus", s);
+  const premium = envSel(bool(c.prod.value === "Premium"), bool(c.dev.value === "Premium"));
   return {
     subnets: ["endpoints"],
     zones: ["privatelink.servicebus.windows.net"],
@@ -234,12 +285,16 @@ export const serviceBus = (s: S): ServiceTf => {
       service_bus_namespace: '"${azurerm_servicebus_namespace.this.name}.servicebus.windows.net"',
     },
     body: `
-# Private endpoints need the Premium tier; Standard stays keyless on the public endpoint.
+# Private endpoints need the Premium tier; Basic and Standard stay keyless on the public endpoint.
+locals {
+  sb_premium = ${premium}
+}
+
 resource "azurerm_servicebus_namespace" "this" {
   name                          = "sbns-\${local.name}-\${random_string.suffix.result}"
   location                      = var.location
   resource_group_name           = local.rg_name
-  sku                           = local.sb_premium ? "Premium" : "Standard"
+  sku                           = ${envSel(q(c.prod.value), q(c.dev.value))}
   capacity                      = local.sb_premium ? 1 : 0
   premium_messaging_partitions  = local.sb_premium ? 1 : 0
   local_auth_enabled            = false
@@ -248,42 +303,10 @@ resource "azurerm_servicebus_namespace" "this" {
   tags                          = local.tags
 }
 
-locals {
-  sb_premium = local.prod && ${premium}
-}
-
 resource "azurerm_servicebus_queue" "commands" {
   name         = "commands"
   namespace_id = azurerm_servicebus_namespace.this.id
 }
-
-resource "azurerm_private_endpoint" "service_bus" {
-  count               = var.private_endpoints && local.sb_premium ? 1 : 0
-  name                = "pe-\${local.name}-service-bus"
-  location            = var.location
-  resource_group_name = local.rg_name
-  subnet_id           = local.subnet_ids["snet-endpoints"]
-  tags                = local.tags
-
-  private_service_connection {
-    name                           = "psc-service-bus"
-    private_connection_resource_id = azurerm_servicebus_namespace.this.id
-    subresource_names              = ["namespace"]
-    is_manual_connection           = false
-  }
-
-  dynamic "private_dns_zone_group" {
-    for_each = var.private_dns_mode == "policy" ? [] : [1]
-    content {
-      name                 = "default"
-      private_dns_zone_ids = [local.dns_zone_ids["privatelink.servicebus.windows.net"]]
-    }
-  }
-
-  lifecycle {
-    ignore_changes = [private_dns_zone_group]
-  }
-}
-${diag("service_bus", "azurerm_servicebus_namespace.this.id")}${role("service_bus_data", "azurerm_servicebus_namespace.this.id", "Azure Service Bus Data Owner")}`,
+${pe("service_bus", "azurerm_servicebus_namespace.this.id", "namespace", ["privatelink.servicebus.windows.net"], "local.sb_premium")}${diag("service_bus", "azurerm_servicebus_namespace.this.id")}${role("service_bus_data", "azurerm_servicebus_namespace.this.id", "Azure Service Bus Data Owner")}`,
   };
 };

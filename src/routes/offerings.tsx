@@ -48,8 +48,10 @@ import {
   type Topology,
   inputsFor,
   monthlyEstimate,
+  serviceMonthly,
   normalise,
   withDefaults,
+  type OptionDef,
 } from "@/lib/catalog";
 import {
   createOfferingVersion,
@@ -60,6 +62,7 @@ import {
 import { semverCompare } from "@/lib/fleet";
 import { currency, shortDate } from "@/lib/format";
 import { pipelineFor, workflowFor } from "@/lib/pipeline";
+import { listAiModels } from "@/lib/offering/run.functions";
 import { offeringTerraform } from "@/lib/offering/terraform";
 import { DeployTab, ENV_LABEL, useOfferingRuns } from "@/components/offering/DeployTab";
 import { OfferingFlow, TerraformFiles } from "@/components/offering/OfferingFlow";
@@ -545,7 +548,11 @@ function Designer() {
               </span>
               <span className="ml-auto">
                 ≈ <b className="font-medium text-foreground">{currency(monthly)}</b> / month per
-                production install (list-price estimate)
+                production install ·{" "}
+                <b className="font-medium text-foreground">
+                  {currency(monthlyEstimate(selected, "dev"))}
+                </b>{" "}
+                per dev/test install (list prices)
               </span>
             </div>
           </section>
@@ -744,6 +751,65 @@ function Inspector({
   const def = focus ? SERVICE_BY_ID.get(focus) : undefined;
   const platform = CUSTOMER_PLATFORM.find((p) => p.id === focus);
   const current = selected.find((s) => s.id === focus);
+  // AI models come from Azure's live model catalog for the offering's first region.
+  const modelsFn = useServerFn(listAiModels);
+  const liveModels = useQuery({
+    queryKey: ["ai-models", topology.regions[0]],
+    queryFn: () => modelsFn({ data: { region: topology.regions[0] ?? "eastus2" } }),
+    enabled: focus === "ai-foundry",
+    staleTime: 3600_000,
+  });
+  const optionsFor = (o: OptionDef): OptionDef => {
+    const live = liveModels.data?.models;
+    if (def?.id !== "ai-foundry" || !live?.length) return o;
+    if (o.key === "chatModel" || o.key === "embeddingModel") {
+      const kind = o.key === "chatModel" ? "chat" : "embedding";
+      const list = live.filter((m) => m.kind === kind);
+      const value = current?.settings[o.key];
+      const choices = [
+        ...(kind === "embedding" ? ["none"] : []),
+        ...list.map((m) => m.name),
+        ...(value && value !== "none" && !list.some((m) => m.name === value) ? [value] : []),
+      ];
+      return {
+        ...o,
+        choices,
+        labels: Object.fromEntries(
+          choices.map((c) => {
+            const m = list.find((x) => x.name === c);
+            const v = m?.versions[0];
+            return [
+              c,
+              c === "none"
+                ? "None"
+                : m
+                  ? `${c} · ${v?.lifecycle === "GenerallyAvailable" ? "GA" : v?.lifecycle}${v?.retires ? `, retires ${v.retires.slice(0, 7)}` : ""}`
+                  : `${c} · not offered in ${topology.regions[0]}`,
+            ];
+          }),
+        ),
+      };
+    }
+    if (o.key === "deployment") {
+      const chat = live.find((m) => m.name === current?.settings["chatModel"]);
+      const skus = new Set(chat?.versions.flatMap((v) => v.skus) ?? []);
+      const map: Record<string, string> = {
+        Standard: "Standard",
+        "Global standard": "GlobalStandard",
+        "Data zone standard": "DataZoneStandard",
+        "Provisioned (PTU)": "ProvisionedManaged",
+      };
+      return {
+        ...o,
+        notes: Object.fromEntries(
+          o.choices
+            .filter((c) => chat && !skus.has(map[c] ?? c))
+            .map((c) => [c, `not offered for ${chat!.name} in ${topology.regions[0]}`]),
+        ),
+      };
+    }
+    return o;
+  };
 
   if (platform) {
     return (
@@ -782,37 +848,68 @@ function Inspector({
 
         {def.options.length > 0 && (
           <div className="mt-4 space-y-3">
-            {def.options.map((o) => (
-              <div key={o.key}>
-                <Label className="text-xs">{o.label}</Label>
-                <Select
-                  value={current.settings[o.key] ?? o.default}
-                  onValueChange={(v) =>
-                    onChange({
-                      selected: selected.map((s) =>
-                        s.id === def.id ? { ...s, settings: { ...s.settings, [o.key]: v } } : s,
-                      ),
-                    })
-                  }
-                >
-                  <SelectTrigger className="mt-1 h-8 text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {o.choices.map((c) => (
-                      <SelectItem key={c} value={c} className="text-xs">
-                        {c}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            ))}
+            {(["general", "prod", "dev"] as const).map((grp) => {
+              const opts = def.options.filter((o) => (o.env ?? "general") === grp);
+              if (!opts.length) return null;
+              return (
+                <div key={grp} className="space-y-2">
+                  {grp !== "general" && (
+                    <p className="pt-1 text-[10.5px] font-semibold tracking-wider text-muted-foreground uppercase">
+                      {grp === "prod" ? "Production installs" : "Dev / test installs"}
+                    </p>
+                  )}
+                  {opts.map(optionsFor).map((o) => (
+                    <div key={o.key}>
+                      <Label className="text-xs">
+                        {o.label.replace(/ · (production|dev\/test)$/, "")}
+                      </Label>
+                      <Select
+                        value={current.settings[o.key] ?? o.default}
+                        onValueChange={(v) =>
+                          onChange({
+                            selected: selected.map((s) =>
+                              s.id === def.id
+                                ? { ...s, settings: { ...s.settings, [o.key]: v } }
+                                : s,
+                            ),
+                          })
+                        }
+                      >
+                        <SelectTrigger className="mt-1 h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {o.choices.map((c) => (
+                            <SelectItem key={c} value={c} className="text-xs">
+                              <span className="flex w-full items-center justify-between gap-3">
+                                <span>
+                                  {o.labels?.[c] ?? c}
+                                  {o.notes?.[c] && (
+                                    <span className="ml-1 text-[10.5px] text-warning">
+                                      · {o.notes[c]}
+                                    </span>
+                                  )}
+                                </span>
+                                {o.prices?.[c] !== undefined && (
+                                  <span className="font-mono text-[10.5px] text-muted-foreground">
+                                    {o.prices[c] === 0 ? "free" : `≈ ${currency(o.prices[c]!)}/mo`}
+                                  </span>
+                                )}
+                              </span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
           </div>
         )}
 
         <div className="mt-4 space-y-0 border-t border-border pt-3">
-          <KV k="Module" v={`br/public:${def.avm}:${def.version}`} mono />
+          <KV k="Terraform" v={`${def.id}.tf · azurerm`} mono />
           <KV
             k="Pipeline"
             v={def.id === "security-baseline" ? "Verify stage" : `Deploy wave ${def.wave}`}
@@ -827,7 +924,14 @@ function Inspector({
                 : "—"
             }
           />
-          <KV k="Est. monthly" v={def.monthly ? currency(def.monthly) : "Included"} />
+          <KV
+            k="Est. monthly"
+            v={
+              serviceMonthly(current, "prod") || serviceMonthly(current, "dev")
+                ? `${currency(serviceMonthly(current, "prod"))} prod · ${currency(serviceMonthly(current, "dev"))} dev/test`
+                : "Included"
+            }
+          />
         </div>
 
         {inputs.length > 0 && (

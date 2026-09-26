@@ -6,6 +6,8 @@
  * Pure data — shared by the designer UI, the IaC/pipeline generators and the deployment engine.
  */
 
+import { SKU_OPTIONS, sizing, skuValue } from "./skus";
+
 export type Zone = "edge" | "app" | "integration" | "data" | "shared" | "foundation";
 
 export type OptionDef = {
@@ -13,6 +15,16 @@ export type OptionDef = {
   label: string;
   choices: string[];
   default: string;
+  /** Display label per choice (SKU options show size and price). */
+  labels?: Record<string, string>;
+  /** Approximate monthly USD per choice. */
+  prices?: Record<string, number>;
+  /** Caveats per choice, e.g. "no private endpoint". */
+  notes?: Record<string, string>;
+  /** Sizing that applies to production installs, or to dev/test installs. */
+  env?: "prod" | "dev";
+  /** Any value is allowed (the choices are a fallback list, e.g. models read live from Azure). */
+  open?: boolean;
 };
 
 export type ServiceDef = {
@@ -293,7 +305,12 @@ export const SERVICES: ServiceDef[] = [
         choices: ["Zone redundant", "Same zone", "Disabled"],
         default: "Zone redundant",
       },
-      { key: "version", label: "Engine", choices: ["16", "15"], default: "16" },
+      {
+        key: "version",
+        label: "PostgreSQL version",
+        choices: ["18", "17", "16", "15", "14", "13"],
+        default: "16",
+      },
     ],
     monthly: 2100,
     blurb: "Primary relational store.",
@@ -369,20 +386,21 @@ export const SERVICES: ServiceDef[] = [
   },
   {
     id: "redis",
-    name: "Azure Cache for Redis",
+    name: "Azure Managed Redis",
     short: "Redis",
     category: "Data",
     zone: "data",
-    resourceType: "Microsoft.Cache/redis",
-    avm: "avm/res/cache/redis",
-    version: "0.8.0",
+    resourceType: "Microsoft.Cache/redisEnterprise",
+    avm: "avm/res/cache/redis-enterprise",
+    version: "0.1.0",
     wave: 2,
     privateLink: true,
     options: [
       { key: "sku", label: "SKU", choices: ["Premium P1", "Standard C2"], default: "Premium P1" },
     ],
     monthly: 420,
-    blurb: "Session and query cache.",
+    blurb:
+      "Session and query cache (Azure Managed Redis — Azure Cache for Redis no longer accepts new caches).",
   },
   // AI + analytics
   {
@@ -398,16 +416,62 @@ export const SERVICES: ServiceDef[] = [
     privateLink: true,
     options: [
       {
-        key: "models",
-        label: "Model deployments",
-        choices: ["gpt-4.1 + gpt-4.1-mini", "gpt-4.1-mini", "gpt-4.1 + text-embedding-3-large"],
-        default: "gpt-4.1 + gpt-4.1-mini",
+        key: "chatModel",
+        label: "Chat model",
+        choices: [
+          "gpt-5-nano",
+          "gpt-5-mini",
+          "gpt-5.4-nano",
+          "gpt-5.4-mini",
+          "gpt-4.1-nano",
+          "gpt-4.1-mini",
+          "o4-mini",
+          "gpt-4.1",
+          "gpt-5.1",
+          "gpt-5.4",
+          "gpt-5.5",
+        ],
+        default: "gpt-5-mini",
+        open: true,
+      },
+      {
+        key: "embeddingModel",
+        label: "Embedding model",
+        choices: ["none", "text-embedding-3-small", "text-embedding-3-large"],
+        default: "none",
+        open: true,
       },
       {
         key: "deployment",
         label: "Deployment type",
-        choices: ["Data zone standard", "Global standard", "Provisioned (PTU)"],
+        choices: ["Standard", "Global standard", "Data zone standard", "Provisioned (PTU)"],
         default: "Data zone standard",
+        labels: {
+          Standard: "Standard · processed in the region",
+          "Global standard": "Global standard · any Azure region, highest quota",
+          "Data zone standard": "Data zone standard · stays in the US or EU data zone",
+          "Provisioned (PTU)": "Provisioned · reserved throughput units",
+        },
+      },
+      {
+        key: "capacity",
+        label: "Capacity · production",
+        choices: ["10", "30", "50", "100", "200", "500"],
+        default: "100",
+        env: "prod",
+        labels: Object.fromEntries(
+          ["10", "30", "50", "100", "200", "500"].map((c) => [c, `${c}K tokens/min (or ${c} PTU)`]),
+        ),
+      },
+      {
+        key: "devCapacity",
+        label: "Capacity · dev/test",
+        choices: ["1", "5", "10", "30", "50"],
+        default: "10",
+        env: "dev",
+        labels: Object.fromEntries(
+          ["1", "5", "10", "30", "50"].map((c) => [c, `${c}K tokens/min (or ${c} PTU)`]),
+        ),
       },
     ],
     monthly: 3200,
@@ -629,6 +693,53 @@ export const SERVICES: ServiceDef[] = [
   },
 ];
 
+// Sizing options come from the SKU tables: each becomes a production and a dev/test choice.
+for (const svc of SERVICES) {
+  const opts = SKU_OPTIONS[svc.id];
+  if (!opts) continue;
+  const generated: OptionDef[] = opts.flatMap((o) =>
+    (["prod", "dev"] as const).map((env) => ({
+      key: env === "prod" ? o.key : o.devKey,
+      label: `${o.label} · ${env === "prod" ? "production" : "dev/test"}`,
+      choices: o.skus.map((k) => k.value),
+      default: env === "prod" ? o.default : o.devDefault,
+      labels: Object.fromEntries(o.skus.map((k) => [k.value, k.label])),
+      prices: Object.fromEntries(o.skus.map((k) => [k.value, k.monthly])),
+      notes: Object.fromEntries(
+        o.skus
+          .filter((k) => k.note || k.pe === false)
+          .map((k) => [
+            k.value,
+            [k.pe === false ? "no private endpoint" : "", k.note ?? ""].filter(Boolean).join(" · "),
+          ]),
+      ),
+      env,
+    })),
+  );
+  const keys = new Set(generated.map((g) => g.key));
+  svc.options = [...generated, ...svc.options.filter((o) => !keys.has(o.key))];
+}
+const aksDef = SERVICES.find((s) => s.id === "aks")!;
+aksDef.options = aksDef.options.flatMap((o) =>
+  o.key === "nodes"
+    ? [
+        {
+          ...o,
+          label: "System + user nodes · production",
+          choices: ["1 + 1", "1 + 2", "2 + 2", "3 + 3 (zonal)", "3 + 6 (zonal)", "3 + 9 (zonal)"],
+          env: "prod" as const,
+        },
+        {
+          key: "devNodes",
+          label: "System + user nodes · dev/test",
+          choices: ["1 + 1", "1 + 2", "2 + 2"],
+          default: "1 + 1",
+          env: "dev" as const,
+        },
+      ]
+    : [o],
+);
+
 export const SERVICE_BY_ID = new Map(SERVICES.map((s) => [s.id, s]));
 export const CATEGORIES = [
   "Compute",
@@ -686,8 +797,19 @@ export const CUSTOMER_PLATFORM = [
 export const withDefaults = (id: string, settings: Record<string, unknown> = {}): Selected => {
   const def = SERVICE_BY_ID.get(id);
   const out: Record<string, string> = {};
-  for (const o of def?.options ?? [])
-    out[o.key] = typeof settings[o.key] === "string" ? (settings[o.key] as string) : o.default;
+  const given = { ...settings };
+  // Older manifests stored AI models as one preset, e.g. "gpt-4.1 + text-embedding-3-large".
+  if (id === "ai-foundry" && typeof given["models"] === "string" && !given["chatModel"]) {
+    const parts = (given["models"] as string).split(" + ");
+    given["chatModel"] = parts.find((p) => !p.startsWith("text-embedding")) ?? "gpt-4.1";
+    given["embeddingModel"] = parts.find((p) => p.startsWith("text-embedding")) ?? "none";
+  }
+  for (const o of def?.options ?? []) {
+    const v = given[o.key];
+    const sku = skuValue(id, o.key, v);
+    out[o.key] =
+      sku ?? (typeof v === "string" && (o.open || o.choices.includes(v)) ? v : o.default);
+  }
   return { id, settings: out };
 };
 
@@ -704,8 +826,31 @@ export function normalise(selected: Selected[], topology: Topology): Selected[] 
   return SERVICES.filter((s) => map.has(s.id)).map((s) => map.get(s.id) as Selected);
 }
 
-export const monthlyEstimate = (selected: Selected[]) =>
-  selected.reduce((sum, s) => sum + (SERVICE_BY_ID.get(s.id)?.monthly ?? 0), 0);
+/** Approximate monthly list price of one install: production sizing, or dev/test sizing. */
+export const serviceMonthly = (s: Selected, env: "prod" | "dev" = "prod") => {
+  const sized = sizing(s.id, s.settings);
+  // Model usage is billed per token; a dev/test install's spend is small.
+  if (s.id === "ai-foundry" && env === "dev") return 50;
+  if (!sized.length)
+    return env === "dev"
+      ? Math.round((SERVICE_BY_ID.get(s.id)?.monthly ?? 0) * 0.3)
+      : (SERVICE_BY_ID.get(s.id)?.monthly ?? 0);
+  let n = 1;
+  if (s.id === "aks") {
+    const counts = (s.settings[env === "prod" ? "nodes" : "devNodes"] ?? "1 + 1")
+      .match(/\d+/g)
+      ?.map(Number) ?? [1, 1];
+    n = counts.reduce((a, b) => a + b, 0);
+  }
+  return sized.reduce((sum, x, i) => {
+    const sku = env === "prod" ? x.prod : x.dev;
+    const count = s.id === "data-explorer" ? 1 : s.id === "aks" && i === 1 ? n : 1;
+    return sum + sku.monthly * count;
+  }, 0);
+};
+
+export const monthlyEstimate = (selected: Selected[], env: "prod" | "dev" = "prod") =>
+  selected.reduce((sum, s) => sum + serviceMonthly(s, env), 0);
 
 export type Edge = {
   from: string;

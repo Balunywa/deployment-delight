@@ -90,11 +90,10 @@ export function offeringTerraform(opts: {
   if (!topology.privateEndpoints) subnets.delete("endpoints");
   const zones = [...new Set(generated.flatMap((g) => g.tf.zones ?? []))].sort();
   const providers = [...new Set(generated.flatMap((g) => g.tf.providers ?? []))].sort();
-  const retention = Number(
-    (selected.find((s) => s.id === "monitoring")?.settings["retention"] ?? "90").match(
-      /\d+/,
-    )?.[0] ?? 90,
-  );
+  const mon = selected.find((s) => s.id === "monitoring")?.settings ?? {};
+  const days = (v: string | undefined, d: number) => Number(v?.match(/\d+/)?.[0] ?? d);
+  const retention = days(mon["retention"], 90);
+  const devRetention = days(mon["devRetention"], 30);
   const inputs = inputsFor(selected, topology);
 
   const appHostname = has("container-apps")
@@ -102,10 +101,7 @@ export function offeringTerraform(opts: {
     : has("app-service")
       ? "azurerm_linux_web_app.this.default_hostname"
       : has("functions")
-        ? (selected.find((s) => s.id === "functions")?.settings["plan"] ?? "Flex Consumption") ===
-          "Flex Consumption"
-          ? "azurerm_function_app_flex_consumption.this.default_hostname"
-          : "azurerm_linux_function_app.this.default_hostname"
+        ? "local.functions_hostname"
         : '""';
 
   const files: TfFile[] = [];
@@ -257,7 +253,14 @@ export function offeringTerraform(opts: {
         '""',
       ),
       v("log_retention_days", "number", "Log retention in production.", String(retention)),
+      v("dev_log_retention_days", "number", "Log retention in dev/test.", String(devRetention)),
       v("tags", "map(string)", "Extra tags on every resource.", "{}"),
+      v(
+        "ai_model_versions",
+        "map(string)",
+        "Model version per AI deployment. Empty: the region's default version.",
+        "{}",
+      ),
       v(
         "app_image",
         "string",
@@ -265,12 +268,6 @@ export function offeringTerraform(opts: {
         '"mcr.microsoft.com/k8se/quickstart:latest"',
       ),
       v("cluster_admin_group_id", "string", "Entra group granted AKS cluster admin.", '""'),
-      v(
-        "aks_node_vm_size",
-        "string",
-        "VM size for AKS nodes (match the subscription's vCPU quota).",
-        '"Standard_D4ds_v5"',
-      ),
       v(
         "sql_admin_group_id",
         "string",
@@ -458,7 +455,7 @@ resource "azurerm_log_analytics_workspace" "this" {
   location            = var.location
   resource_group_name = local.rg_name
   sku                 = "PerGB2018"
-  retention_in_days   = local.prod ? var.log_retention_days : 30
+  retention_in_days   = local.prod ? var.log_retention_days : var.dev_log_retention_days
   tags                = local.tags
 }
 
@@ -596,8 +593,8 @@ ${selected
 Always on: its own managed identity (roles, no keys), diagnostics to Log Analytics, NSGs on every subnet,
 ${topology.privateEndpoints ? "private endpoints with public network access disabled, " : ""}TLS 1.2+, and tags for cost and ownership.
 
-Non-production environments are sized down (single zone, smaller SKUs, shorter retention); \`prod\` gets
-the architecture's settings.
+Production and dev/test installs each use the SKUs chosen for them in the offering (dev/test runs single
+zone, with shorter retention).
 
 Customer inputs: ${inputs.map((i) => i.label).join(", ")}.
 `,

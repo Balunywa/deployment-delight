@@ -3,12 +3,18 @@
  * into the spoke (egress through the customer's firewall when there is one), send telemetry to Log
  * Analytics, and are only reachable privately unless the architecture allows public access.
  */
-import { type ServiceTf, diag, pe, q } from "./hcl";
+import { sizing } from "@/lib/skus";
+
+import { type ServiceTf, bool, diag, envSel, pe, q } from "./hcl";
 
 type S = Record<string, string>;
+const counts = (v: string | undefined, d: [number, number]) =>
+  (v?.match(/\d+/g)?.map(Number) as [number, number] | undefined) ?? d;
 
 export const aks = (s: S): ServiceTf => {
-  const [sys, user] = (s["nodes"] ?? "3 + 3 (zonal)").match(/\d+/g)?.map(Number) ?? [3, 3];
+  const [tier, node] = sizing("aks", s);
+  const [sys, user] = counts(s["nodes"], [3, 3]);
+  const [devSys, devUser] = counts(s["devNodes"], [1, 1]);
   const zonal = (s["nodes"] ?? "").includes("zonal");
   const priv = (s["access"] ?? "Private cluster") === "Private cluster";
   return {
@@ -21,7 +27,7 @@ resource "azurerm_kubernetes_cluster" "this" {
   location                          = var.location
   resource_group_name               = local.rg_name
   dns_prefix                        = "aks-\${local.name}"
-  sku_tier                          = local.prod ? ${q(s["tier"] ?? "Standard")} : "Free"
+  sku_tier                          = ${envSel(q(tier!.prod.value), q(tier!.dev.value))}
   automatic_upgrade_channel         = "patch"
   node_os_upgrade_channel           = "NodeImage"
   local_account_disabled            = true
@@ -38,8 +44,8 @@ resource "azurerm_kubernetes_cluster" "this" {
 
   default_node_pool {
     name                         = "system"
-    vm_size                      = var.aks_node_vm_size
-    node_count                   = local.prod ? ${sys} : 1
+    vm_size                      = ${envSel(q(node!.prod.value), q(node!.dev.value))}
+    node_count                   = ${envSel(String(sys), String(devSys))}
     vnet_subnet_id               = local.subnet_ids["snet-aks"]
     only_critical_addons_enabled = true
     os_sku                       = "AzureLinux"
@@ -84,8 +90,8 @@ resource "azurerm_kubernetes_cluster" "this" {
 resource "azurerm_kubernetes_cluster_node_pool" "user" {
   name                  = "user"
   kubernetes_cluster_id = azurerm_kubernetes_cluster.this.id
-  vm_size               = var.aks_node_vm_size
-  node_count            = local.prod ? ${user} : 1
+  vm_size               = ${envSel(q(node!.prod.value), q(node!.dev.value))}
+  node_count            = ${envSel(String(user), String(devUser))}
   vnet_subnet_id        = local.subnet_ids["snet-aks"]
   os_sku                = "AzureLinux"
   zones                 = local.prod && ${zonal} ? ["1", "2", "3"] : null
@@ -103,11 +109,20 @@ ${diag("aks", "azurerm_kubernetes_cluster.this.id", { logs: "audit" })}`,
   };
 };
 
-export const containerApps = (s: S): ServiceTf => ({
-  subnets: ["aca"],
-  providers: ["Microsoft.App"],
-  outputs: { app_url: '"https://${azurerm_container_app.app.ingress[0].fqdn}"' },
-  body: `
+const acaProfile = (v: string) =>
+  v === "Consumption"
+    ? { name: "Consumption", type: "Consumption", dedicated: false }
+    : { name: v.split(" ")[1]!.toLowerCase(), type: v.split(" ")[1]!, dedicated: true };
+
+export const containerApps = (s: S): ServiceTf => {
+  const [pr] = sizing("container-apps", s);
+  const p = acaProfile(pr!.prod.value);
+  const d = acaProfile(pr!.dev.value);
+  return {
+    subnets: ["aca"],
+    providers: ["Microsoft.App"],
+    outputs: { app_url: '"https://${azurerm_container_app.app.ingress[0].fqdn}"' },
+    body: `
 resource "azurerm_container_app_environment" "this" {
   name                           = "cae-\${local.name}"
   location                       = var.location
@@ -119,8 +134,10 @@ resource "azurerm_container_app_environment" "this" {
   tags                           = local.tags
 
   workload_profile {
-    name                  = ${q(s["profile"] === "Dedicated D4" ? "d4" : "Consumption")}
-    workload_profile_type = ${q(s["profile"] === "Dedicated D4" ? "D4" : "Consumption")}${s["profile"] === "Dedicated D4" ? "\n    minimum_count         = local.prod ? 3 : 1\n    maximum_count         = local.prod ? 10 : 2" : ""}
+    name                  = ${envSel(q(p.name), q(d.name))}
+    workload_profile_type = ${envSel(q(p.type), q(d.type))}
+    minimum_count         = ${envSel(p.dedicated ? "3" : "null", d.dedicated ? "1" : "null")}
+    maximum_count         = ${envSel(p.dedicated ? "10" : "null", d.dedicated ? "2" : "null")}
   }
 
   lifecycle {
@@ -135,7 +152,7 @@ resource "azurerm_container_app" "app" {
   container_app_environment_id = azurerm_container_app_environment.this.id
   resource_group_name          = local.rg_name
   revision_mode                = "Single"
-  workload_profile_name        = ${q(s["profile"] === "Dedicated D4" ? "d4" : "Consumption")}
+  workload_profile_name        = ${envSel(q(p.name), q(d.name))}
   tags                         = local.tags
 
   identity {
@@ -177,21 +194,25 @@ resource "azurerm_container_app" "app" {
   }
 }
 `,
-});
+  };
+};
 
-export const appService = (s: S): ServiceTf => ({
-  subnets: ["web", "endpoints"],
-  zones: ["privatelink.azurewebsites.net"],
-  outputs: { app_url: '"https://${azurerm_linux_web_app.this.default_hostname}"' },
-  body: `
+export const appService = (s: S): ServiceTf => {
+  const [plan] = sizing("app-service", s);
+  const zoned = !!plan!.prod.zones;
+  return {
+    subnets: ["web", "endpoints"],
+    zones: ["privatelink.azurewebsites.net"],
+    outputs: { app_url: '"https://${azurerm_linux_web_app.this.default_hostname}"' },
+    body: `
 resource "azurerm_service_plan" "web" {
   name                   = "asp-\${local.name}"
   location               = var.location
   resource_group_name    = local.rg_name
   os_type                = "Linux"
-  sku_name               = local.prod ? ${q(s["plan"] ?? "P1v3")} : "P0v3"
-  worker_count           = local.prod ? 3 : 1
-  zone_balancing_enabled = local.prod
+  sku_name               = ${envSel(q(plan!.prod.value), q(plan!.dev.value))}
+  worker_count           = ${envSel(zoned ? "3" : "1", "1")}
+  zone_balancing_enabled = ${envSel(bool(zoned), "false")}
   tags                   = local.tags
 }
 
@@ -231,18 +252,36 @@ resource "azurerm_linux_web_app" "this" {
   }
 }
 ${pe("web", "azurerm_linux_web_app.this.id", "sites", ["privatelink.azurewebsites.net"])}${diag("web", "azurerm_linux_web_app.this.id")}`,
-});
+  };
+};
 
 export const functions = (s: S): ServiceTf => {
-  const flex = (s["plan"] ?? "Flex Consumption") === "Flex Consumption";
+  const [plan] = sizing("functions", s);
+  const pFlex = plan!.prod.value === "FC1";
+  const dFlex = plan!.dev.value === "FC1";
+  // Flex Consumption and Premium are different resource types; each environment gets the one its plan needs.
+  const flex = envSel(bool(pFlex), bool(dFlex));
+  const subnets: ("func" | "web" | "endpoints")[] = ["endpoints"];
+  if (pFlex || dFlex) subnets.push("func");
+  if (!pFlex || !dFlex) subnets.push("web");
+  const pick = (attr: string) => {
+    const f = `one(azurerm_function_app_flex_consumption.this[*].${attr})`;
+    const l = `one(azurerm_linux_function_app.this[*].${attr})`;
+    return pFlex && dFlex ? f : !pFlex && !dFlex ? l : `local.functions_flex ? ${f} : ${l}`;
+  };
   return {
-    subnets: flex ? ["func", "endpoints"] : ["web", "endpoints"],
+    subnets,
     zones: ["privatelink.blob.core.windows.net"],
     providers: ["Microsoft.App"],
     outputs: {
-      functions_url: `"https://\${${flex ? "azurerm_function_app_flex_consumption" : "azurerm_linux_function_app"}.this.default_hostname}"`,
+      functions_url: '"https://${local.functions_hostname}"',
     },
     body: `
+locals {
+  functions_flex     = ${flex}
+  functions_hostname = ${pick("default_hostname")}
+}
+
 # Functions keeps its deployment packages and host state in its own storage account, reached with the
 # install identity (no keys).
 resource "azurerm_storage_account" "functions" {
@@ -283,13 +322,14 @@ resource "azurerm_service_plan" "functions" {
   location            = var.location
   resource_group_name = local.rg_name
   os_type             = "Linux"
-  sku_name            = ${flex ? '"FC1"' : '"EP1"'}
+  sku_name            = ${envSel(q(plan!.prod.value), q(plan!.dev.value))}
   tags                = local.tags
 }
 ${
-  flex
+  pFlex || dFlex
     ? `
 resource "azurerm_function_app_flex_consumption" "this" {
+  count                             = local.functions_flex ? 1 : 0
   name                              = "func-\${local.name}-\${random_string.suffix.result}"
   location                          = var.location
   resource_group_name               = local.rg_name
@@ -324,8 +364,12 @@ resource "azurerm_function_app_flex_consumption" "this" {
   depends_on = [azurerm_role_assignment.functions_storage]
 }
 `
-    : `
+    : ""
+}${
+      !pFlex || !dFlex
+        ? `
 resource "azurerm_linux_function_app" "this" {
+  count                         = local.functions_flex ? 0 : 1
   name                          = "func-\${local.name}-\${random_string.suffix.result}"
   location                      = var.location
   resource_group_name           = local.rg_name
@@ -359,6 +403,21 @@ resource "azurerm_linux_function_app" "this" {
   depends_on = [azurerm_role_assignment.functions_storage]
 }
 `
-}${diag("functions", `${flex ? "azurerm_function_app_flex_consumption" : "azurerm_linux_function_app"}.this.id`)}`,
+        : ""
+    }
+resource "azurerm_monitor_diagnostic_setting" "functions" {
+  name                       = "diag-to-law"
+  target_resource_id         = ${pick("id")}
+  log_analytics_workspace_id = local.law_id
+
+  enabled_log {
+    category_group = "allLogs"
+  }
+
+  enabled_metric {
+    category = "AllMetrics"
+  }
+}
+`,
   };
 };

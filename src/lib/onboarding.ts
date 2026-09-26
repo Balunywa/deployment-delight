@@ -3,6 +3,7 @@
  * server. Onboarding a customer is configuration: one install file per customer, committed to the ISV's
  * delivery repository, picked up by the same GitHub Actions (or Azure Pipelines) workflow for every customer.
  */
+import { sizing } from "./skus";
 import {
   type Answers,
   DEFAULT_ANSWERS,
@@ -587,6 +588,7 @@ export function reviewOffering(opts: {
           detail: `${selected.length} services checked against Azure's resource provider regions (${regionsSupporting(selected).length} regions could run it).`,
         },
   );
+  out.push(...skuChecks(selected, topology));
   const placement = placementFor({
     landing: topology.landing,
     landingZone: topology.landingZone,
@@ -714,3 +716,62 @@ export const verdict = (checks: Check[]) =>
     : checks.some((c) => c.level === "warn")
       ? "warn"
       : "pass";
+
+/** What the chosen SKUs mean for the guardrails: private endpoints, SLAs and high availability. */
+export function skuChecks(selected: Selected[], topology: Topology): Check[] {
+  const out: Check[] = [];
+  const noPe: string[] = [];
+  const noSla: string[] = [];
+  for (const s of selected) {
+    const name = SERVICE_BY_ID.get(s.id)?.name ?? s.id;
+    for (const x of sizing(s.id, s.settings)) {
+      for (const [env, sku] of [
+        ["production", x.prod],
+        ["dev/test", x.dev],
+      ] as const)
+        if (topology.privateEndpoints && sku.pe === false && s.id !== "apim")
+          noPe.push(`${name} ${sku.value} (${env})`);
+      if (/Free|Dev\(No SLA\)|^free$|^F1$/.test(x.prod.value))
+        noSla.push(`${name} ${x.prod.label.split(" · ")[0]}`);
+    }
+    if (
+      s.id === "postgres" &&
+      s.settings["ha"] !== "Disabled" &&
+      !sizing(s.id, s.settings)[0]?.prod.ha
+    )
+      out.push({
+        id: "sku-postgres-ha",
+        area: "Sizing",
+        level: "warn",
+        title: "PostgreSQL high availability needs General Purpose or Memory Optimized",
+        detail:
+          "Burstable servers run without a standby. Pick a General Purpose SKU for production to get zone-redundant HA.",
+      });
+  }
+  if (noPe.length)
+    out.push({
+      id: "sku-private",
+      area: "Sizing",
+      level: topology.landingZone === "corp" ? "warn" : "pass",
+      title: `${noPe.length} SKU${noPe.length === 1 ? " has" : "s have"} no private endpoint`,
+      detail: `${noPe.join(", ")} stay on their public endpoint (keyless, Entra ID only).${topology.landingZone === "corp" ? " Corp's Deny-Public-Endpoints policy may refuse them — choose a tier with private endpoints." : ""}`,
+    });
+  if (noSla.length)
+    out.push({
+      id: "sku-sla",
+      area: "Sizing",
+      level: "warn",
+      title: "Production uses tiers without an SLA",
+      detail: `${noSla.join(", ")}. Fine for trials; choose a higher tier for customer production.`,
+    });
+  if (!noPe.length && !noSla.length && !out.length)
+    out.push({
+      id: "sku",
+      area: "Sizing",
+      level: "pass",
+      title: "Every SKU fits the guardrails",
+      detail:
+        "Production and dev/test tiers support private endpoints where the architecture needs them, with an SLA in production.",
+    });
+  return out;
+}

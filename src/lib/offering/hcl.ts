@@ -62,11 +62,18 @@ export const DELEGATION_ACTIONS: Record<string, string[]> = {
 };
 
 /** Private endpoint in the endpoints subnet, registered in the install's DNS mode (local / platform / policy). */
-export function pe(name: string, target: string, subresource: string, zones: string[]) {
+export function pe(
+  name: string,
+  target: string,
+  subresource: string,
+  zones: string[],
+  /** Extra HCL condition, e.g. when only some SKUs support private endpoints. */
+  when = "",
+) {
   const slug = name.replace(/_/g, "-");
   return `
 resource "azurerm_private_endpoint" "${name}" {
-  count               = var.private_endpoints ? 1 : 0
+  count               = var.private_endpoints${when ? ` && (${when})` : ""} ? 1 : 0
   name                = "pe-\${local.name}-${slug}"
   location            = var.location
   resource_group_name = local.rg_name
@@ -181,3 +188,10 @@ export function fmtHcl(src: string) {
 
 /** Terraform list literal. */
 export const list = (xs: string[]) => `[${xs.map((x) => JSON.stringify(x)).join(", ")}]`;
+
+/** Production value, or dev/test value: `local.prod ? a : b` (just `a` when they're the same). */
+export const envSel = (prod: string, dev: string) =>
+  prod === dev ? prod : `local.prod ? ${prod} : ${dev}`;
+
+/** HCL boolean literal. */
+export const bool = (b: boolean) => (b ? "true" : "false");

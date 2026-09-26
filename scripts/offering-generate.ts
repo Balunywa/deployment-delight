@@ -33,8 +33,8 @@ const cases: { name: string; selected: Selected[]; topology: Topology }[] = [
   {
     name: "everything-alternates",
     selected: all({
-      functions: { plan: "Premium EP1" },
-      "service-bus": { tier: "Standard" },
+      functions: { plan: "EP1", devPlan: "FC1" },
+      "service-bus": { tier: "Premium", devTier: "Basic" },
       cosmos: { mode: "Serverless" },
       aks: { access: "Authorized IPs", nodes: "1 + 2" },
       "container-apps": { profile: "Dedicated D4" },
@@ -43,7 +43,11 @@ const cases: { name: string; selected: Selected[]; topology: Topology }[] = [
       "front-door": { tier: "Standard" },
       "key-vault": { keys: "Customer-managed (HSM)" },
       "security-baseline": { profile: "utility-critical" },
-      "ai-foundry": { models: "gpt-4.1 + text-embedding-3-large", deployment: "Provisioned (PTU)" },
+      "ai-foundry": {
+        chatModel: "gpt-4o-mini",
+        embeddingModel: "text-embedding-3-small",
+        deployment: "Provisioned (PTU)",
+      },
     }),
     topology: { ...base, landing: "dedicated-spoke", landingZone: "online" },
   },
@@ -66,6 +70,33 @@ const cases: { name: string; selected: Selected[]; topology: Topology }[] = [
     topology: base,
   },
 ];
+
+// Every SKU of every service, production and dev/test set to the same value so the generated code holds
+// literals the azurerm provider's validation checks: case N uses the Nth SKU of each option.
+import { SKU_OPTIONS } from "../src/lib/skus";
+const depth = Math.max(...Object.values(SKU_OPTIONS).flatMap((os) => os.map((o) => o.skus.length)));
+const extraOptions: Record<string, string[]> = {
+  postgres: ["version"],
+  "ai-foundry": ["chatModel", "embeddingModel", "deployment"],
+};
+for (let n = 0; n < depth; n++) {
+  const overrides: Record<string, Record<string, string>> = {};
+  for (const [svc, opts] of Object.entries(SKU_OPTIONS))
+    for (const o of opts) {
+      const v = o.skus[n % o.skus.length]!.value;
+      overrides[svc] = { ...overrides[svc], [o.key]: v, [o.devKey]: v };
+    }
+  for (const [svc, keys] of Object.entries(extraOptions))
+    for (const k of keys) {
+      const def = SERVICES.find((x) => x.id === svc)!.options.find((o) => o.key === k)!;
+      overrides[svc] = { ...overrides[svc], [k]: def.choices[n % def.choices.length]! };
+    }
+  cases.push({
+    name: `skus-${String(n).padStart(2, "0")}`,
+    selected: all(overrides),
+    topology: base,
+  });
+}
 
 for (const c of cases) {
   const files = offeringTerraform({

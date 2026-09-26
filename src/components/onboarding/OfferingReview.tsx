@@ -34,6 +34,7 @@ import {
   reviewOffering,
   sortEnvs,
   unsupportedIn,
+  regionsSupporting,
 } from "@/lib/onboarding";
 import { AZURE_REGIONS, UNAVAILABLE } from "@/lib/regions";
 import { cn } from "@/lib/utils";
@@ -134,10 +135,33 @@ export function RegionPicker({
           })}
         </div>
       </div>
-      <p className="mt-1 text-[10.5px] text-muted-foreground">
-        {AZURE_REGIONS.length} Azure regions. Crossed out: a service in this architecture isn't
-        offered there.
-      </p>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 text-[10.5px] text-muted-foreground">
+        <span>
+          {AZURE_REGIONS.length} Azure regions · {regionsSupporting(selected).length} run this
+          architecture. Crossed out: a service isn't offered there.
+        </span>
+        <button
+          className="text-primary hover:underline"
+          onClick={() =>
+            onChange([
+              ...new Set([
+                ...value,
+                ...AZURE_REGIONS.filter(
+                  (r) => r.geo === geo && !unsupportedIn(selected, r.name).length,
+                ).map((r) => r.name),
+              ]),
+            ])
+          }
+        >
+          Add all in {geo}
+        </button>
+        <button
+          className="text-primary hover:underline"
+          onClick={() => onChange([...new Set([...value, ...regionsSupporting(selected)])])}
+        >
+          Add every region
+        </button>
+      </div>
     </div>
   );
 }

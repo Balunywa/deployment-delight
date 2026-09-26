@@ -400,7 +400,8 @@ function Onboard() {
   const rings = ringsFor(envPlans, delivery);
   const triggers = triggersFor(delivery, customerCode);
   const monthly = monthlyEstimate(arch.selected);
-  const quote = envPlans.reduce((s, p) => s + (ENV_META[p.env].prod ? monthly : monthly * 0.3), 0);
+  const devMonthly = monthlyEstimate(arch.selected, "dev");
+  const quote = envPlans.reduce((s, p) => s + (ENV_META[p.env].prod ? monthly : devMonthly), 0);
   const codeTaken = taken.has(customerCode);
   const codeOk = /^[a-z0-9-]{2,40}$/.test(customerCode) && !codeTaken;
   const canContinue = [
@@ -1626,7 +1627,8 @@ function Onboard() {
                   <span className="text-xs font-normal text-muted-foreground"> / month</span>
                 </p>
                 <p className="text-[11px] text-muted-foreground">
-                  List price of the offering's services; non-production at ~30%.
+                  List prices of the offering's SKUs: production sizing for prod, dev/test sizing
+                  for the rest.
                 </p>
               </div>
             </div>
