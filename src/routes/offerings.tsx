@@ -59,7 +59,10 @@ import {
 } from "@/lib/factory.functions";
 import { semverCompare } from "@/lib/fleet";
 import { currency, shortDate } from "@/lib/format";
-import { bicepFor, pipelineFor, workflowFor } from "@/lib/pipeline";
+import { pipelineFor, workflowFor } from "@/lib/pipeline";
+import { offeringTerraform } from "@/lib/offering/terraform";
+import { DeployTab, ENV_LABEL, useOfferingRuns } from "@/components/offering/DeployTab";
+import { OfferingFlow, TerraformFiles } from "@/components/offering/OfferingFlow";
 import { verdict, reviewOffering, ENV_KEYS, ENV_META, type EnvKey } from "@/lib/onboarding";
 import { BUSINESS_LINES, modelOf, productOf } from "@/lib/product-catalog";
 import { foundationsQuery, offeringsQuery } from "@/lib/queries";
@@ -70,7 +73,7 @@ import {
 } from "@/components/onboarding/OfferingReview";
 import { cn } from "@/lib/utils";
 
-type View = "architecture" | "review" | "pipeline" | "iac" | "inputs" | "releases";
+type View = "architecture" | "review" | "deploy" | "pipeline" | "iac" | "inputs" | "releases";
 
 export const Route = createFileRoute("/offerings")({
   validateSearch: (
@@ -154,6 +157,7 @@ function Designer() {
   useEffect(() => setVersionId(null), [offering?.id]);
 
   const queryClient = useQueryClient();
+  const runs = useOfferingRuns(offering?.id ?? "00000000-0000-0000-0000-000000000000");
   const publish = useMutation({
     mutationFn: useServerFn(publishOfferingVersion),
     onSuccess: (v: { version: string }) => {
@@ -188,6 +192,9 @@ function Designer() {
   };
 
   const stages = pipelineFor(selected, topology);
+  const lastRun = runs.data?.find((r) => r.action === "deploy") ?? null;
+  const deployedEnvs =
+    lastRun?.stages.filter((s) => s.env && s.status === "succeeded").map((s) => s.env!) ?? [];
   const inputs = inputsFor(selected, topology);
   const monthly = monthlyEstimate(selected);
   const privateCount = selected.filter((s) => SERVICE_BY_ID.get(s.id)?.privateLink).length;
@@ -329,6 +336,46 @@ function Designer() {
           </div>
         </div>
 
+        <div className="mt-3">
+          <OfferingFlow
+            view={view}
+            onGo={(id) => navigate({ search: (s) => ({ ...s, view: id }) })}
+            status={{
+              architecture: dirty
+                ? { text: "Unsaved changes", tone: "warning" }
+                : { text: `${selected.length} resources · saved` },
+              review:
+                reviewState === "pass"
+                  ? { text: "All checks pass", tone: "success" }
+                  : reviewState === "warn"
+                    ? {
+                        text: `${review.filter((c) => c.level === "warn").length} warnings`,
+                        tone: "warning",
+                      }
+                    : {
+                        text: `${review.filter((c) => c.level === "fail").length} failing`,
+                        tone: "danger",
+                      },
+              deploy: !lastRun
+                ? { text: "Not deployed yet" }
+                : lastRun.status === "running"
+                  ? { text: "Deploying…", tone: "warning" }
+                  : lastRun.status === "waiting"
+                    ? { text: "Waiting for approval", tone: "warning" }
+                    : lastRun.status === "failed"
+                      ? { text: `Failed on v${lastRun.version}`, tone: "danger" }
+                      : {
+                          text: `v${lastRun.version} live in ${deployedEnvs.map((e) => ENV_LABEL[e]).join(", ") || "—"}`,
+                          tone: "success",
+                        },
+              releases:
+                base.status === "published"
+                  ? { text: `v${base.version} published`, tone: "success" }
+                  : { text: `v${base.version} draft` },
+            }}
+          />
+        </div>
+
         <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
           <nav className="-mb-px flex gap-4 text-[13px]">
             {(
@@ -342,6 +389,7 @@ function Designer() {
                       ? "Review · warnings"
                       : `Review · ${review.filter((c) => c.level === "fail").length} failing`,
                 ],
+                ["deploy", "Deploy"],
                 ["pipeline", "Pipeline"],
                 ["iac", "Infrastructure as code"],
                 ["inputs", `Customer inputs · ${inputs.length}`],
@@ -575,15 +623,32 @@ function Designer() {
           <div>
             <h2 className="text-sm font-semibold">Infrastructure as code</h2>
             <p className="text-xs text-muted-foreground">
-              One Bicep entry point composed from Azure Verified Modules. Customer differences are
-              parameters — no per-customer repository.
+              Terraform (azurerm provider) generated from the architecture — one module for every
+              customer and every environment. Each service ships with its managed identity roles,
+              diagnostics, private endpoint and landing zone guardrails; customer differences are
+              variables, never forks.
             </p>
           </div>
-          <CodeBlock
-            title={`offerings/${slug}/main.bicep`}
-            code={bicepFor(slug, selected, topology)}
+          <TerraformFiles
+            name={slug}
+            files={offeringTerraform({
+              product: productOf(offering.name) || offering.name,
+              selected,
+              topology,
+            })}
           />
         </div>
+      )}
+
+      {view === "deploy" && (
+        <DeployTab
+          offeringId={offering.id}
+          offeringName={offering.name}
+          versionId={base.id}
+          version={base.version}
+          published={base.status === "published"}
+          dirty={dirty}
+        />
       )}
 
       {view === "inputs" && (
@@ -646,7 +711,7 @@ function Designer() {
         manifest={toManifest(slug, editable ? base.version : semverBump(maxVersion), arch, {
           repository: "github.com/gridworks/grid-analytics-infra",
           path: `offerings/${slug}`,
-          iac: "bicep",
+          iac: "terraform",
           pipeline: flavour,
         })}
         onSaved={(id) => setVersionId(id)}

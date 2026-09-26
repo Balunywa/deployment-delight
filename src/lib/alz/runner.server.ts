@@ -18,7 +18,9 @@ const home = () =>
     ? "/home/cloud-delivery"
     : path.join(os.tmpdir(), "cloud-delivery"));
 
-export const workDir = (foundationId: string) => path.join(home(), "foundations", foundationId);
+/** A foundation ID, or a relative workspace key such as "installs/<offering>/<env>". */
+export const workDir = (key: string) =>
+  key.includes("/") ? path.join(home(), ...key.split("/")) : path.join(home(), "foundations", key);
 
 async function which(bin: string) {
   return new Promise<string | null>((resolve) => {
@@ -192,7 +194,7 @@ export async function writeConfig(
   await mkdir(dir, { recursive: true });
   // Replace generated files; keep state, lock file, provider cache and the saved plan.
   for (const f of await readdir(dir).catch(() => [] as string[]))
-    if (f.endsWith(".tf") || f === "lib")
+    if (f.endsWith(".tf") || f === "lib" || f === "README.md")
       await rm(path.join(dir, f), { recursive: true, force: true });
   for (const f of files) {
     const p = path.join(dir, f.path);
@@ -250,6 +252,63 @@ export async function importResource(
       log,
     )) === 0
   );
+}
+
+async function tfEnv() {
+  const cache = path.join(home(), "plugin-cache");
+  await mkdir(cache, { recursive: true });
+  return {
+    ...(await authEnv()),
+    TF_IN_AUTOMATION: "1",
+    TF_INPUT: "0",
+    TF_PLUGIN_CACHE_DIR: cache,
+    TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "true",
+    CHECKPOINT_DISABLE: "1",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "safe.directory",
+    GIT_CONFIG_VALUE_0: "*",
+  };
+}
+
+/** Any other Terraform command in a workspace, e.g. init, validate or output -json. */
+export async function terraformCmd(key: string, args: string[], log: Logger) {
+  const bin = await terraformBinary(log);
+  return run(bin, args, workDir(key), await tfEnv(), log);
+}
+
+/** `terraform output -json` for a workspace, or {} when nothing is deployed. */
+export async function terraformOutputs(
+  key: string,
+): Promise<Record<string, { value: unknown; sensitive: boolean }>> {
+  const bin = await terraformBinary(() => {});
+  try {
+    return JSON.parse(await capture(bin, ["output", "-json"], workDir(key), await tfEnv()));
+  } catch {
+    return {};
+  }
+}
+
+/** Resource addresses in a workspace's state (empty when nothing is deployed yet). */
+export async function stateAddresses(key: string): Promise<string[]> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const st = JSON.parse(await readFile(path.join(workDir(key), "terraform.tfstate"), "utf8")) as {
+      resources?: {
+        mode: string;
+        type: string;
+        name: string;
+        instances?: { index_key?: unknown }[];
+      }[];
+    };
+    return (st.resources ?? []).flatMap((r) =>
+      (r.instances ?? [{}]).map(
+        (i) =>
+          `${r.mode === "data" ? "data." : ""}${r.type}.${r.name}${i.index_key !== undefined ? `[${JSON.stringify(i.index_key)}]` : ""}`,
+      ),
+    );
+  } catch {
+    return [];
+  }
 }
 
 export async function terraform(

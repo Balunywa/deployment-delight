@@ -123,9 +123,13 @@ export function PipelineGraph({
           icon={<GitPullRequest className="size-3.5 text-primary" />}
         />
         <Arrow />
-        <Node title="Validate" sub="bicep · psrule · policy" state={states["validate"]} />
+        <Node
+          title="Validate"
+          sub="terraform validate · policy · quota"
+          state={states["validate"]}
+        />
         <Arrow />
-        <Node title="Plan" sub={`what-if × ${rings.length}`} state={states["plan"]} />
+        <Node title="Plan" sub={`terraform plan × ${rings.length}`} state={states["plan"]} />
         <span className="ml-3 max-w-[200px] text-[10.5px] leading-snug text-muted-foreground">
           Results are posted on the pull request — reviewers see exactly what changes.
         </span>

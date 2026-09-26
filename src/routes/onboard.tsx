@@ -508,7 +508,7 @@ function Onboard() {
         : {
             id: "runs",
             label: "Validate & plan",
-            detail: `${envPlans.length} what-if run${envPlans.length === 1 ? "" : "s"} on the pull request`,
+            detail: `${envPlans.length} terraform plan${envPlans.length === 1 ? "" : "s"} on the pull request`,
             state: "queued",
           },
     ];
@@ -695,7 +695,7 @@ function Onboard() {
       state.steps.push({
         id: "runs",
         label: "Validate & plan",
-        detail: `${envPlans.length} what-if run${envPlans.length === 1 ? "" : "s"} on the pull request`,
+        detail: `${envPlans.length} terraform plan${envPlans.length === 1 ? "" : "s"} on the pull request`,
         state: "queued",
       });
       await planAll(state, push, mark);
@@ -1393,7 +1393,7 @@ function Onboard() {
                     />
                     <Toggle
                       label="Nightly drift check"
-                      hint="What-if on every install"
+                      hint="terraform plan on every install"
                       checked={delivery.driftSchedule}
                       onChange={(v) => setDelivery({ ...delivery, driftSchedule: v })}
                     />

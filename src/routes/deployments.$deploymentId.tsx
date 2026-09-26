@@ -527,7 +527,7 @@ function JobDetail({
       <pre className="px-4 py-3 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
         {plan?.resources?.length
           ? [
-              `$ az deployment sub what-if --template-file main.bicep`,
+              `$ terraform plan -out=tfplan`,
               ...plan.resources.map(
                 (r) => `  ${PLAN_SIGN[r.action]?.sign ?? "?"} ${r.type}  ${r.name}`,
               ),

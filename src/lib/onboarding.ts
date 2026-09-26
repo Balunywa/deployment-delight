@@ -401,7 +401,7 @@ export function triggersFor(d: Delivery, code: string): Trigger[] {
     {
       event: gh ? "pull_request" : "PR build validation",
       when: `Onboarding opens a pull request adding installs/${code}.yaml`,
-      runs: "Validate and plan (what-if) every environment; results posted on the pull request",
+      runs: "Validate and plan (terraform plan) every environment; results posted on the pull request",
     },
     {
       event: gh ? "push → main" : "CI trigger · main",
@@ -418,7 +418,7 @@ export function triggersFor(d: Delivery, code: string): Trigger[] {
           {
             event: gh ? "schedule · 0 5 * * *" : "Scheduled trigger · daily",
             when: "Every night",
-            runs: "Drift check (what-if) on every install; opens an issue when something changed",
+            runs: "Drift check (terraform plan -detailed-exitcode) on every install; opens an issue when something changed",
           },
         ]
       : []),
@@ -502,9 +502,9 @@ export function deliveryWorkflow(slug: string, d: Delivery) {
       `      source: ${slug}-release  # a published offering version upgrades every install`,
       `stages:`,
       `  - stage: validate`,
-      `    jobs: [{ template: templates/validate.yml }]  # bicep build, PSRule, policy + quota preflight`,
+      `    jobs: [{ template: templates/validate.yml }]  # terraform fmt + validate, policy + quota preflight`,
       `  - stage: plan`,
-      `    jobs: [{ template: templates/whatif.yml }]  # az deployment what-if per environment`,
+      `    jobs: [{ template: templates/plan.yml }]  # terraform plan per environment`,
       `  - template: templates/rings.yml  # one deployment job per environment, in order`,
       `    parameters:`,
       `      environments: \${{ split(variables.installEnvironments, ',') }}`,
@@ -539,7 +539,7 @@ export function deliveryWorkflow(slug: string, d: Delivery) {
     `      - uses: actions/checkout@v4`,
     `      - uses: azure/login@v2  # OIDC: federated credential per GitHub environment`,
     `        with: { client-id: \${{ vars.AZURE_CLIENT_ID }}, tenant-id: \${{ vars.AZURE_TENANT_ID }}, subscription-id: \${{ vars.AZURE_SUBSCRIPTION_ID }} }`,
-    `      - run: ./delivery/validate.sh \${{ matrix.install }}   # bicep build, PSRule, policy + quota preflight`,
+    `      - run: ./delivery/validate.sh \${{ matrix.install }}   # terraform fmt + validate, policy + quota preflight`,
     `      - run: ./delivery/whatif.sh \${{ matrix.install }}     # posts the plan on the pull request`,
     `  deploy:`,
     `    if: github.event_name != 'pull_request'`,

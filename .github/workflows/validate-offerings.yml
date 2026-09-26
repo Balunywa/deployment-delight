@@ -1,0 +1,47 @@
+name: Validate offering Terraform generation
+
+# Proves the Terraform Cloud Delivery generates for offerings is correct: every service, the options that
+# change the generated code, and each way an offering lands, through terraform fmt, init and validate
+# against the pinned azurerm provider.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/offering/**"
+      - "src/lib/catalog.ts"
+      - "scripts/offering-generate.ts"
+      - ".github/workflows/validate-offerings.yml"
+  pull_request:
+    paths:
+      - "src/lib/offering/**"
+      - "src/lib/catalog.ts"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Generate configurations
+        run: bun scripts/offering-generate.ts "$RUNNER_TEMP/out"
+
+      - name: terraform fmt, init and validate
+        run: |
+          set -euo pipefail
+          export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/plugins" && mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          for dir in "$RUNNER_TEMP"/out/*/; do
+            echo "::group::$dir"
+            terraform -chdir="$dir" fmt -check -recursive
+            terraform -chdir="$dir" init -backend=false -input=false >/dev/null
+            terraform -chdir="$dir" validate -no-color
+            echo "::endgroup::"
+          done

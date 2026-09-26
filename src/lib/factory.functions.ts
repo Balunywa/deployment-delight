@@ -938,7 +938,7 @@ export const createOffering = createServerFn({ method: "POST" })
       {
         repository: "github.com/gridworks/grid-analytics-infra",
         path: `offerings/${slug}`,
-        iac: "bicep",
+        iac: "terraform",
         pipeline: "github-actions",
       },
     );

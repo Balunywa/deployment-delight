@@ -1,8 +1,9 @@
 /*
  * Generators that turn an architecture selection into the artifacts an ISV would otherwise
- * hand-write per customer: the Bicep entry point, the CI/CD pipeline graph and its YAML.
+ * hand-write per customer: the CI/CD pipeline graph and its YAML (the Terraform itself is in
+ * src/lib/offering/terraform.ts).
  */
-import { SERVICE_BY_ID, type Selected, type Topology, inputsFor } from "@/lib/catalog";
+import { SERVICE_BY_ID, type Selected, type Topology } from "@/lib/catalog";
 
 export type Job = { id: string; name: string; module?: string; detail: string; gate?: boolean };
 export type Stage = { id: string; name: string; jobs: Job[] };
@@ -28,7 +29,7 @@ export function pipelineFor(selected: Selected[], topology: Topology): Stage[] {
       id: `deploy-${def.id}`,
       name: def.short,
       module: def.id,
-      detail: `${def.avm}:${def.version}`,
+      detail: `${def.id}.tf · ${def.resourceType}`,
     });
     waves.set(def.wave, jobs);
   }
@@ -40,9 +41,9 @@ export function pipelineFor(selected: Selected[], topology: Topology): Stage[] {
       name: "Validate",
       jobs: [
         {
-          id: "bicep-build",
-          name: "Bicep build & lint",
-          detail: "az bicep build · PSRule for Azure",
+          id: "tf-validate",
+          name: "Terraform fmt & validate",
+          detail: "terraform fmt -check · terraform validate",
         },
         {
           id: "policy-whatif",
@@ -60,9 +61,9 @@ export function pipelineFor(selected: Selected[], topology: Topology): Stage[] {
       id: "plan",
       name: "Plan",
       jobs: envs.map((e) => ({
-        id: `whatif-${e}`,
-        name: `What-if · ${e}`,
-        detail: "az deployment sub what-if",
+        id: `plan-${e}`,
+        name: `Plan · ${e}`,
+        detail: "terraform plan -out=tfplan",
       })),
     },
     {
@@ -110,76 +111,70 @@ export function deploySteps(selected: Selected[], topology: Topology) {
     .map((j) => ({ name: j.name, module: j.module as string }));
 }
 
-const camel = (id: string) => id.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+const ENV_SHORT: Record<string, string> = {
+  development: "dev",
+  test: "test",
+  qa: "qa",
+  uat: "uat",
+  staging: "stg",
+  production: "prod",
+};
+const ENV_ORDER = ["development", "test", "qa", "uat", "staging", "production"];
 
-export function bicepFor(productSlug: string, selected: Selected[], topology: Topology) {
-  const inputs = inputsFor(selected, topology);
-  const lines: string[] = [
-    `// Generated from the ${productSlug} product definition. Do not edit per customer —`,
-    `// customer differences are parameters, not forks.`,
-    `targetScope = 'subscription'`,
-    ``,
-    `@description('Install name, e.g. metro-energy-prod')`,
-    `param installName string`,
-    `@allowed([${topology.regions.map((r) => `'${r}'`).join(", ")}])`,
-    `param location string`,
-    ...inputs
-      .filter((i) => i.key !== "subscriptionId")
-      .flatMap((i) => [
-        `@description('${i.label} — supplied by ${i.source === "customer" ? "the customer" : "your team"}')`,
-        `param ${i.key} string`,
-      ]),
-    ``,
-  ];
-  for (const s of selected) {
-    const def = SERVICE_BY_ID.get(s.id);
-    if (!def) continue;
-    const params = Object.entries(s.settings).map(([k, v]) => `    ${k}: '${v}'`);
-    if (def.privateLink && topology.privateEndpoints)
-      params.push(`    publicNetworkAccess: 'Disabled'`);
-    lines.push(
-      `module ${camel(def.id)} 'br/public:${def.avm}:${def.version}' = {`,
-      def.id === "resource-group"
-        ? `  name: '\${installName}-rg'`
-        : `  scope: resourceGroup('rg-\${installName}')`,
-      `  params: {`,
-      `    name: '${def.id}-\${installName}'`,
-      ...(def.id === "resource-group" ? [] : [`    location: location`]),
-      ...params,
-      `  }`,
-      `}`,
-      ``,
-    );
-  }
-  return lines.join("\n");
-}
-
+/**
+ * The CI/CD workflow every customer install runs: validate once, then plan and apply each environment in
+ * ring order with its own Terraform state; production waits for the environment's required reviewers.
+ */
 export function workflowFor(
   productSlug: string,
-  selected: Selected[],
+  _selected: Selected[],
   topology: Topology,
   flavour: "github-actions" | "azure-devops",
 ) {
-  const stages = pipelineFor(selected, topology);
+  const envs = ENV_ORDER.filter((e) => topology.environments.includes(e)).map(
+    (e) => ENV_SHORT[e] ?? e,
+  );
+  const dir = `offerings/${productSlug}`;
   if (flavour === "azure-devops") {
     return [
       `# azure-pipelines/deliver-${productSlug}.yml — one pipeline for every customer install`,
       `parameters:`,
       `  - name: install`,
+      `    displayName: Customer code, e.g. metro-energy`,
       `    type: string`,
-      `extends:`,
-      `  template: templates/isv-delivery.yml@platform`,
-      `  parameters:`,
-      `    install: \${{ parameters.install }}`,
-      `    stages:`,
-      ...stages.flatMap((s) => [
-        `      - stage: ${s.id.replace(/-/g, "_")}`,
-        `        displayName: ${s.name}`,
-        ...(s.jobs.some((j) => j.gate)
-          ? [`        environment: customer-production  # approval check`]
-          : []),
-        `        jobs:`,
-        ...s.jobs.map((j) => `          - job: ${j.id.replace(/-/g, "_")}  # ${j.name}`),
+      `trigger: none`,
+      `pool: { vmImage: ubuntu-latest }`,
+      `stages:`,
+      `  - stage: land`,
+      `    displayName: Land`,
+      `    jobs:`,
+      `      - job: validate`,
+      `        steps:`,
+      `          - task: TerraformInstaller@1`,
+      `          - script: terraform -chdir=${dir} fmt -check && terraform -chdir=${dir} init -backend=false && terraform -chdir=${dir} validate`,
+      ...envs.flatMap((e, i) => [
+        `  - stage: ${e}`,
+        `    dependsOn: ${i === 0 ? "land" : envs[i - 1]}`,
+        `    jobs:`,
+        `      - deployment: deploy_${e}`,
+        `        environment: \${{ parameters.install }}-${e}  # approvals and checks live on the environment`,
+        `        strategy:`,
+        `          runOnce:`,
+        `            deploy:`,
+        `              steps:`,
+        `                - checkout: self`,
+        `                - task: TerraformInstaller@1`,
+        `                - task: AzureCLI@2  # workload identity federation, no secrets`,
+        `                  inputs:`,
+        `                    azureSubscription: \${{ parameters.install }}-${e}`,
+        `                    scriptType: bash`,
+        `                    addSpnToEnvironment: true`,
+        `                    inlineScript: |`,
+        `                      export ARM_USE_OIDC=true ARM_OIDC_TOKEN=$idToken ARM_CLIENT_ID=$servicePrincipalId ARM_TENANT_ID=$tenantId`,
+        `                      terraform -chdir=${dir} init -backend-config=key=\${{ parameters.install }}-${e}.tfstate`,
+        `                      terraform -chdir=${dir} plan -var-file=../../installs/\${{ parameters.install }}/${e}.tfvars.json -out=tfplan`,
+        `                      terraform -chdir=${dir} apply tfplan`,
+        `                      terraform -chdir=${dir} output -json`,
       ]),
     ].join("\n");
   }
@@ -189,20 +184,41 @@ export function workflowFor(
     `on:`,
     `  workflow_dispatch:`,
     `    inputs:`,
-    `      install: { required: true, description: "Customer install, e.g. metro-energy-prod" }`,
+    `      install: { required: true, description: "Customer code, e.g. metro-energy" }`,
     `permissions: { id-token: write, contents: read }  # OIDC federation, no secrets`,
+    `env:`,
+    `  TF_IN_AUTOMATION: "1"`,
     `jobs:`,
-    ...stages.flatMap((s, i) => [
-      `  ${s.id}:`,
-      `    name: ${s.name}`,
-      ...(i > 0 ? [`    needs: ${stages[i - 1]?.id}`] : []),
-      ...(s.jobs.some((j) => j.gate)
-        ? [`    environment: customer-production  # required reviewers`]
-        : []),
-      `    uses: ./.github/workflows/isv-stage.yml`,
-      `    with:`,
-      `      install: \${{ inputs.install }}`,
-      `      steps: ${JSON.stringify(s.jobs.map((j) => j.id))}`,
+    `  land:`,
+    `    name: Land`,
+    `    runs-on: ubuntu-latest`,
+    `    steps:`,
+    `      - uses: actions/checkout@v4`,
+    `      - uses: hashicorp/setup-terraform@v3`,
+    `      - run: terraform -chdir=${dir} fmt -check`,
+    `      - run: terraform -chdir=${dir} init -backend=false && terraform -chdir=${dir} validate`,
+    ...envs.flatMap((e, i) => [
+      `  ${e}:`,
+      `    name: ${e}`,
+      `    needs: ${i === 0 ? "land" : envs[i - 1]}`,
+      `    runs-on: ubuntu-latest`,
+      `    environment: \${{ inputs.install }}-${e}  # ${e === "prod" ? "required reviewers" : "per-environment credentials"}`,
+      `    steps:`,
+      `      - uses: actions/checkout@v4`,
+      `      - uses: hashicorp/setup-terraform@v3`,
+      `      - uses: azure/login@v2`,
+      `        with:`,
+      `          client-id: \${{ vars.AZURE_CLIENT_ID }}`,
+      `          tenant-id: \${{ vars.AZURE_TENANT_ID }}`,
+      `          subscription-id: \${{ vars.AZURE_SUBSCRIPTION_ID }}`,
+      `      - name: terraform plan`,
+      `        env: { ARM_USE_OIDC: "true", ARM_CLIENT_ID: "\${{ vars.AZURE_CLIENT_ID }}", ARM_TENANT_ID: "\${{ vars.AZURE_TENANT_ID }}" }`,
+      `        run: |`,
+      `          terraform -chdir=${dir} init -backend-config=key=\${{ inputs.install }}-${e}.tfstate`,
+      `          terraform -chdir=${dir} plan -var-file=../../installs/\${{ inputs.install }}/${e}.tfvars.json -out=tfplan`,
+      `      - name: terraform apply`,
+      `        env: { ARM_USE_OIDC: "true", ARM_CLIENT_ID: "\${{ vars.AZURE_CLIENT_ID }}", ARM_TENANT_ID: "\${{ vars.AZURE_TENANT_ID }}" }`,
+      `        run: terraform -chdir=${dir} apply tfplan && terraform -chdir=${dir} output -json`,
     ]),
   ].join("\n");
 }
