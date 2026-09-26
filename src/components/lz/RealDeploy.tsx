@@ -96,7 +96,11 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       // Without a billing scope the app can't create subscriptions, so start from existing ones.
       const spare = r.billingScopes.length
         ? []
-        : [...r.subscriptions].sort((a, b) => a.resourceGroups - b.resourceGroups).map((s) => s.id);
+        : [...r.subscriptions]
+            // Only near-empty subscriptions: landing zone policies apply to whatever is already there.
+            .filter((s) => s.resourceGroups <= 2)
+            .sort((a, b) => a.resourceGroups - b.resourceGroups)
+            .map((s) => s.id);
       const used = new Set(
         Object.values(next).flatMap((x) => (x.mode === "existing" ? [x.subscriptionId] : [])),
       );
