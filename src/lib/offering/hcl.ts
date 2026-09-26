@@ -156,7 +156,6 @@ export const q = (s: string) => JSON.stringify(s);
 export function fmtHcl(src: string) {
   const lines = src.split("\n");
   const attr = /^(\s*)([A-Za-z0-9_"-]+)(\s*)=\s(.*)$/;
-  let depth = 0;
   const out = [...lines];
   let group: number[] = [];
   const flush = () => {
@@ -174,20 +173,14 @@ export function fmtHcl(src: string) {
     const line = lines[i]!;
     const m = line.match(attr);
     const opens = (line.match(/[{[(]/g) ?? []).length - (line.match(/[}\])]/g) ?? []).length;
-    if (m && depth === 0 && opens > 0) {
-      // A multi-line value ends the group and isn't aligned with it.
+    if (m && opens > 0) {
+      // A multi-line value ends the group and isn't aligned with it; its contents align on their own.
       flush();
-      depth = opens;
       continue;
     }
-    if (m && depth === 0 && (group.length === 0 || m[1]!.length === prevIndent)) {
+    if (m && (group.length === 0 || m[1]!.length === prevIndent)) {
       group.push(i);
       prevIndent = m[1]!.length;
-      continue;
-    }
-    if (depth > 0) {
-      depth += opens;
-      if (depth <= 0) depth = 0;
       continue;
     }
     flush();

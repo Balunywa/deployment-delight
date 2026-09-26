@@ -126,6 +126,10 @@ export function offeringTerraform(opts: {
       source  = "hashicorp/azurerm"
       version = "${AZURERM_VERSION}"
     }
+    azapi = {
+      source  = "azure/azapi"
+      version = "~> 2.4"
+    }
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
@@ -360,31 +364,88 @@ provider "azurerm" {
     ].join("\n"),
   });
 
-  const subnetBlocks = [...subnets]
-    .sort((a, b) => SUBNETS[a].index * 16 - SUBNETS[b].index * 16 || a.localeCompare(b))
-    .map((k) => {
-      const sn = SUBNETS[k];
-      const lines = [
-        `  subnet {`,
-        `    name             = "${sn.name}"`,
-        `    address_prefixes = [cidrsubnet(var.address_space, ${sn.newbits}, ${sn.index})]`,
-        `    security_group   = azurerm_network_security_group.${k}[0].id`,
-      ];
-      if (sn.udr) lines.push(`    route_table_id   = one(azurerm_route_table.egress[*].id)`);
-      if (k === "endpoints") lines.push(`    private_endpoint_network_policies = "Enabled"`);
-      if (sn.delegation)
-        lines.push(
-          `\n    delegation {`,
-          `      name = "delegation"`,
-          `      service_delegation {`,
-          `        name    = "${sn.delegation}"`,
-          `        actions = ${list(DELEGATION_ACTIONS[sn.delegation] ?? [])}`,
-          `      }`,
-          `    }`,
-        );
-      lines.push(`  }`);
-      return lines.join("\n");
-    });
+  // Subnets are separate resources created in one call each with their NSG (landing zone policy denies
+  // subnets without one), route table, NAT gateway and delegation — one at a time, as the VNet requires.
+  const ordered = [...subnets].sort(
+    (a, b) => SUBNETS[a].index - SUBNETS[b].index || a.localeCompare(b),
+  );
+  const natTiers = new Set<SubnetKey>(["webtier", "apptier", "datatier"]);
+  const needsNat = ordered.some((k) => natTiers.has(k));
+  const subnetBlocks = ordered.map((k, i) => {
+    const sn = SUBNETS[k];
+    const props = [
+      `      addressPrefix        = cidrsubnet(var.address_space, ${sn.newbits}, ${sn.index})`,
+      `      networkSecurityGroup = { id = azurerm_network_security_group.${k}[0].id }`,
+      ...(k === "endpoints" ? [`      privateEndpointNetworkPolicies = "Enabled"`] : []),
+      ...(sn.delegation
+        ? [
+            `      delegations = [{ name = "delegation", properties = { serviceName = "${sn.delegation}" } }]`,
+          ]
+        : []),
+    ];
+    const extras = [
+      ...(sn.udr
+        ? [
+            `var.firewall_private_ip != "" ? { routeTable = { id = azurerm_route_table.egress[0].id } } : { routeTable = null }`,
+          ]
+        : []),
+      ...(natTiers.has(k)
+        ? [
+            `var.firewall_private_ip == "" ? { natGateway = { id = azurerm_nat_gateway.egress[0].id } } : { natGateway = null }`,
+          ]
+        : []),
+    ];
+    const body = extras.length
+      ? `merge({\n${props.join("\n")}\n    }, ${extras.join(", ")})`
+      : `{\n${props.join("\n")}\n    }`;
+    return `resource "azapi_resource" "subnet_${k}" {
+  count     = local.new_network ? 1 : 0
+  type      = "Microsoft.Network/virtualNetworks/subnets@2024-05-01"
+  name      = "${sn.name}"
+  parent_id = azurerm_virtual_network.this[0].id
+
+  body = {
+    properties = ${body}
+  }
+${
+  i > 0
+    ? `
+  depends_on = [azapi_resource.subnet_${ordered[i - 1]}]
+`
+    : ""
+}}
+`;
+  });
+  const natBlock = needsNat
+    ? `
+# Explicit outbound for the VM tiers (VMs get no default internet access): a NAT gateway, unless egress
+# goes through the hub firewall.
+resource "azurerm_public_ip" "nat" {
+  count               = local.new_network && var.firewall_private_ip == "" ? 1 : 0
+  name                = "pip-\${local.name}-nat"
+  location            = var.location
+  resource_group_name = local.rg_name
+  allocation_method   = "Static"
+  sku                 = "Standard"
+  tags                = local.tags
+}
+
+resource "azurerm_nat_gateway" "egress" {
+  count               = local.new_network && var.firewall_private_ip == "" ? 1 : 0
+  name                = "ng-\${local.name}"
+  location            = var.location
+  resource_group_name = local.rg_name
+  sku_name            = "Standard"
+  tags                = local.tags
+}
+
+resource "azurerm_nat_gateway_public_ip_association" "egress" {
+  count                = local.new_network && var.firewall_private_ip == "" ? 1 : 0
+  nat_gateway_id       = azurerm_nat_gateway.egress[0].id
+  public_ip_address_id = azurerm_public_ip.nat[0].id
+}
+`
+    : "";
 
   const nsgs = [...subnets]
     .map((k) => {
@@ -550,8 +611,6 @@ locals {
   hub_is_vwan = strcontains(var.hub_virtual_network_id, "/virtualHubs/")
 }
 
-# Subnets are declared inline so each is created together with its NSG — landing zone policy denies
-# subnets without one.
 resource "azurerm_virtual_network" "this" {
   count               = local.new_network ? 1 : 0
   name                = "vnet-\${local.name}"
@@ -559,11 +618,15 @@ resource "azurerm_virtual_network" "this" {
   resource_group_name = local.rg_name
   address_space       = [var.address_space]
   tags                = local.tags
-${subnetBlocks.length ? "\n" + subnetBlocks.join("\n\n") + "\n" : ""}}
+}
+${natBlock}
+${subnetBlocks.join("\n")}
 
 locals {
-  vnet_id    = local.new_network ? azurerm_virtual_network.this[0].id : var.existing_virtual_network_id
-  subnet_ids = local.new_network ? { for s in azurerm_virtual_network.this[0].subnet : s.name => s.id } : var.existing_subnet_ids
+  vnet_id = local.new_network ? azurerm_virtual_network.this[0].id : var.existing_virtual_network_id
+  subnet_ids = local.new_network ? {
+${ordered.map((k) => `    "${SUBNETS[k].name}" = azapi_resource.subnet_${k}[0].id`).join("\n")}
+  } : var.existing_subnet_ids
 }
 
 # Hub and spoke: peering both ways, so the spoke is reachable from the hub and routes through it.
