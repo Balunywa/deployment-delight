@@ -40,12 +40,18 @@ import {
   type RunStage,
   type StepStatus,
   decideOfferingRun,
+  discoverNetworks,
+  spokeRange,
   getOfferingDeployOptions,
   getOfferingRuns,
   listResourceGroups,
   startOfferingRun,
 } from "@/lib/offering/run.functions";
+import type { Selected, Topology } from "@/lib/catalog";
+import { requiredSubnets } from "@/lib/offering/terraform";
 import { cn } from "@/lib/utils";
+
+const ENVS = ["development", "test", "qa", "uat", "staging", "production"];
 
 export const ENV_LABEL: Record<string, string> = {
   development: "Dev",
@@ -112,7 +118,11 @@ export function DeployTab({
   version,
   published,
   dirty,
+  selected,
+  topology,
 }: {
+  selected: Selected[];
+  topology: Topology;
   offeringId: string;
   offeringName: string;
   versionId: string;
@@ -137,6 +147,20 @@ export function DeployTab({
   const [rgName, setRgName] = useState("");
   const [approvalFor, setApprovalFor] = useState<string[]>(["production"]);
   const [selectedRun, setSelectedRun] = useState<string | null>(null);
+  // Network: a new spoke (optionally connected to a hub) or the customer's existing VNet.
+  const [netMode, setNetMode] = useState<"new" | "existing">("new");
+  const [baseRange, setBaseRange] = useState("10.60.0.0/19");
+  const [hubId, setHubId] = useState("");
+  const [useFw, setUseFw] = useState(true);
+  const [useDns, setUseDns] = useState(true);
+  const [vnetId, setVnetId] = useState("");
+  const [subnetMap, setSubnetMap] = useState<Record<string, string>>({});
+  const netFn = useServerFn(discoverNetworks);
+  const nets = useQuery({ queryKey: ["networks"], queryFn: () => netFn(), staleTime: 120_000 });
+  const needed = useMemo(() => requiredSubnets(selected, topology), [selected, topology]);
+  const hub = nets.data?.vnets.find((v) => v.id === hubId);
+  const vnet = nets.data?.vnets.find((v) => v.id === vnetId);
+  const rangeOk = /^\d{1,3}(\.\d{1,3}){3}\/(1[2-9])$/.test(baseRange);
   const [confirm, setConfirm] = useState(false);
 
   const o = opts.data;
@@ -178,6 +202,18 @@ export function DeployTab({
         installPrefix: prefix,
         resourceGroup: rgMode === "existing" ? { mode: "existing", name: rgName } : { mode: "new" },
         approvalFor: approvalFor.filter((e) => chosen.includes(e)),
+        network:
+          netMode === "existing"
+            ? { mode: "existing", vnetId, subnetIds: subnetMap }
+            : {
+                mode: "new",
+                baseRange,
+                ...(hubId ? { hubId } : {}),
+                ...(hub?.firewallIp && useFw ? { firewallIp: hub.firewallIp } : {}),
+                ...(hubId && useDns && nets.data?.dnsZoneResourceGroupId
+                  ? { dnsZoneResourceGroupId: nets.data.dnsZoneResourceGroupId }
+                  : {}),
+              },
       },
     });
 
@@ -344,6 +380,180 @@ export function DeployTab({
                 </Select>
               )}
             </Field>
+            <Field
+              label="Network"
+              hint={
+                netMode === "new"
+                  ? `One /22 per environment from this range: ${chosen.map((e) => `${ENV_LABEL[e]} ${spokeRange(rangeOk ? baseRange : "10.60.0.0/19", ENVS.indexOf(e))}`).join(", ")}.`
+                  : `Deploy into the customer's VNet: map each subnet the architecture needs.`
+              }
+            >
+              <div className="flex rounded-sm border border-border p-0.5 text-xs">
+                {(
+                  [
+                    ["new", "New spoke"],
+                    ["existing", "Customer's VNet"],
+                  ] as const
+                ).map(([m, l]) => (
+                  <button
+                    key={m}
+                    onClick={() => setNetMode(m)}
+                    className={cn(
+                      "flex-1 rounded-sm px-2 py-1",
+                      netMode === m ? "bg-accent font-medium" : "text-muted-foreground",
+                    )}
+                  >
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {netMode === "new" ? (
+                <div className="mt-1.5 space-y-1.5">
+                  <Input
+                    value={baseRange}
+                    onChange={(e) => setBaseRange(e.target.value.trim())}
+                    className={cn("h-8 font-mono text-xs", !rangeOk && "border-danger")}
+                    aria-label="Address range"
+                  />
+                  <Select
+                    value={hubId || "none"}
+                    onValueChange={(v) => setHubId(v === "none" ? "" : v)}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue
+                        placeholder={nets.isLoading ? "Finding hubs…" : "Connect to a hub"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none" className="text-xs">
+                        No hub · standalone spoke
+                      </SelectItem>
+                      <SelectGroup>
+                        <SelectLabel className="text-[10px] tracking-wider uppercase">
+                          Hubs
+                        </SelectLabel>
+                        {nets.data?.vnets
+                          .filter((v) => v.hub)
+                          .map((v) => (
+                            <SelectItem key={v.id} value={v.id} className="text-xs">
+                              {v.kind === "vhub" ? "Virtual WAN hub" : "Hub VNet"} {v.name} ·{" "}
+                              {v.location}
+                              {v.firewallIp ? ` · firewall ${v.firewallIp}` : ""}
+                            </SelectItem>
+                          ))}
+                      </SelectGroup>
+                      <SelectGroup>
+                        <SelectLabel className="text-[10px] tracking-wider uppercase">
+                          Other VNets
+                        </SelectLabel>
+                        {nets.data?.vnets
+                          .filter((v) => !v.hub)
+                          .map((v) => (
+                            <SelectItem key={v.id} value={v.id} className="text-xs">
+                              {v.name} · {v.location} · {v.addressSpace.join(", ")}
+                            </SelectItem>
+                          ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                  {hub && (
+                    <div className="space-y-1 rounded-sm border border-border p-1.5 text-[11px]">
+                      <p className="text-muted-foreground">
+                        {hub.kind === "vhub"
+                          ? "Connected to the virtual hub (routing intent applies)."
+                          : "Peered both ways; overlap with the hub and its spokes is checked first."}
+                      </p>
+                      {hub.firewallIp && (
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={useFw}
+                            onChange={(e) => setUseFw(e.target.checked)}
+                          />
+                          Egress through the hub firewall ({hub.firewallIp})
+                        </label>
+                      )}
+                      {nets.data?.dnsZoneResourceGroupId && (
+                        <label className="flex items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={useDns}
+                            onChange={(e) => setUseDns(e.target.checked)}
+                          />
+                          Use the platform's private DNS zones ({nets.data.dnsZoneCount})
+                        </label>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="mt-1.5 space-y-1.5">
+                  <Select
+                    value={vnetId}
+                    onValueChange={(v) => {
+                      setVnetId(v);
+                      setSubnetMap({});
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs">
+                      <SelectValue
+                        placeholder={nets.isLoading ? "Loading VNets…" : "The customer's VNet"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {nets.data?.vnets
+                        .filter((v) => v.kind === "vnet")
+                        .map((v) => (
+                          <SelectItem key={v.id} value={v.id} className="text-xs">
+                            {v.name} · {v.location} · {v.subnets.length} subnets
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  {vnet &&
+                    needed.map((n) => (
+                      <div
+                        key={n.name}
+                        className="grid grid-cols-[92px_minmax(0,1fr)] items-center gap-1.5"
+                      >
+                        <span
+                          className="truncate font-mono text-[10.5px]"
+                          title={n.delegation ?? undefined}
+                        >
+                          {n.name.replace("snet-", "")}
+                        </span>
+                        <Select
+                          value={subnetMap[n.name] ?? ""}
+                          onValueChange={(v) => setSubnetMap({ ...subnetMap, [n.name]: v })}
+                        >
+                          <SelectTrigger className="h-7 text-[11px]">
+                            <SelectValue
+                              placeholder={
+                                n.delegation
+                                  ? `delegated to ${n.delegation.split("/")[1]}`
+                                  : "subnet"
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {vnet.subnets.map((x) => (
+                              <SelectItem
+                                key={x.id}
+                                value={x.id}
+                                disabled={!!n.delegation && !x.delegations.includes(n.delegation)}
+                                className="text-xs"
+                              >
+                                {x.name} · {x.prefix}
+                                {x.delegations.length ? ` · ${x.delegations.join(", ")}` : ""}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </Field>
             <Field label="Approval before apply">
               <div className="flex flex-wrap gap-1">
                 {chosen.map((e) => {
@@ -377,7 +587,9 @@ export function DeployTab({
                   !chosen.length ||
                   !prefixOk ||
                   !sub ||
-                  (rgMode === "existing" && !rgName)
+                  (rgMode === "existing" && !rgName) ||
+                  (netMode === "new" && !rangeOk) ||
+                  (netMode === "existing" && (!vnetId || needed.some((n) => !subnetMap[n.name])))
                 }
                 onClick={() => go("deploy")}
               >

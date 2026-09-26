@@ -16,7 +16,17 @@ export type ServiceTf = {
   outputs?: Record<string, string>;
 };
 
-export type SubnetKey = "aks" | "aca" | "web" | "func" | "apim" | "endpoints" | "appgw";
+export type SubnetKey =
+  | "aks"
+  | "aca"
+  | "web"
+  | "func"
+  | "apim"
+  | "endpoints"
+  | "appgw"
+  | "webtier"
+  | "apptier"
+  | "datatier";
 
 /** Address plan inside the install's /22 (or larger): fixed slots so re-deploys never renumber. */
 export const SUBNETS: Record<
@@ -54,6 +64,10 @@ export const SUBNETS: Record<
   },
   endpoints: { name: "snet-endpoints", newbits: 3, index: 6, udr: false },
   appgw: { name: "snet-appgw", newbits: 4, index: 14, udr: false },
+  // Classic VM tiers: web, app and data, each /26 with tier-to-tier NSG rules.
+  webtier: { name: "snet-web-tier", newbits: 4, index: 6, udr: true },
+  apptier: { name: "snet-app-tier", newbits: 4, index: 7, udr: true },
+  datatier: { name: "snet-data-tier", newbits: 4, index: 11, udr: true },
 };
 
 export const DELEGATION_ACTIONS: Record<string, string[]> = {

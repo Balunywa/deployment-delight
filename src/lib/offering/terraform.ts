@@ -36,10 +36,16 @@ import {
   list,
   q,
 } from "./hcl";
+import { appTier, dataVms, tierRules, vmCredentials, webTier } from "./vm-services";
 
 export const AZURERM_VERSION = "~> 4.50";
 
-const GENERATORS: Record<string, (s: Record<string, string>) => ServiceTf> = {
+type Ctx = { appGateway: boolean; publicWeb: boolean; webVmss: boolean };
+const GENERATORS: Record<string, (s: Record<string, string>, ctx: Ctx) => ServiceTf> = {
+  "web-vmss": (s, c) => webTier(s, c),
+  "app-vmss": (s) => appTier(s),
+  vm: (s) => dataVms(s),
+  "app-gateway": (s, c) => appGateway(s, { webVmss: c.webVmss }),
   "key-vault": keyVault,
   storage,
   postgres,
@@ -57,7 +63,6 @@ const GENERATORS: Record<string, (s: Record<string, string>) => ServiceTf> = {
   "app-service": appService,
   functions,
   apim,
-  "app-gateway": appGateway,
   "front-door": frontDoor,
   "app-insights": appInsights,
   defender,
@@ -83,9 +88,15 @@ export function offeringTerraform(opts: {
 }): TfFile[] {
   const { selected, topology } = opts;
   const has = (id: string) => selected.some((s) => s.id === id);
+  const ctx: Ctx = {
+    appGateway: has("app-gateway"),
+    publicWeb: topology.publicAccess,
+    webVmss: has("web-vmss"),
+  };
+  const vms = has("web-vmss") || has("app-vmss") || has("vm");
   const generated = selected
     .filter((s) => GENERATORS[s.id])
-    .map((s) => ({ id: s.id, tf: GENERATORS[s.id]!(s.settings) }));
+    .map((s) => ({ id: s.id, tf: GENERATORS[s.id]!(s.settings, ctx) }));
   const subnets = new Set<SubnetKey>(generated.flatMap((g) => g.tf.subnets ?? []));
   if (!topology.privateEndpoints) subnets.delete("endpoints");
   const zones = [...new Set(generated.flatMap((g) => g.tf.zones ?? []))].sort();
@@ -118,6 +129,14 @@ export function offeringTerraform(opts: {
     random = {
       source  = "hashicorp/random"
       version = "~> 3.6"
+    }${
+      vms
+        ? `
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
+    }`
+        : ""
     }
   }
 }
@@ -149,6 +168,14 @@ export function offeringTerraform(opts: {
       data_plane_available = false
     }
   }
+}
+
+# The hub's subscription, for the hub side of the peering (or the Virtual WAN hub connection).
+provider "azurerm" {
+  alias                           = "hub"
+  subscription_id                 = var.hub_virtual_network_id != "" ? split("/", var.hub_virtual_network_id)[2] : var.subscription_id
+  resource_provider_registrations = "none"
+  features {}
 }
 `,
   });
@@ -224,7 +251,37 @@ export function offeringTerraform(opts: {
       v(
         "hub_virtual_network_id",
         "string",
-        "Hub VNet to peer with (the hub side is the platform team's).",
+        "Hub to connect to: a hub VNet ID (peered both ways) or a Virtual WAN hub ID (hub connection).",
+        '""',
+      ),
+      v(
+        "hub_peering_both_ways",
+        "bool",
+        "Create the hub side of the peering too (needs rights on the hub).",
+        "true",
+      ),
+      v(
+        "use_hub_gateway",
+        "bool",
+        "Reach on-premises through the hub's VPN/ExpressRoute gateway.",
+        "false",
+      ),
+      v(
+        "existing_virtual_network_id",
+        "string",
+        "Deploy into the customer's existing VNet instead of creating a spoke. Set existing_subnet_ids too.",
+        '""',
+      ),
+      v(
+        "existing_subnet_ids",
+        "map(string)",
+        "Existing subnet per role, e.g. snet-endpoints = the subnet ID for private endpoints.",
+        "{}",
+      ),
+      v(
+        "vm_admin_group_id",
+        "string",
+        "Entra group granted Virtual Machine Administrator Login.",
         '""',
       ),
       v(
@@ -311,7 +368,7 @@ export function offeringTerraform(opts: {
         `  subnet {`,
         `    name             = "${sn.name}"`,
         `    address_prefixes = [cidrsubnet(var.address_space, ${sn.newbits}, ${sn.index})]`,
-        `    security_group   = azurerm_network_security_group.${k}.id`,
+        `    security_group   = azurerm_network_security_group.${k}[0].id`,
       ];
       if (sn.udr) lines.push(`    route_table_id   = one(azurerm_route_table.egress[*].id)`);
       if (k === "endpoints") lines.push(`    private_endpoint_network_policies = "Enabled"`);
@@ -370,8 +427,11 @@ export function offeringTerraform(opts: {
     destination_address_prefix = "*"
   }
 `
-          : "";
+          : k === "webtier" || k === "apptier" || k === "datatier"
+            ? tierRules(k, ctx)
+            : "";
       return `resource "azurerm_network_security_group" "${k}" {
+  count               = local.new_network ? 1 : 0
   name                = "nsg-\${local.name}-${k}"
   location            = var.location
   resource_group_name = local.rg_name
@@ -379,8 +439,9 @@ export function offeringTerraform(opts: {
 ${rules}}
 ${`
 resource "azurerm_monitor_diagnostic_setting" "nsg_${k}" {
+  count                      = local.new_network ? 1 : 0
   name                       = "diag-to-law"
-  target_resource_id         = azurerm_network_security_group.${k}.id
+  target_resource_id         = azurerm_network_security_group.${k}[0].id
   log_analytics_workspace_id = local.law_id
 
   enabled_log {
@@ -468,7 +529,7 @@ locals {
 # ---------------------------------------------------------------- network
 ${nsgs}
 resource "azurerm_route_table" "egress" {
-  count                         = var.firewall_private_ip != "" ? 1 : 0
+  count                         = local.new_network && var.firewall_private_ip != "" ? 1 : 0
   name                          = "rt-\${local.name}"
   location                      = var.location
   resource_group_name           = local.rg_name
@@ -483,9 +544,16 @@ resource "azurerm_route_table" "egress" {
   }
 }
 
+locals {
+  # A new spoke, or the customer's existing VNet and subnets.
+  new_network = var.existing_virtual_network_id == ""
+  hub_is_vwan = strcontains(var.hub_virtual_network_id, "/virtualHubs/")
+}
+
 # Subnets are declared inline so each is created together with its NSG — landing zone policy denies
 # subnets without one.
 resource "azurerm_virtual_network" "this" {
+  count               = local.new_network ? 1 : 0
   name                = "vnet-\${local.name}"
   location            = var.location
   resource_group_name = local.rg_name
@@ -494,23 +562,48 @@ resource "azurerm_virtual_network" "this" {
 ${subnetBlocks.length ? "\n" + subnetBlocks.join("\n\n") + "\n" : ""}}
 
 locals {
-  subnet_ids = { for s in azurerm_virtual_network.this.subnet : s.name => s.id }
+  vnet_id    = local.new_network ? azurerm_virtual_network.this[0].id : var.existing_virtual_network_id
+  subnet_ids = local.new_network ? { for s in azurerm_virtual_network.this[0].subnet : s.name => s.id } : var.existing_subnet_ids
 }
 
+# Hub and spoke: peering both ways, so the spoke is reachable from the hub and routes through it.
 resource "azurerm_virtual_network_peering" "to_hub" {
-  count                        = var.hub_virtual_network_id != "" ? 1 : 0
+  count                        = local.new_network && var.hub_virtual_network_id != "" && !local.hub_is_vwan ? 1 : 0
   name                         = "peer-to-hub"
   resource_group_name          = local.rg_name
-  virtual_network_name         = azurerm_virtual_network.this.name
+  virtual_network_name         = azurerm_virtual_network.this[0].name
   remote_virtual_network_id    = var.hub_virtual_network_id
   allow_virtual_network_access = true
   allow_forwarded_traffic      = true
-  use_remote_gateways          = false
+  use_remote_gateways          = var.use_hub_gateway
+}
+
+resource "azurerm_virtual_network_peering" "from_hub" {
+  provider                     = azurerm.hub
+  count                        = local.new_network && var.hub_virtual_network_id != "" && !local.hub_is_vwan && var.hub_peering_both_ways ? 1 : 0
+  name                         = "peer-\${local.name}"
+  resource_group_name          = split("/", var.hub_virtual_network_id)[4]
+  virtual_network_name         = split("/", var.hub_virtual_network_id)[8]
+  remote_virtual_network_id    = azurerm_virtual_network.this[0].id
+  allow_virtual_network_access = true
+  allow_forwarded_traffic      = true
+  allow_gateway_transit        = var.use_hub_gateway
+}
+
+# Virtual WAN: connect the spoke to the secured virtual hub (routing intent sends traffic to its firewall).
+resource "azurerm_virtual_hub_connection" "this" {
+  provider                  = azurerm.hub
+  count                     = local.new_network && local.hub_is_vwan ? 1 : 0
+  name                      = "conn-\${local.name}"
+  virtual_hub_id            = var.hub_virtual_network_id
+  remote_virtual_network_id = azurerm_virtual_network.this[0].id
+  internet_security_enabled = true
 }
 
 resource "azurerm_monitor_diagnostic_setting" "vnet" {
+  count                      = local.new_network ? 1 : 0
   name                       = "diag-to-law"
-  target_resource_id         = azurerm_virtual_network.this.id
+  target_resource_id         = azurerm_virtual_network.this[0].id
   log_analytics_workspace_id = local.law_id
 
   enabled_metric {
@@ -535,7 +628,7 @@ resource "azurerm_private_dns_zone_virtual_network_link" "this" {
   name                  = "link-\${local.name}"
   resource_group_name   = local.rg_name
   private_dns_zone_name = each.value.name
-  virtual_network_id    = azurerm_virtual_network.this.id
+  virtual_network_id    = local.vnet_id
   registration_enabled  = false
   tags                  = local.tags
 }
@@ -548,6 +641,8 @@ locals {
 `,
   });
 
+  if (vms)
+    files.push({ path: "vm-access.tf", content: `# Virtual machine access\n${vmCredentials()}` });
   for (const g of generated)
     files.push({
       path: `${g.id}.tf`,
@@ -559,16 +654,23 @@ locals {
     resource_group_id: "local.rg_id",
     identity_client_id: "azurerm_user_assigned_identity.app.client_id",
     identity_principal_id: "azurerm_user_assigned_identity.app.principal_id",
-    virtual_network_id: "azurerm_virtual_network.this.id",
+    virtual_network_id: "local.vnet_id",
     log_analytics_workspace_id: "local.law_id",
     ...Object.assign({}, ...generated.map((g) => g.tf.outputs ?? {})),
+    ...(vms
+      ? {
+          vm_ssh_private_key: "tls_private_key.vm.private_key_openssh",
+          vm_admin_password: "random_password.vm.result",
+        }
+      : {}),
   };
+  const secret = (k: string) => /connection_string|private_key|password/.test(k);
   files.push({
     path: "outputs.tf",
     content: Object.entries(outputs)
       .map(
         ([k, e]) =>
-          `output "${k}" {\n  value${k.includes("connection_string") ? "     = " + e + "\n  sensitive = true" : " = " + e}\n}\n`,
+          `output "${k}" {\n  value${secret(k) ? "     = " + e + "\n  sensitive = true" : " = " + e}\n}\n`,
       )
       .join("\n"),
   });
@@ -601,4 +703,22 @@ Customer inputs: ${inputs.map((i) => i.label).join(", ")}.
   });
 
   return files.map((f) => (f.path.endsWith(".tf") ? { ...f, content: fmtHcl(f.content) } : f));
+}
+
+/** The subnets an architecture needs, by name, with the delegation each requires. */
+export function requiredSubnets(selected: Selected[], topology: Topology) {
+  const has = (id: string) => selected.some((s) => s.id === id);
+  const ctx: Ctx = {
+    appGateway: has("app-gateway"),
+    publicWeb: topology.publicAccess,
+    webVmss: has("web-vmss"),
+  };
+  const keys = new Set<SubnetKey>(
+    selected.flatMap((s) => GENERATORS[s.id]?.(s.settings, ctx).subnets ?? []),
+  );
+  if (!topology.privateEndpoints) keys.delete("endpoints");
+  return [...keys].map((k) => ({
+    name: SUBNETS[k].name,
+    delegation: SUBNETS[k].delegation ?? null,
+  }));
 }

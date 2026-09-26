@@ -50,7 +50,7 @@ ${diag("apim", "azurerm_api_management.this.id")}`,
   };
 };
 
-export const appGateway = (s: S): ServiceTf => {
+export const appGateway = (s: S, o: { webVmss?: boolean } = {}): ServiceTf => {
   const [g] = sizing("app-gateway", s);
   const waf = envSel(bool(g!.prod.value === "WAF_v2"), bool(g!.dev.value === "WAF_v2"));
   const anyWaf = g!.prod.value === "WAF_v2" || g!.dev.value === "WAF_v2";
@@ -136,7 +136,21 @@ resource "azurerm_application_gateway" "this" {
     port = 80
   }
 
+${
+  o.webVmss
+    ? `  # The web tier's scale set registers its instances in this pool.
   backend_address_pool {
+    name = "app"
+  }
+
+  backend_http_settings {
+    name                  = "app-https"
+    cookie_based_affinity = "Disabled"
+    port                  = 80
+    protocol              = "Http"
+    request_timeout       = 30
+  }`
+    : `  backend_address_pool {
     name  = "app"
     fqdns = local.app_hostname != "" ? [local.app_hostname] : []
   }
@@ -148,7 +162,8 @@ resource "azurerm_application_gateway" "this" {
     protocol                            = "Https"
     request_timeout                     = 30
     pick_host_name_from_backend_address = true
-  }
+  }`
+}
 
   http_listener {
     name                           = "http"

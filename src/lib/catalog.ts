@@ -225,6 +225,147 @@ export const SERVICES: ServiceDef[] = [
     blurb: "Runs your application containers.",
   },
   {
+    id: "web-vmss",
+    name: "Web tier · VM scale set",
+    short: "Web tier VMs",
+    category: "Compute",
+    zone: "edge",
+    resourceType: "Microsoft.Compute/virtualMachineScaleSets",
+    avm: "avm/res/compute/virtual-machine-scale-set",
+    version: "0.8.0",
+    wave: 3,
+    options: [
+      {
+        key: "os",
+        label: "Operating system",
+        choices: [
+          "Ubuntu 24.04 LTS",
+          "Ubuntu 22.04 LTS",
+          "RHEL 9",
+          "Windows Server 2022",
+          "Windows Server 2025",
+        ],
+        default: "Ubuntu 24.04 LTS",
+      },
+      {
+        key: "instances",
+        label: "Instances · production",
+        choices: ["2", "3", "4", "6", "9"],
+        default: "3",
+        env: "prod",
+      },
+      {
+        key: "devInstances",
+        label: "Instances · dev/test",
+        choices: ["1", "2"],
+        default: "1",
+        env: "dev",
+      },
+      {
+        key: "maxInstances",
+        label: "Autoscale up to · production",
+        choices: ["4", "6", "10", "20", "50"],
+        default: "10",
+        env: "prod",
+      },
+    ],
+    monthly: 210,
+    blurb:
+      "Front-end web servers behind Application Gateway or a load balancer, autoscaled across zones.",
+  },
+  {
+    id: "app-vmss",
+    name: "App tier · VM scale set",
+    short: "App tier VMs",
+    category: "Compute",
+    zone: "app",
+    resourceType: "Microsoft.Compute/virtualMachineScaleSets",
+    avm: "avm/res/compute/virtual-machine-scale-set",
+    version: "0.8.0",
+    wave: 3,
+    options: [
+      {
+        key: "os",
+        label: "Operating system",
+        choices: [
+          "Ubuntu 24.04 LTS",
+          "Ubuntu 22.04 LTS",
+          "RHEL 9",
+          "Windows Server 2022",
+          "Windows Server 2025",
+        ],
+        default: "Ubuntu 24.04 LTS",
+      },
+      {
+        key: "instances",
+        label: "Instances · production",
+        choices: ["2", "3", "4", "6", "9"],
+        default: "3",
+        env: "prod",
+      },
+      {
+        key: "devInstances",
+        label: "Instances · dev/test",
+        choices: ["1", "2"],
+        default: "1",
+        env: "dev",
+      },
+      {
+        key: "maxInstances",
+        label: "Autoscale up to · production",
+        choices: ["4", "6", "10", "20", "50"],
+        default: "10",
+        env: "prod",
+      },
+    ],
+    monthly: 420,
+    blurb:
+      "Business logic servers behind an internal load balancer; only the web tier can reach them.",
+  },
+  {
+    id: "vm",
+    name: "Data tier · virtual machines",
+    short: "Data tier VMs",
+    category: "Compute",
+    zone: "data",
+    resourceType: "Microsoft.Compute/virtualMachines",
+    avm: "avm/res/compute/virtual-machine",
+    version: "0.10.0",
+    wave: 3,
+    options: [
+      {
+        key: "os",
+        label: "Image",
+        choices: [
+          "Ubuntu 24.04 LTS",
+          "RHEL 9",
+          "Windows Server 2022",
+          "Windows Server 2025",
+          "SQL Server 2022 Developer on Windows Server 2022",
+          "SQL Server 2022 Standard on Windows Server 2022",
+        ],
+        default: "Ubuntu 24.04 LTS",
+      },
+      {
+        key: "count",
+        label: "VMs · production",
+        choices: ["1", "2", "3"],
+        default: "2",
+        env: "prod",
+      },
+      { key: "devCount", label: "VMs · dev/test", choices: ["1", "2"], default: "1", env: "dev" },
+      {
+        key: "dataDisk",
+        label: "Data disk per VM",
+        choices: ["64 GB", "128 GB", "256 GB", "512 GB", "1024 GB"],
+        default: "256 GB",
+      },
+    ],
+    monthly: 440,
+    blurb:
+      "Database or legacy servers on VMs with data disks, spread across zones; only the app tier reaches them.",
+  },
+  {
     id: "container-apps",
     name: "Container Apps",
     short: "Container Apps",
@@ -842,9 +983,18 @@ export const serviceMonthly = (s: Selected, env: "prod" | "dev" = "prod") => {
       ?.map(Number) ?? [1, 1];
     n = counts.reduce((a, b) => a + b, 0);
   }
+  const vmCount = (k: string, d: string) => Number(s.settings[k]?.match(/\d+/)?.[0] ?? d);
+  if (s.id === "web-vmss" || s.id === "app-vmss")
+    n = env === "prod" ? vmCount("instances", "3") : vmCount("devInstances", "1");
+  if (s.id === "vm") n = env === "prod" ? vmCount("count", "2") : vmCount("devCount", "1");
   return sized.reduce((sum, x, i) => {
     const sku = env === "prod" ? x.prod : x.dev;
-    const count = s.id === "data-explorer" ? 1 : s.id === "aks" && i === 1 ? n : 1;
+    const count =
+      s.id === "data-explorer"
+        ? 1
+        : (s.id === "aks" && i === 1) || ["web-vmss", "app-vmss", "vm"].includes(s.id)
+          ? n
+          : 1;
     return sum + sku.monthly * count;
   }, 0);
 };

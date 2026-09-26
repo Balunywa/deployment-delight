@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import type { Json } from "../db-types";
 import { regionsSupporting } from "../onboarding";
-import { SKU_OPTIONS } from "../skus";
+import { SKU_OPTIONS, VM_SIZES } from "../skus";
 
 export type StepStatus = "queued" | "running" | "succeeded" | "failed" | "skipped" | "waiting";
 export type RunStep = {
@@ -48,7 +48,19 @@ export type OfferingRun = {
   created_at: string;
   finished_at: string | null;
 };
+export type NetworkChoice = {
+  mode: "new" | "existing";
+  /** New spokes: a range split into one /22 per environment. */
+  baseRange?: string | undefined;
+  hubId?: string | undefined;
+  firewallIp?: string | undefined;
+  dnsZoneResourceGroupId?: string | undefined;
+  /** Existing network: the customer's VNet and a subnet per role. */
+  vnetId?: string | undefined;
+  subnetIds?: Record<string, string> | undefined;
+};
 type RunSettings = {
+  network?: NetworkChoice | undefined;
   installPrefix: string;
   resourceGroup: { mode: "new" | "existing"; name?: string | undefined };
   approvalFor: string[];
@@ -202,6 +214,23 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           name: z.string().max(90).optional(),
         }),
         approvalFor: z.array(z.string()).default(["production"]),
+        network: z
+          .object({
+            mode: z.enum(["new", "existing"]),
+            baseRange: z
+              .string()
+              .regex(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/(1[2-9]|2[0-2])$/)
+              .optional(),
+            hubId: z.string().max(400).optional(),
+            firewallIp: z
+              .string()
+              .regex(/^\d{1,3}(\.\d{1,3}){3}$/)
+              .optional(),
+            dnsZoneResourceGroupId: z.string().max(300).optional(),
+            vnetId: z.string().max(400).optional(),
+            subnetIds: z.record(z.string(), z.string().max(500)).optional(),
+          })
+          .optional(),
         enableDefender: z.boolean().default(false),
         startedBy: z.string().max(120).default("Platform engineer"),
       })
@@ -224,6 +253,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
     const envs = ENV_ORDER.filter((e) => data.environments.includes(e));
     const ordered = data.action === "destroy" ? [...envs].reverse() : envs;
     const settings: RunSettings = {
+      network: data.network,
       installPrefix: data.installPrefix,
       resourceGroup: data.resourceGroup,
       approvalFor: data.approvalFor,
@@ -237,6 +267,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         steps: [
           { id: "access", name: "Check access to the subscription", status: "queued", log: "" },
           { id: "providers", name: "Register resource providers", status: "queued", log: "" },
+          { id: "network", name: "Network & hub", status: "queued", log: "" },
           ...(data.action !== "destroy"
             ? [
                 {
@@ -383,6 +414,19 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         logTo(current)("Service-specific providers are registered by Terraform as it deploys.");
         end(current, "succeeded");
 
+        current = stepOf(land, "network");
+        start(land, current);
+        await networkCheck(arm, data.network, envs, arch, logTo(current));
+        end(
+          current,
+          "succeeded",
+          data.network?.mode === "existing"
+            ? "existing VNet"
+            : data.network?.hubId
+              ? "spoke + hub"
+              : "new spoke",
+        );
+
         const files = offeringTerraform({
           product: offering.name.split(" · ")[0] ?? offering.name,
           selected: arch.selected,
@@ -444,9 +488,16 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           environment: ENV_SHORT[env] ?? "dev",
           resource_group_name: rgNameFor(settings, env),
           create_resource_group: create,
-          // A /22 per environment so rings never overlap if they're peered later.
-          address_space: `10.60.${i * 4}.0/22`,
-          private_dns_mode: "local",
+          // A /22 per environment so rings never overlap, peered to the hub or not.
+          address_space: spokeRange(data.network?.baseRange ?? "10.60.0.0/19", i),
+          private_dns_mode: data.network?.dnsZoneResourceGroupId ? "platform" : "local",
+          private_dns_zone_resource_group_id: data.network?.dnsZoneResourceGroupId ?? "",
+          hub_virtual_network_id: data.network?.mode === "new" ? (data.network.hubId ?? "") : "",
+          firewall_private_ip: data.network?.firewallIp ?? "",
+          existing_virtual_network_id:
+            data.network?.mode === "existing" ? (data.network.vnetId ?? "") : "",
+          existing_subnet_ids:
+            data.network?.mode === "existing" ? (data.network.subnetIds ?? {}) : {},
           allowed_regions: [...new Set([...arch.topology.regions, data.region])],
           ai_model_versions: aiVersions,
           enable_defender: data.enableDefender,
@@ -629,7 +680,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           current = stepOf(stage, "apply");
           start(stage, current);
           const transient =
-            /RetryableError|AnotherOperationInProgress|Conflict|PrincipalNotFound|429|ReferencedResourceNotProvisioned|context deadline exceeded/;
+            /RetryableError|AnotherOperationInProgress|Conflict|PrincipalNotFound|429|ReferencedResourceNotProvisioned|context deadline exceeded|Diagnostics Setting[^\n]*404 Not Found|ResourceNotFound/;
           let r = await runner.terraform("apply", key, logTo(current));
           for (
             let attempt = 2;
@@ -895,13 +946,42 @@ async function quotaCheck(
       }
     }
   }
+  // Compute: AKS nodes, VM scale sets and VMs, all drawing on the same regional vCPU quota.
+  const { sizing: sizeOf } = await import("../skus");
+  const counts = (v: string | undefined, d: number[]) => v?.match(/\d+/g)?.map(Number) ?? d;
+  const computeUse: {
+    label: string;
+    size: (env: "prod" | "dev") => string;
+    n: (env: "prod" | "dev") => number;
+  }[] = [];
   const aks = selected.find((s) => s.id === "aks");
   if (aks) {
-    const { sizing } = await import("../skus");
-    const [, node] = sizing("aks", aks.settings);
-    const count = (v: string | undefined, d: number[]) => v?.match(/\d+/g)?.map(Number) ?? d;
-    const [sys, user] = count(aks.settings["nodes"], [3, 3]);
-    const [dsys, duser] = count(aks.settings["devNodes"], [1, 1]);
+    const [, node] = sizeOf("aks", aks.settings);
+    computeUse.push({
+      label: "AKS nodes",
+      size: (env) => (env === "prod" ? node!.prod.value : node!.dev.value),
+      n: (env) =>
+        counts(
+          aks.settings[env === "prod" ? "nodes" : "devNodes"],
+          env === "prod" ? [3, 3] : [1, 1],
+        ).reduce((a, b) => a + b, 0),
+    });
+  }
+  for (const [id, label, k, dk, d, dd] of [
+    ["web-vmss", "Web tier scale set", "instances", "devInstances", 3, 1],
+    ["app-vmss", "App tier scale set", "instances", "devInstances", 3, 1],
+    ["vm", "Data tier VMs", "count", "devCount", 2, 1],
+  ] as const) {
+    const svc = selected.find((s) => s.id === id);
+    if (!svc) continue;
+    const [sz] = sizeOf(id, svc.settings);
+    computeUse.push({
+      label,
+      size: (env) => (env === "prod" ? sz!.prod.value : sz!.dev.value),
+      n: (env) => counts(svc.settings[env === "prod" ? k : dk], [env === "prod" ? d : dd])[0]!,
+    });
+  }
+  if (computeUse.length) {
     const [skus, usage] = await Promise.all([
       arm.arm<{
         value?: {
@@ -920,49 +1000,44 @@ async function quotaCheck(
       ),
     ]);
     // Sizes from the catalog this subscription can actually run here, for the error message.
-    const suggest = (nodes: number) => {
-      const catalog = SKU_OPTIONS["aks"]?.find((o) => o.key === "nodeSize")?.skus ?? [];
-      return catalog
-        .map((c) => {
-          const k = skus.data.value?.find((x) => x.name === c.value);
-          if (!k || k.restrictions?.some((r) => r.type === "Location")) return null;
-          const q = usage.data.value?.find(
-            (u) => u.name.value.toLowerCase() === (k.family ?? "").toLowerCase(),
-          );
-          const per = Number(k.capabilities?.find((x) => x.name === "vCPUs")?.value ?? 0);
-          return q && q.limit - q.currentValue >= per * nodes
-            ? `${c.value} (≈$${c.monthly}/mo)`
-            : null;
-        })
+    const suggest = (vcpusPer: number, n: number) =>
+      VM_SIZES.map((c) => {
+        const k = skus.data.value?.find((x) => x.name === c.value);
+        if (!k || k.restrictions?.some((r) => r.type === "Location")) return null;
+        const q = usage.data.value?.find(
+          (u) => u.name.value.toLowerCase() === (k.family ?? "").toLowerCase(),
+        );
+        const per = Number(k.capabilities?.find((x) => x.name === "vCPUs")?.value ?? 0);
+        return q && per >= vcpusPer && q.limit - q.currentValue >= per * n
+          ? `${c.value} (≈$${c.monthly}/mo)`
+          : null;
+      })
         .filter(Boolean)
         .slice(0, 3);
-    };
-    const need = new Map<string, { family: string; vcpus: number }>();
-    for (const e of envs) {
-      const size = envOf(e) === "prod" ? node!.prod.value : node!.dev.value;
-      const sku = skus.data.value?.find((k) => k.name === size);
-      if (!sku) {
-        problems.push(`${size} isn't offered in ${region}`);
-        log(`${size}: not offered in ${region}.`);
-        continue;
-      }
-      const blocked = sku.restrictions?.find((r) => r.type === "Location");
-      if (blocked) {
-        const alt = suggest(envOf(e) === "prod" ? sys! + user! : dsys! + duser!);
-        problems.push(
-          `AKS node size ${size} is restricted for this subscription in ${region} (${blocked.reasonCode})${alt.length ? ` — sizes that fit: ${alt.join(", ")}` : ""}`,
-        );
-        log(`${size}: restricted (${blocked.reasonCode}).`);
-        continue;
-      }
-      const per = Number(sku.capabilities?.find((c) => c.name === "vCPUs")?.value ?? 2);
-      const nodes = envOf(e) === "prod" ? sys! + user! : dsys! + duser!;
-      const cur = need.get(size) ?? { family: sku.family ?? "", vcpus: 0 };
-      cur.vcpus += per * nodes;
-      need.set(size, cur);
-    }
     const byFamily = new Map<string, number>();
-    for (const n of need.values()) byFamily.set(n.family, (byFamily.get(n.family) ?? 0) + n.vcpus);
+    for (const u of computeUse)
+      for (const e of envs) {
+        const size = u.size(envOf(e));
+        const n = u.n(envOf(e));
+        const sku = skus.data.value?.find((k) => k.name === size);
+        if (!sku) {
+          problems.push(`${u.label}: ${size} isn't offered in ${region}`);
+          log(`${u.label}: ${size} not offered in ${region}.`);
+          continue;
+        }
+        const per = Number(sku.capabilities?.find((c) => c.name === "vCPUs")?.value ?? 2);
+        const blocked = sku.restrictions?.find((r) => r.type === "Location");
+        if (blocked) {
+          const alt = suggest(per, n);
+          problems.push(
+            `${u.label}: ${size} is restricted for this subscription in ${region} (${blocked.reasonCode})${alt.length ? ` — sizes that fit: ${alt.join(", ")}` : ""}`,
+          );
+          log(`${u.label}: ${size} restricted (${blocked.reasonCode}).`);
+          continue;
+        }
+        log(`${u.label} (${ENV_LABEL[e]}): ${n} × ${size} (${per} vCPU, ${sku.family}).`);
+        byFamily.set(sku.family ?? "", (byFamily.get(sku.family ?? "") ?? 0) + per * n);
+      }
     const total = [...byFamily.values()].reduce((a, b) => a + b, 0);
     for (const [family, vcpus] of [...byFamily, ["cores", total] as [string, number]]) {
       const q = usage.data.value?.find((x) => x.name.value.toLowerCase() === family.toLowerCase());
@@ -970,7 +1045,7 @@ async function quotaCheck(
       log(`${family === "cores" ? "Regional vCPUs" : family}: ${free} available, ${vcpus} needed.`);
       if (free < vcpus)
         problems.push(
-          `AKS needs ${vcpus} ${family === "cores" ? "regional" : family} vCPUs, ${free} available`,
+          `Compute needs ${vcpus} ${family === "cores" ? "regional" : family} vCPUs, ${free} available`,
         );
     }
   }
@@ -1063,7 +1138,8 @@ async function quotaCheck(
         }
       }
   }
-  if (!ai && !aks && !pg && !plans.size) log("No quota-bound services in this architecture.");
+  if (!ai && !computeUse.length && !pg && !plans.size)
+    log("No quota-bound services in this architecture.");
   return { problems, versions };
 }
 
@@ -1082,4 +1158,255 @@ function azureErrors(log: string) {
       found.set(m[1]!, "");
     }
   return [...found].map(([k, v]) => (v ? `${k}: ${v}` : k)).join(" · ") || "see the step log";
+}
+
+export type DiscoveredVnet = {
+  id: string;
+  name: string;
+  subscriptionId: string;
+  location: string;
+  addressSpace: string[];
+  subnets: { id: string; name: string; prefix: string; delegations: string[] }[];
+  hub: boolean;
+  firewallIp: string | null;
+  kind: "vnet" | "vhub";
+};
+
+/**
+ * Every VNet and Virtual WAN hub the app can see, marked as a hub when it holds a firewall or gateway,
+ * with the firewall's private IP and the resource group of the platform's private DNS zones.
+ */
+export const discoverNetworks = createServerFn({ method: "POST" }).handler(async () => {
+  const arm = await import("../alz/arm.server");
+  const subs = (await arm.listSubscriptions()).filter((s) => s.state === "Enabled");
+  const vnets: DiscoveredVnet[] = [];
+  const dnsGroups = new Map<string, number>();
+  await Promise.all(
+    subs.map(async (sub) => {
+      const [nets, fws, hubs, zones] = await Promise.all([
+        arm.arm<{
+          value?: {
+            id: string;
+            name: string;
+            location: string;
+            properties: {
+              addressSpace?: { addressPrefixes?: string[] };
+              subnets?: {
+                id: string;
+                name: string;
+                properties: {
+                  addressPrefix?: string;
+                  addressPrefixes?: string[];
+                  delegations?: { properties: { serviceName: string } }[];
+                };
+              }[];
+            };
+          }[];
+        }>(
+          "GET",
+          `/subscriptions/${sub.id}/providers/Microsoft.Network/virtualNetworks?api-version=2024-05-01`,
+        ),
+        arm.arm<{
+          value?: {
+            properties: {
+              ipConfigurations?: {
+                properties: { privateIPAddress?: string; subnet?: { id: string } };
+              }[];
+              virtualHub?: { id: string };
+              hubIPAddresses?: { privateIPAddress?: string };
+            };
+          }[];
+        }>(
+          "GET",
+          `/subscriptions/${sub.id}/providers/Microsoft.Network/azureFirewalls?api-version=2024-05-01`,
+        ),
+        arm.arm<{
+          value?: {
+            id: string;
+            name: string;
+            location: string;
+            properties: { addressPrefix?: string };
+          }[];
+        }>(
+          "GET",
+          `/subscriptions/${sub.id}/providers/Microsoft.Network/virtualHubs?api-version=2024-05-01`,
+        ),
+        arm.arm<{ value?: { id: string; name: string }[] }>(
+          "GET",
+          `/subscriptions/${sub.id}/providers/Microsoft.Network/privateDnsZones?api-version=2024-06-01`,
+        ),
+      ]);
+      const fwByVnet = new Map<string, string>();
+      for (const f of fws.data.value ?? []) {
+        const ip = f.properties.ipConfigurations?.[0];
+        const subnet = ip?.properties.subnet?.id;
+        if (subnet && ip?.properties.privateIPAddress)
+          fwByVnet.set(subnet.split("/subnets/")[0]!.toLowerCase(), ip.properties.privateIPAddress);
+        if (f.properties.virtualHub?.id && f.properties.hubIPAddresses?.privateIPAddress)
+          fwByVnet.set(
+            f.properties.virtualHub.id.toLowerCase(),
+            f.properties.hubIPAddresses.privateIPAddress,
+          );
+      }
+      for (const n of nets.data.value ?? []) {
+        const subnets = (n.properties.subnets ?? []).map((x) => ({
+          id: x.id,
+          name: x.name,
+          prefix: x.properties.addressPrefix ?? x.properties.addressPrefixes?.[0] ?? "",
+          delegations: (x.properties.delegations ?? []).map((d) => d.properties.serviceName),
+        }));
+        const fw = fwByVnet.get(n.id.toLowerCase()) ?? null;
+        vnets.push({
+          id: n.id,
+          name: n.name,
+          subscriptionId: sub.id,
+          location: n.location,
+          addressSpace: n.properties.addressSpace?.addressPrefixes ?? [],
+          subnets,
+          hub:
+            !!fw ||
+            subnets.some((x) =>
+              ["AzureFirewallSubnet", "GatewaySubnet", "AzureBastionSubnet"].includes(x.name),
+            ),
+          firewallIp: fw,
+          kind: "vnet",
+        });
+      }
+      for (const h of hubs.data.value ?? [])
+        vnets.push({
+          id: h.id,
+          name: h.name,
+          subscriptionId: sub.id,
+          location: h.location,
+          addressSpace: h.properties.addressPrefix ? [h.properties.addressPrefix] : [],
+          subnets: [],
+          hub: true,
+          firewallIp: fwByVnet.get(h.id.toLowerCase()) ?? null,
+          kind: "vhub",
+        });
+      for (const z of zones.data.value ?? [])
+        if (z.name.startsWith("privatelink.")) {
+          const rg = z.id.split("/providers/")[0]!;
+          dnsGroups.set(rg, (dnsGroups.get(rg) ?? 0) + 1);
+        }
+    }),
+  );
+  // The platform's DNS zones: the resource group holding the most privatelink zones.
+  const dns = [...dnsGroups].sort((a, b) => b[1] - a[1])[0];
+  return {
+    vnets: vnets.sort((a, b) => Number(b.hub) - Number(a.hub) || a.name.localeCompare(b.name)),
+    dnsZoneResourceGroupId: dns && dns[1] >= 3 ? dns[0] : null,
+    dnsZoneCount: dns?.[1] ?? 0,
+  };
+});
+
+/** The Nth /22 of a range (10.60.0.0/20 → 10.60.0.0/22, 10.60.4.0/22, …). */
+export function spokeRange(base: string, n: number) {
+  const [ip, bits] = base.split("/");
+  const parts = ip!.split(".").map(Number);
+  const start = ((parts[0]! << 24) >>> 0) + (parts[1]! << 16) + (parts[2]! << 8) + parts[3]!;
+  const mask = Number(bits);
+  const aligned = start - (start % 2 ** (32 - mask));
+  const v = aligned + n * 1024;
+  return `${[v >>> 24, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join(".")}/22`;
+}
+
+const toRange = (cidr: string) => {
+  const [ip, bits] = cidr.split("/");
+  const p = ip!.split(".").map(Number);
+  const start = ((p[0]! << 24) >>> 0) + (p[1]! << 16) + (p[2]! << 8) + p[3]!;
+  const size = 2 ** (32 - Number(bits ?? 32));
+  return [start - (start % size), start - (start % size) + size - 1] as const;
+};
+
+/** Whether two CIDR ranges overlap. */
+export function overlaps(a: string, b: string) {
+  const [a1, a2] = toRange(a);
+  const [b1, b2] = toRange(b);
+  return a1 <= b2 && b1 <= a2;
+}
+
+/** Checks the network plan before anything is created: ranges vs the hub and its spokes, or existing subnets. */
+async function networkCheck(
+  arm: Arm,
+  net: NetworkChoice | undefined,
+  envs: string[],
+  arch: {
+    selected: { id: string; settings: Record<string, string> }[];
+    topology: import("../catalog").Topology;
+  },
+  log: (l: string) => void,
+) {
+  const { requiredSubnets } = await import("./terraform");
+  const needed = requiredSubnets(arch.selected, arch.topology);
+  if (net?.mode === "existing") {
+    if (!net.vnetId) throw new Error("Pick the customer's VNet.");
+    const v = await arm.arm<{
+      properties?: {
+        subnets?: {
+          id: string;
+          name: string;
+          properties: { delegations?: { properties: { serviceName: string } }[] };
+        }[];
+      };
+    }>("GET", `${net.vnetId}?api-version=2024-05-01`);
+    if (v.status !== 200) throw new Error(`Can't read ${net.vnetId} (${v.status}).`);
+    const subnets = v.data.properties?.subnets ?? [];
+    for (const n of needed) {
+      const id = net.subnetIds?.[n.name];
+      const sn = subnets.find((x) => x.id.toLowerCase() === id?.toLowerCase());
+      if (!sn) throw new Error(`Map a subnet of the customer's VNet for ${n.name}.`);
+      const del = (sn.properties.delegations ?? []).map((d) => d.properties.serviceName);
+      if (n.delegation && !del.includes(n.delegation))
+        throw new Error(`${sn.name} must be delegated to ${n.delegation} for ${n.name}.`);
+      log(`${n.name} → ${sn.name}${del.length ? ` (delegated to ${del.join(", ")})` : ""}`);
+    }
+    if (envs.length > 1) log("Every environment deploys into these same subnets.");
+    return;
+  }
+  const base = net?.baseRange ?? "10.60.0.0/19";
+  if (Number(base.split("/")[1]) > 19)
+    throw new Error("Use a /19 or larger base range — each environment gets its own /22.");
+  const ranges = envs.map((e) => ({ e, r: spokeRange(base, ENV_ORDER.indexOf(e)) }));
+  for (const x of ranges) log(`${ENV_LABEL[x.e]}: new spoke ${x.r}`);
+  log(`${needed.length} subnets per spoke: ${needed.map((n) => n.name).join(", ")}`);
+  if (!net?.hubId) {
+    log("Not connected to a hub — the spoke is standalone.");
+    return;
+  }
+  const hub = await arm.arm<{
+    properties?: {
+      addressSpace?: { addressPrefixes?: string[] };
+      addressPrefix?: string;
+      virtualNetworkPeerings?: {
+        properties: {
+          remoteAddressSpace?: { addressPrefixes?: string[] };
+          remoteVirtualNetwork?: { id: string };
+        };
+      }[];
+    };
+  }>("GET", `${net.hubId}?api-version=2024-05-01`);
+  if (hub.status !== 200) throw new Error(`Can't read the hub ${net.hubId} (${hub.status}).`);
+  const taken = [
+    ...(hub.data.properties?.addressSpace?.addressPrefixes ?? []),
+    ...(hub.data.properties?.addressPrefix ? [hub.data.properties.addressPrefix] : []),
+    ...(hub.data.properties?.virtualNetworkPeerings ?? []).flatMap(
+      (p) => p.properties.remoteAddressSpace?.addressPrefixes ?? [],
+    ),
+  ];
+  const ours = new Set(ranges.map((x) => x.r));
+  for (const x of ranges) {
+    const clash = taken.find((t) => !ours.has(t) && overlaps(t, x.r));
+    if (clash)
+      throw new Error(
+        `${ENV_LABEL[x.e]}'s range ${x.r} overlaps ${clash}, already used by the hub or one of its spokes. Pick another base range.`,
+      );
+  }
+  log(
+    `Hub ${net.hubId.split("/").pop()}: ${taken.length} ranges in use, no overlap. Peering both ways${net.firewallIp ? `, egress through ${net.firewallIp}` : ""}.`,
+  );
+  if (net.dnsZoneResourceGroupId)
+    log(
+      `Private endpoints register in the platform's DNS zones in ${net.dnsZoneResourceGroupId.split("/").pop()}.`,
+    );
 }

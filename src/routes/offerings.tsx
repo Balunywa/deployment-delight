@@ -655,6 +655,8 @@ function Designer() {
           version={base.version}
           published={base.status === "published"}
           dirty={dirty}
+          selected={loaded?.selected ?? selected}
+          topology={loaded?.topology ?? topology}
         />
       )}
 

@@ -98,6 +98,16 @@ for (let n = 0; n < depth; n++) {
   });
 }
 
+// Starter architectures (2-tier, 3-tier on VM scale sets, Windows lift and shift, internal LOB).
+import { STARTERS } from "../src/lib/starters";
+for (const st of STARTERS)
+  cases.push({ name: `starter-${st.id}`, selected: st.selected, topology: st.topology });
+cases.push({
+  name: "three-tier-public-lb",
+  selected: pick(["web-vmss", "app-vmss", "vm", "postgres"], { vm: { os: "Windows Server 2025" } }),
+  topology: { ...base, landing: "dedicated-spoke", publicAccess: true, landingZone: "online" },
+});
+
 for (const c of cases) {
   const files = offeringTerraform({
     product: c.name,

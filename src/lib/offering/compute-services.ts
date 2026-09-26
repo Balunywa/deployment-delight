@@ -96,11 +96,15 @@ resource "azurerm_kubernetes_cluster_node_pool" "user" {
   os_sku                = "AzureLinux"
   zones                 = local.prod && ${zonal} ? ["1", "2", "3"] : null
   tags                  = local.tags
+
+  upgrade_settings {
+    max_surge = "10%"
+  }
 }
 
 # The cluster identity joins its nodes to the spoke subnet.
 resource "azurerm_role_assignment" "aks_network" {
-  scope                = azurerm_virtual_network.this.id
+  scope                = local.vnet_id
   role_definition_name = "Network Contributor"
   principal_id         = azurerm_user_assigned_identity.app.principal_id
   principal_type       = "ServicePrincipal"

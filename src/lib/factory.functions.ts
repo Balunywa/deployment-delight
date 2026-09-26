@@ -875,6 +875,8 @@ export const createOffering = createServerFn({ method: "POST" })
         name: z.string().min(3).max(80),
         description: z.string().max(400).default(""),
         templateOfferingId: z.string().uuid(),
+        /** A starter architecture (2-tier, 3-tier…) instead of the template offering's architecture. */
+        starter: z.string().max(40).optional(),
         landing: z.enum(["existing-customer-hub", "dedicated-spoke", "isv-hosted"]),
         landingZone: z.enum(["corp", "online", "local", "sandbox"]),
         regions: z.array(z.string().min(3).max(40)).min(1).max(60),
@@ -920,7 +922,12 @@ export const createOffering = createServerFn({ method: "POST" })
       .catch((e: Error) => {
         throw new Error(e.message);
       });
-    const arch = fromManifest(template, base?.manifest_json ?? {});
+    const { STARTERS } = await import("./starters");
+    const starter = data.starter ? STARTERS.find((x) => x.id === data.starter) : undefined;
+    if (data.starter && !starter) throw new Error("Unknown starter architecture.");
+    const arch = starter
+      ? { selected: starter.selected, topology: starter.topology }
+      : fromManifest(template, base?.manifest_json ?? {});
     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const manifest = toManifest(
       slug,
@@ -947,7 +954,7 @@ export const createOffering = createServerFn({ method: "POST" })
       version: "1.0.0",
       status: "draft",
       manifest_json: manifest,
-      release_notes: `New offering, started from ${template.name}.`,
+      release_notes: `New offering, started from ${starter ? starter.name : template.name}.`,
       ai_generated: false,
       created_by: "Sarah Chen",
     });

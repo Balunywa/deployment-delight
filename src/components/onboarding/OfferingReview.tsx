@@ -18,6 +18,8 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
+  SelectLabel,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -37,6 +39,7 @@ import {
   regionsSupporting,
 } from "@/lib/onboarding";
 import { AZURE_REGIONS, UNAVAILABLE } from "@/lib/regions";
+import { STARTERS } from "@/lib/starters";
 import { cn } from "@/lib/utils";
 
 const GEOS = [...new Set(AZURE_REGIONS.map((r) => r.geo))];
@@ -246,7 +249,7 @@ export function ReviewPanel({
   );
 }
 
-type Template = { id: string; name: string; arch: Architecture };
+type Template = { id: string; name: string; arch: Architecture; body?: string };
 
 export function NewOfferingDialog({
   open,
@@ -264,7 +267,18 @@ export function NewOfferingDialog({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [templateId, setTemplateId] = useState("");
-  const template = templates.find((t) => t.id === templateId) ?? templates[0];
+  // Starter architectures first, then existing offerings of the product.
+  const all: Template[] = [
+    ...STARTERS.map((x) => ({
+      id: `starter:${x.id}`,
+      name: x.name,
+      body: x.body,
+      arch: { selected: x.selected, topology: x.topology },
+    })),
+    ...templates,
+  ];
+  const template = all.find((t) => t.id === templateId) ?? templates[0] ?? all[0];
+  const productTemplate = templates[0];
   const [landing, setLanding] = useState<Topology["landing"] | null>(null);
   const [landingZone, setLandingZone] = useState<Topology["landingZone"] | null>(null);
   const [regions, setRegions] = useState<string[] | null>(null);
@@ -337,13 +351,33 @@ export function NewOfferingDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {templates.map((x) => (
-                    <SelectItem key={x.id} value={x.id}>
-                      {x.name} · {x.arch.selected.length} services
-                    </SelectItem>
-                  ))}
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] tracking-wider uppercase">
+                      Starter architectures
+                    </SelectLabel>
+                    {all
+                      .filter((x) => x.id.startsWith("starter:"))
+                      .map((x) => (
+                        <SelectItem key={x.id} value={x.id}>
+                          {x.name}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] tracking-wider uppercase">
+                      Copy an existing offering
+                    </SelectLabel>
+                    {templates.map((x) => (
+                      <SelectItem key={x.id} value={x.id}>
+                        {x.name} · {x.arch.selected.length} services
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
                 </SelectContent>
               </Select>
+              {template.body && (
+                <p className="mt-1 text-[11px] text-muted-foreground">{template.body}</p>
+              )}
             </div>
           </div>
           <div>
@@ -425,7 +459,12 @@ export function NewOfferingDialog({
                 create.mutate({
                   data: {
                     name: name.trim(),
-                    templateOfferingId: template.id,
+                    templateOfferingId: template.id.startsWith("starter:")
+                      ? (productTemplate?.id ?? template.id)
+                      : template.id,
+                    ...(template.id.startsWith("starter:")
+                      ? { starter: template.id.slice("starter:".length) }
+                      : {}),
                     landing: l,
                     landingZone: lz,
                     regions: rs,

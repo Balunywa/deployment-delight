@@ -40,7 +40,46 @@ const vm = (value: string, vcpu: number, mem: number, monthly: number, note?: st
   ...(note ? { note } : {}),
 });
 
+/** VM sizes offered for AKS nodes, scale sets and virtual machines (v5 through v7, cheapest first). */
+export const VM_SIZES: Sku[] = [
+  vm("Standard_B2s", 2, 4, 30, "Burstable — dev/test"),
+  vm("Standard_B2ms", 2, 8, 61, "Burstable — dev/test"),
+  vm("Standard_B4ms", 4, 16, 121, "Burstable"),
+  vm("Standard_D2as_v5", 2, 8, 63),
+  vm("Standard_D2ds_v5", 2, 8, 77),
+  vm("Standard_D4as_v5", 4, 16, 126),
+  vm("Standard_D4ds_v5", 4, 16, 154),
+  vm("Standard_D8ds_v5", 8, 32, 308),
+  vm("Standard_D16ds_v5", 16, 64, 616),
+  vm("Standard_E4ds_v5", 4, 32, 210, "Memory optimized"),
+  vm("Standard_E8ds_v5", 8, 64, 420, "Memory optimized"),
+  vm("Standard_F4s_v2", 4, 8, 124, "Compute optimized"),
+  vm("Standard_D2s_v6", 2, 8, 70),
+  vm("Standard_D4s_v6", 4, 16, 140),
+  vm("Standard_D2ads_v6", 2, 8, 66),
+  vm("Standard_D4ads_v6", 4, 16, 132),
+  vm("Standard_D2as_v7", 2, 8, 66),
+  vm("Standard_D2s_v7", 2, 8, 72),
+  vm("Standard_D2ds_v7", 2, 8, 80),
+  vm("Standard_D4as_v7", 4, 16, 132),
+  vm("Standard_D4s_v7", 4, 16, 144),
+  vm("Standard_D4ds_v7", 4, 16, 160),
+  vm("Standard_D8s_v7", 8, 32, 288),
+];
+
+const vmSize = (d: string, dev: string): SkuOption => ({
+  key: "size",
+  devKey: "devSize",
+  label: "VM size",
+  default: d,
+  devDefault: dev,
+  skus: VM_SIZES,
+});
+
 export const SKU_OPTIONS: Record<string, SkuOption[]> = {
+  "web-vmss": [vmSize("Standard_D2s_v6", "Standard_B2s")],
+  "app-vmss": [vmSize("Standard_D4s_v6", "Standard_B2s")],
+  vm: [vmSize("Standard_E4ds_v5", "Standard_B2ms")],
   aks: [
     {
       key: "tier",
@@ -60,31 +99,7 @@ export const SKU_OPTIONS: Record<string, SkuOption[]> = {
       label: "Node size",
       default: "Standard_D4ds_v5",
       devDefault: "Standard_B2s",
-      skus: [
-        vm("Standard_B2s", 2, 4, 30, "Burstable — dev/test"),
-        vm("Standard_B2ms", 2, 8, 61, "Burstable — dev/test"),
-        vm("Standard_B4ms", 4, 16, 121, "Burstable"),
-        vm("Standard_D2as_v5", 2, 8, 63),
-        vm("Standard_D2ds_v5", 2, 8, 77),
-        vm("Standard_D4as_v5", 4, 16, 126),
-        vm("Standard_D4ds_v5", 4, 16, 154),
-        vm("Standard_D8ds_v5", 8, 32, 308),
-        vm("Standard_D16ds_v5", 16, 64, 616),
-        vm("Standard_E4ds_v5", 4, 32, 210, "Memory optimized"),
-        vm("Standard_E8ds_v5", 8, 64, 420, "Memory optimized"),
-        vm("Standard_F4s_v2", 4, 8, 124, "Compute optimized"),
-        vm("Standard_D2s_v6", 2, 8, 70),
-        vm("Standard_D4s_v6", 4, 16, 140),
-        vm("Standard_D2ads_v6", 2, 8, 66),
-        vm("Standard_D4ads_v6", 4, 16, 132),
-        vm("Standard_D2as_v7", 2, 8, 66),
-        vm("Standard_D2s_v7", 2, 8, 72),
-        vm("Standard_D2ds_v7", 2, 8, 80),
-        vm("Standard_D4as_v7", 4, 16, 132),
-        vm("Standard_D4s_v7", 4, 16, 144),
-        vm("Standard_D4ds_v7", 4, 16, 160),
-        vm("Standard_D8s_v7", 8, 32, 288),
-      ],
+      skus: VM_SIZES,
     },
   ],
   "container-apps": [
