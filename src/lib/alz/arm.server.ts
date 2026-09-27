@@ -235,10 +235,7 @@ export async function vendSubscription(opts: {
     return existing.data.properties.subscriptionId;
   }
   opts.log(`Creating subscription "${opts.displayName}" (alias ${opts.alias})…`);
-  const put = await arm<{
-    properties?: { subscriptionId?: string; provisioningState?: string };
-    error?: { message?: string };
-  }>("PUT", path, {
+  const body = {
     properties: {
       displayName: opts.displayName,
       billingScope: opts.billingScope,
@@ -251,10 +248,28 @@ export async function vendSubscription(opts: {
           }
         : {}),
     },
-  });
+  };
+  // Azure throttles subscription creation per billing account; wait it out instead of failing the run.
+  let put = await arm<{
+    properties?: { subscriptionId?: string; provisioningState?: string };
+    error?: { message?: string };
+  }>("PUT", path, body);
+  for (let attempt = 1; put.status === 429 && attempt <= 8; attempt++) {
+    const wait = Math.min(
+      300,
+      Math.max(30, Number(put.headers.get("retry-after") ?? 0) || 30 * attempt),
+    );
+    opts.log(
+      `Azure is throttling subscription creation for this billing account — retrying in ${wait}s (attempt ${attempt} of 8).`,
+    );
+    await new Promise((r) => setTimeout(r, wait * 1000));
+    put = await arm("PUT", path, body);
+  }
   if (put.status >= 400)
     throw new Error(
-      `Creating subscription ${opts.displayName} failed (${put.status}): ${put.data.error?.message ?? JSON.stringify(put.data).slice(0, 300)}`,
+      put.status === 429
+        ? `Azure is still throttling subscription creation for this billing account. Plan again in a few minutes — subscriptions already created are reused, not created twice.`
+        : `Creating subscription ${opts.displayName} failed (${put.status}): ${put.data.error?.message ?? JSON.stringify(put.data).slice(0, 300)}`,
     );
   for (let i = 0; i < 60; i++) {
     const g = await arm<{ properties?: { subscriptionId?: string; provisioningState?: string } }>(

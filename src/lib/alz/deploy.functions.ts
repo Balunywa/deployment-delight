@@ -275,6 +275,12 @@ export const startDeployRun = createServerFn({ method: "POST" })
               targets[t.key] = id;
               if (!vended.some((v) => v.subscriptionId === id))
                 vended.push({ key: t.key, subscriptionId: id, alias });
+              // Record each subscription as soon as it exists, so a later failure never loses track of it.
+              await db.update(
+                "foundations",
+                { deployment: { ...deployment, targets, vended, billingScope: data.billingScope } },
+                { id: f.id },
+              );
             }
             await arm.registerProviders(targets[t.key]!, log);
           }
