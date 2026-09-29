@@ -571,9 +571,39 @@ const blueprintSchema = z.object({
   source: z
     .object({
       repository: z.string().min(3),
+      revision: z.string().optional(),
+      ref: z.string().optional(),
       path: z.string(),
-      iac: z.enum(["bicep", "terraform"]),
-      pipeline: z.enum(["github-actions", "azure-devops"]),
+      iac: z.enum(["bicep", "terraform", "arm", "container", "application"]),
+      pipeline: z.enum(["github-actions", "azure-devops", "external"]),
+      entrypoints: z.array(z.string()).optional(),
+      orchestrator: z.string().optional(),
+      imported: z.boolean().optional(),
+      license: z
+        .object({
+          status: z.enum(["detected", "verified", "attested", "unresolved"]),
+          identifier: z.string().optional(),
+          redistributionAllowed: z.boolean(),
+          attestedBy: z.string().optional(),
+          attestedAt: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  catalogImport: z
+    .object({
+      schemaVersion: z.string(),
+      inspectedAt: z.string(),
+      checks: z.array(
+        z.object({
+          id: z.string(),
+          level: z.enum(["pass", "warning", "blocking"]),
+          title: z.string(),
+          detail: z.string(),
+        }),
+      ),
+      azureResourceTypes: z.array(z.string()),
+      unmappedResourceTypes: z.array(z.string()),
     })
     .optional(),
 });
@@ -661,6 +691,26 @@ function architecturePolicyCheck(manifest: Record<string, unknown>) {
   const identity = (manifest["identity"] ?? {}) as Record<string, unknown>;
   const obs = (manifest["observability"] ?? {}) as Record<string, unknown>;
   const modules = (manifest["modules"] ?? []) as { name?: string }[];
+  const source = (manifest["source"] ?? {}) as Record<string, unknown>;
+  const license = (source["license"] ?? {}) as Record<string, unknown>;
+  const catalogImport = (manifest["catalogImport"] ?? {}) as Record<string, unknown>;
+  const importChecks = Array.isArray(catalogImport["checks"])
+    ? (catalogImport["checks"] as { id?: string; level?: string; title?: string }[])
+    : [];
+
+  if (source["imported"] === true && license["redistributionAllowed"] !== true)
+    issues.push({
+      level: "BLOCKING",
+      message:
+        "Distribution rights for the imported source are not verified. Record owner authorization or a compatible license before publishing.",
+    });
+  for (const check of importChecks.filter(
+    (item) => item.level === "blocking" && item.id !== "license",
+  ))
+    issues.push({
+      level: "BLOCKING",
+      message: `Source import: ${check.title ?? check.id ?? "unresolved validation check"}.`,
+    });
 
   if (network["publicAccess"] === true)
     issues.push({
@@ -856,6 +906,13 @@ export const publishOfferingVersion = createServerFn({ method: "POST" })
       { id: data.versionId },
     );
     if (!published) throw new Error("Version not found");
+    // A published, reviewed offering is what makes a community solution trustworthy enough to deploy.
+    await db.query(
+      `update public.products set validated_at = now(), updated_at = now(),
+         maturity = case when maturity = 'community' then 'validated' else maturity end
+       where id = $1`,
+      [offering.product_id],
+    );
 
     await audit(db, {
       event_type: "offering_version.published",

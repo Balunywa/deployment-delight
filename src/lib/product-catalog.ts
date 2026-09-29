@@ -76,11 +76,11 @@ export const DELIVERY_MODELS: Record<ModelKey, DeliveryModel> = {
   },
 };
 
+/** Industry segments used to tag and filter solutions (stored in products.category). */
 export type BusinessLine = {
   id: string;
   name: string;
   tagline: string;
-  lead: { name: string; title: string; color: string };
 };
 
 export const BUSINESS_LINES: BusinessLine[] = [
@@ -88,29 +88,33 @@ export const BUSINESS_LINES: BusinessLine[] = [
     id: "upstream",
     name: "Upstream & Resources",
     tagline: "Discover, develop and responsibly operate advantaged oil, gas and mineral resources.",
-    lead: { name: "Jonah Mercer", title: "GM, Upstream solutions", color: "#2f7c83" },
   },
   {
     id: "midstream",
     name: "Gas, LNG & Midstream",
     tagline:
       "Connect production to markets through integrated gas, LNG and infrastructure positions.",
-    lead: { name: "Laila Haddad", title: "GM, Midstream solutions", color: "#c46a26" },
   },
   {
     id: "chemicals",
     name: "Products & Chemicals",
     tagline:
       "Manufacture and deliver fuels, materials and specialty products customers use every day.",
-    lead: { name: "Rafael Torres", title: "GM, Downstream solutions", color: "#8a5a2b" },
   },
   {
     id: "power",
     name: "Power & Renewables",
     tagline: "Grow reliable power and lower-carbon energy systems at industrial scale.",
-    lead: { name: "Ingrid Solberg", title: "GM, Power solutions", color: "#2f5f9e" },
   },
 ];
+
+/** Owner recorded on the bundled sample solutions, so demo content is never attributed to a person. */
+export const SAMPLE_OWNER = {
+  name: "Cloud Delivery samples",
+  email: "",
+  role: "Sample",
+  team: "Bundled demo content",
+};
 
 export type CatalogProduct = {
   /** Fixed id so the seed is repeatable; the three original demo products keep theirs. */

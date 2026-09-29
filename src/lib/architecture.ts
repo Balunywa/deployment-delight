@@ -23,6 +23,25 @@ type OfferingLike = {
 
 export type Architecture = { selected: Selected[]; topology: Topology };
 
+export type BlueprintSource = {
+  repository: string;
+  revision?: string;
+  ref?: string;
+  path: string;
+  iac: "terraform" | "bicep" | "arm" | "container" | "application";
+  pipeline: "github-actions" | "azure-devops" | "external";
+  entrypoints?: string[];
+  orchestrator?: string;
+  imported?: boolean;
+  license?: {
+    status: "detected" | "verified" | "attested" | "unresolved";
+    identifier?: string;
+    redistributionAllowed: boolean;
+    attestedBy?: string;
+    attestedAt?: string;
+  };
+};
+
 const rec = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : {});
 
 export function landingOf(networkProfile: string | null | undefined): Topology["landing"] {
@@ -73,7 +92,7 @@ export function toManifest(
   slug: string,
   version: string,
   arch: Architecture,
-  source: Record<string, string>,
+  source: BlueprintSource,
 ) {
   const { selected, topology } = arch;
   return {
@@ -126,6 +145,22 @@ export function toManifest(
     })),
     source,
   };
+}
+
+export function sourceFromManifest(manifestInput: unknown): BlueprintSource | null {
+  const source = rec(rec(manifestInput)["source"]);
+  const repository = source["repository"];
+  const path = source["path"];
+  const iac = source["iac"];
+  const pipeline = source["pipeline"];
+  if (
+    typeof repository !== "string" ||
+    typeof path !== "string" ||
+    !["terraform", "bicep", "arm", "container", "application"].includes(String(iac)) ||
+    !["github-actions", "azure-devops", "external"].includes(String(pipeline))
+  )
+    return null;
+  return source as BlueprintSource;
 }
 
 export const semverBump = (v: string) => {

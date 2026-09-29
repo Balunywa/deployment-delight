@@ -822,31 +822,67 @@ export type Database = {
       };
       products: {
         Row: {
+          audience: string | null;
           category: string | null;
           created_at: string;
           description: string | null;
           id: string;
+          license_attested: boolean;
+          maturity: string;
           name: string;
           organization_id: string;
+          outcome: string | null;
+          owner_confirmed_at: string | null;
+          owners: Json;
+          source_url: string | null;
           status: string;
+          submitted_by: string | null;
+          support_url: string | null;
+          tags: string[];
+          updated_at: string;
+          validated_at: string | null;
         };
         Insert: {
+          audience?: string | null;
           category?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
+          license_attested?: boolean;
+          maturity?: string;
           name: string;
           organization_id: string;
+          outcome?: string | null;
+          owner_confirmed_at?: string | null;
+          owners?: Json;
+          source_url?: string | null;
           status?: string;
+          submitted_by?: string | null;
+          support_url?: string | null;
+          tags?: string[];
+          updated_at?: string;
+          validated_at?: string | null;
         };
         Update: {
+          audience?: string | null;
           category?: string | null;
           created_at?: string;
           description?: string | null;
           id?: string;
+          license_attested?: boolean;
+          maturity?: string;
           name?: string;
           organization_id?: string;
+          outcome?: string | null;
+          owner_confirmed_at?: string | null;
+          owners?: Json;
+          source_url?: string | null;
           status?: string;
+          submitted_by?: string | null;
+          support_url?: string | null;
+          tags?: string[];
+          updated_at?: string;
+          validated_at?: string | null;
         };
         Relationships: [
           {

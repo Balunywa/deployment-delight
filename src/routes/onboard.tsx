@@ -97,6 +97,10 @@ import { SCENARIOS } from "@/lib/alz/scenarios";
 import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/onboard")({
+  validateSearch: (s: Record<string, unknown>): { product?: string; offering?: string } => ({
+    ...(typeof s["product"] === "string" ? { product: s["product"] } : {}),
+    ...(typeof s["offering"] === "string" ? { offering: s["offering"] } : {}),
+  }),
   head: () => ({
     meta: [
       { title: "Onboard customer · Cloud Delivery" },
@@ -173,6 +177,7 @@ type Launch = {
 };
 
 function Onboard() {
+  const search = Route.useSearch();
   const offerings = useQuery(offeringsQuery);
   const foundations = useQuery(foundationsQuery);
   const customers = useQuery(customersQuery);
@@ -191,7 +196,7 @@ function Onboard() {
     return `${base}-${i}`;
   })();
   const customerCode = code ?? suggested;
-  const [offeringId, setOfferingId] = useState<string>("");
+  const [offeringId, setOfferingId] = useState<string>(search.offering ?? "");
   const [access, setAccess] = useState<"customer_link" | "engineer">("customer_link");
   const [connection, setConnection] = useState("federated_identity");
   const [tenantId, setTenantId] = useState("8f1c2b64-9a71-4c2e-9d55-7c3e1a0b4d21");
@@ -233,7 +238,7 @@ function Onboard() {
         .filter((x): x is NonNullable<typeof x> => !!x),
     [offerings.data, hostingAnswers],
   );
-  const [productId, setProductId] = useState<string>("");
+  const [productId, setProductId] = useState<string>(search.product ?? "");
   const defaultPick =
     published
       .filter((p) => p.offering.offering_type === "saas_connected")
@@ -249,16 +254,30 @@ function Onboard() {
     models.find((p) => p.offering.offering_type === "saas_connected") ??
     models[0] ??
     defaultPick;
-  const productGroups = BUSINESS_LINES.map((l) => ({
-    line: l.name,
-    products: [
-      ...new Map(
-        published
-          .filter((p) => p.offering.products?.category === l.name)
-          .map((p) => [p.offering.product_id, p.offering.products?.name ?? ""]),
-      ).entries(),
-    ],
-  })).filter((g) => g.products.length);
+  const productGroups = [
+    ...BUSINESS_LINES.map((l) => ({
+      line: l.name,
+      products: [
+        ...new Map(
+          published
+            .filter((p) => p.offering.products?.category === l.name)
+            .map((p) => [p.offering.product_id, p.offering.products?.name ?? ""]),
+        ).entries(),
+      ],
+    })).filter((g) => g.products.length),
+    {
+      line: "Other products",
+      products: [
+        ...new Map(
+          published
+            .filter(
+              (p) => !BUSINESS_LINES.some((line) => line.name === p.offering.products?.category),
+            )
+            .map((p) => [p.offering.product_id, p.offering.products?.name ?? ""]),
+        ).entries(),
+      ],
+    },
+  ].filter((group) => group.products.length);
   const productMeta = PRODUCT_BY_NAME.get(pick?.offering.products?.name ?? "");
   const arch = pick?.arch;
   const offeredEnvs = useMemo(

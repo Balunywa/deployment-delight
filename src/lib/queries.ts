@@ -18,6 +18,7 @@ import {
   listProducts,
   listWaves,
 } from "@/lib/data.functions";
+import { getCurrentUser, getSolution } from "@/lib/solutions.functions";
 
 export const organizationQuery = queryOptions({
   queryKey: ["organization"],
@@ -70,4 +71,14 @@ export const foundationQuery = (foundationId: string) =>
   queryOptions({
     queryKey: ["foundation", foundationId],
     queryFn: () => getFoundation({ data: { foundationId } }),
+  });
+export const currentUserQuery = queryOptions({
+  queryKey: ["current-user"],
+  queryFn: () => getCurrentUser(),
+  staleTime: Infinity,
+});
+export const solutionQuery = (productId: string) =>
+  queryOptions({
+    queryKey: ["solution", productId],
+    queryFn: () => getSolution({ data: { productId } }),
   });

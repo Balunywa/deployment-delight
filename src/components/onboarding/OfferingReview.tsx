@@ -31,6 +31,7 @@ import { createOffering } from "@/lib/factory.functions";
 import {
   ENV_KEYS,
   ENV_META,
+  type Check as ReviewCheck,
   type EnvKey,
   regionLabel,
   reviewOffering,
@@ -175,13 +176,15 @@ export function ReviewPanel({
   hostingAnswers,
   version,
   status,
+  sourceChecks = [],
 }: {
   arch: Architecture;
   hostingAnswers: unknown;
   version: string;
   status: string;
+  sourceChecks?: ReviewCheck[];
 }) {
-  const checks = reviewOffering({ ...arch, hostingAnswers });
+  const checks = [...sourceChecks, ...reviewOffering({ ...arch, hostingAnswers })];
   const regional = arch.selected
     .map((s) => SERVICE_BY_ID.get(s.id))
     .filter((d): d is NonNullable<typeof d> => !!d && d.resourceType in UNAVAILABLE);

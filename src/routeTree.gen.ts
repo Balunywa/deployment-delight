@@ -16,7 +16,6 @@ import { Route as CostsRouteImport } from './routes/costs'
 import { Route as EstateRouteImport } from './routes/estate'
 import { Route as OfferingsRouteImport } from './routes/offerings'
 import { Route as OnboardRouteImport } from './routes/onboard'
-import { Route as ProductsRouteImport } from './routes/products'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as UpgradesRouteImport } from './routes/upgrades'
 import { Route as ConnectCustomerIdRouteImport } from './routes/connect.$customerId'
@@ -26,6 +25,8 @@ import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index
 import { Route as DeploymentsDeploymentIdRouteImport } from './routes/deployments.$deploymentId'
 import { Route as FoundationsIndexRouteImport } from './routes/foundations.index'
 import { Route as FoundationsFoundationIdRouteImport } from './routes/foundations.$foundationId'
+import { Route as ProductsIndexRouteImport } from './routes/products.index'
+import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -60,11 +61,6 @@ const OfferingsRoute = OfferingsRouteImport.update({
 const OnboardRoute = OnboardRouteImport.update({
   id: '/onboard',
   path: '/onboard',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ProductsRoute = ProductsRouteImport.update({
-  id: '/products',
-  path: '/products',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -112,6 +108,16 @@ const FoundationsFoundationIdRoute = FoundationsFoundationIdRouteImport.update({
   path: '/foundations/$foundationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ProductsIndexRoute = ProductsIndexRouteImport.update({
+  id: '/products/',
+  path: '/products/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProductsProductIdRoute = ProductsProductIdRouteImport.update({
+  id: '/products/$productId',
+  path: '/products/$productId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -121,16 +127,17 @@ export interface FileRoutesByFullPath {
   '/estate': typeof EstateRoute
   '/offerings': typeof OfferingsRoute
   '/onboard': typeof OnboardRoute
-  '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
+  '/products/$productId': typeof ProductsProductIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
+  '/products/': typeof ProductsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -140,16 +147,17 @@ export interface FileRoutesByTo {
   '/estate': typeof EstateRoute
   '/offerings': typeof OfferingsRoute
   '/onboard': typeof OnboardRoute
-  '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
+  '/products/$productId': typeof ProductsProductIdRoute
   '/customers': typeof CustomersIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
   '/foundations': typeof FoundationsIndexRoute
+  '/products': typeof ProductsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -160,16 +168,17 @@ export interface FileRoutesById {
   '/estate': typeof EstateRoute
   '/offerings': typeof OfferingsRoute
   '/onboard': typeof OnboardRoute
-  '/products': typeof ProductsRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
+  '/products/$productId': typeof ProductsProductIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
+  '/products/': typeof ProductsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -181,16 +190,17 @@ export interface FileRouteTypes {
     | '/estate'
     | '/offerings'
     | '/onboard'
-    | '/products'
     | '/settings'
     | '/upgrades'
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
     | '/foundations/$foundationId'
+    | '/products/$productId'
     | '/customers/'
     | '/deployments/'
     | '/foundations/'
+    | '/products/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -200,16 +210,17 @@ export interface FileRouteTypes {
     | '/estate'
     | '/offerings'
     | '/onboard'
-    | '/products'
     | '/settings'
     | '/upgrades'
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
     | '/foundations/$foundationId'
+    | '/products/$productId'
     | '/customers'
     | '/deployments'
     | '/foundations'
+    | '/products'
   id:
     | '__root__'
     | '/'
@@ -219,16 +230,17 @@ export interface FileRouteTypes {
     | '/estate'
     | '/offerings'
     | '/onboard'
-    | '/products'
     | '/settings'
     | '/upgrades'
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/deployments/$deploymentId'
     | '/foundations/$foundationId'
+    | '/products/$productId'
     | '/customers/'
     | '/deployments/'
     | '/foundations/'
+    | '/products/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -239,16 +251,17 @@ export interface RootRouteChildren {
   EstateRoute: typeof EstateRoute
   OfferingsRoute: typeof OfferingsRoute
   OnboardRoute: typeof OnboardRoute
-  ProductsRoute: typeof ProductsRoute
   SettingsRoute: typeof SettingsRoute
   UpgradesRoute: typeof UpgradesRoute
   ConnectCustomerIdRoute: typeof ConnectCustomerIdRoute
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   DeploymentsDeploymentIdRoute: typeof DeploymentsDeploymentIdRoute
   FoundationsFoundationIdRoute: typeof FoundationsFoundationIdRoute
+  ProductsProductIdRoute: typeof ProductsProductIdRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
   FoundationsIndexRoute: typeof FoundationsIndexRoute
+  ProductsIndexRoute: typeof ProductsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -300,13 +313,6 @@ declare module '@tanstack/react-router' {
       path: '/onboard'
       fullPath: '/onboard'
       preLoaderRoute: typeof OnboardRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/products': {
-      id: '/products'
-      path: '/products'
-      fullPath: '/products'
-      preLoaderRoute: typeof ProductsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -372,6 +378,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof FoundationsFoundationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/products/': {
+      id: '/products/'
+      path: '/products'
+      fullPath: '/products/'
+      preLoaderRoute: typeof ProductsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/products/$productId': {
+      id: '/products/$productId'
+      path: '/products/$productId'
+      fullPath: '/products/$productId'
+      preLoaderRoute: typeof ProductsProductIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -383,16 +403,17 @@ const rootRouteChildren: RootRouteChildren = {
   EstateRoute: EstateRoute,
   OfferingsRoute: OfferingsRoute,
   OnboardRoute: OnboardRoute,
-  ProductsRoute: ProductsRoute,
   SettingsRoute: SettingsRoute,
   UpgradesRoute: UpgradesRoute,
   ConnectCustomerIdRoute: ConnectCustomerIdRoute,
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   DeploymentsDeploymentIdRoute: DeploymentsDeploymentIdRoute,
   FoundationsFoundationIdRoute: FoundationsFoundationIdRoute,
+  ProductsProductIdRoute: ProductsProductIdRoute,
   CustomersIndexRoute: CustomersIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
   FoundationsIndexRoute: FoundationsIndexRoute,
+  ProductsIndexRoute: ProductsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

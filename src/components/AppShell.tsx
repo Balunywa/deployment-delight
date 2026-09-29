@@ -31,7 +31,8 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
-import { customersQuery, organizationQuery } from "@/lib/queries";
+import { currentUserQuery, customersQuery, organizationQuery } from "@/lib/queries";
+import { initials } from "@/lib/solutions";
 import { cn } from "@/lib/utils";
 
 type Path =
@@ -60,7 +61,7 @@ const nav: { label: string; items: NavItem[] }[] = [
   {
     label: "Product",
     items: [
-      { to: "/products", label: "Products", icon: Boxes },
+      { to: "/products", label: "Solution catalog", icon: Boxes },
       { to: "/offerings", label: "Offerings", icon: Layers },
       { to: "/upgrades", label: "Releases", icon: GitBranch },
     ],
@@ -93,6 +94,7 @@ const flatNav = nav.flatMap((g) => g.items);
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const org = useQuery(organizationQuery);
+  const me = useQuery(currentUserQuery).data;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [railOverride, setRailOverride] = useState<boolean | null>(null);
 
@@ -211,9 +213,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             <kbd className="rounded-sm border border-border px-1 font-mono text-[10px]">⌘K</kbd>
           </button>
           <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-            <span className="hidden sm:inline">Sarah Chen · Platform engineer</span>
+            <span className="hidden sm:inline">
+              {me ? [me.name, me.role].filter(Boolean).join(" · ") : ""}
+            </span>
             <span className="grid size-7 place-items-center rounded-full bg-secondary text-[11px] font-semibold text-secondary-foreground">
-              SC
+              {me ? initials(me.name) : ""}
             </span>
           </div>
         </header>

@@ -23,12 +23,28 @@ Either way, it's the same product setup, the same deployment process and the sam
 
 ## How it works
 
-0. **Products and offerings.** A product is the software service a customer buys (for example "Pipeline
-   integrity agent"), grouped by business line. An offering is that product delivered one way on Azure —
-   Hosted by you, Customer Hosted, Enterprise Private (plugged into the customer's landing zone) or
-   Regulated — each with its own architecture, landing zone and guardrails. Customers are onboarded to an
-   offering. The demo catalog lives in `src/lib/product-catalog.ts`; `bun scripts/gen-product-seed.ts`
-   regenerates `db/seed/0005_product_catalog.sql` from it.
+0. **Solution catalog, products and offerings.** The Solution catalog (`/products`) is a distribution layer:
+   SEs, CSAs and partners publish solutions under their own names, and others find them by search and by
+   industry, Azure service, IaC type, where it runs, maturity and owner. A product (solution) is the thing
+   someone deploys; an offering is that solution delivered one way on Azure — Hosted, Customer Hosted,
+   Enterprise Private (plugged into the customer's landing zone) or Regulated — each with its own
+   architecture, landing zone and guardrails. Customers are onboarded to an offering.
+   - **Owners.** Every solution names its owners (name, email, role, team). Owners confirm it every 90
+     days or it's flagged; a solution with no owners can be adopted. Until Microsoft Entra sign-in is wired
+     up, the signed-in user comes from `CATALOG_USER_NAME` / `_EMAIL` / `_ROLE` / `_TEAM` (see
+     `.env.example`).
+   - **Maturity.** _Community_ on submission; _Validated_ automatically once an offering passes
+     architecture review and is published; _Featured_ when a reviewer who isn't an owner recommends it.
+   - **Submit a solution.** Point at a GitHub repository: the source is pinned to a commit, Terraform,
+     Bicep, ARM and container assets are recognised, detected Azure resources are mapped to the platform
+     service catalog, and similar existing solutions are shown. Unmapped resources, mutable artifacts and
+     unresolved distribution rights are recorded as publication blockers; the submitter can attest the
+     right to distribute. Source IaC is kept as evidence; deployment uses the same normalised,
+     architecture-reviewed model as every other offering.
+   - **Sample content.** The bundled demo catalog lives in `src/lib/product-catalog.ts` and is owned by
+     "Cloud Delivery samples", not a person. `bun scripts/gen-product-seed.ts` regenerates
+     `db/seed/0005_product_catalog.sql` and `bun scripts/gen-solution-seed.ts` regenerates
+     `db/seed/0007_solution_catalog.sql` from it.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.

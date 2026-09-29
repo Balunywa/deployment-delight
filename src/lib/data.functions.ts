@@ -44,7 +44,12 @@ export const listProducts = createServerFn({ method: "GET" }).handler(async () =
         | "estimated_monthly_cost_high"
         | "network_profile"
         | "description"
-      > & { installs: number; customers: number; version: string | null })[];
+      > & {
+        installs: number;
+        customers: number;
+        version: string | null;
+        source: Json | null;
+      })[];
       customer_count: number;
     }
   >(`select to_jsonb(p) || jsonb_build_object('offerings', ${agg(`select jsonb_agg(jsonb_build_object('id', o.id, 'name', o.name, 'offering_type', o.offering_type, 'status', o.status,
@@ -52,6 +57,8 @@ export const listProducts = createServerFn({ method: "GET" }).handler(async () =
         'network_profile', o.network_profile, 'description', o.description,
         'installs', (select count(*) from public.environments e where e.offering_id = o.id),
         'customers', (select count(distinct e.customer_id) from public.environments e where e.offering_id = o.id),
+        'source', (select v.manifest_json->'source' from public.offering_versions v where v.offering_id = o.id
+                   order by (v.status = 'published') desc, v.created_at desc limit 1),
         'version', (select v.version from public.offering_versions v where v.offering_id = o.id and v.status = 'published'
                     order by string_to_array(v.version, '.')::int[] desc limit 1)) order by o.name)
       from public.offerings o where o.product_id = p.id`)},

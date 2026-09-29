@@ -37,6 +37,7 @@ import {
   fromManifest,
   semverBump,
   slugOf,
+  sourceFromManifest,
   toManifest,
 } from "@/lib/architecture";
 import { LANDING_ZONE_LABEL } from "@/lib/alz/engine";
@@ -66,7 +67,14 @@ import { listAiModels } from "@/lib/offering/run.functions";
 import { offeringTerraform } from "@/lib/offering/terraform";
 import { DeployTab, ENV_LABEL, useOfferingRuns } from "@/components/offering/DeployTab";
 import { OfferingFlow, TerraformFiles } from "@/components/offering/OfferingFlow";
-import { verdict, reviewOffering, ENV_KEYS, ENV_META, type EnvKey } from "@/lib/onboarding";
+import {
+  verdict,
+  reviewOffering,
+  ENV_KEYS,
+  ENV_META,
+  type Check as ReviewCheck,
+  type EnvKey,
+} from "@/lib/onboarding";
 import { BUSINESS_LINES, modelOf, productOf } from "@/lib/product-catalog";
 import { foundationsQuery, offeringsQuery } from "@/lib/queries";
 import {
@@ -146,6 +154,43 @@ function Designer() {
     () => (offering && base ? fromManifest(offering, base.manifest_json) : null),
     [offering, base],
   );
+  const blueprintSource = useMemo(
+    () => sourceFromManifest(base?.manifest_json),
+    [base?.manifest_json],
+  );
+  const catalogImport = useMemo(() => {
+    const manifest =
+      base?.manifest_json && typeof base.manifest_json === "object"
+        ? (base.manifest_json as Record<string, unknown>)
+        : {};
+    return manifest["catalogImport"];
+  }, [base?.manifest_json]);
+  const sourceReview = useMemo<ReviewCheck[]>(() => {
+    const record =
+      catalogImport && typeof catalogImport === "object"
+        ? (catalogImport as Record<string, unknown>)
+        : {};
+    const checks = Array.isArray(record["checks"])
+      ? (record["checks"] as {
+          id?: string;
+          level?: string;
+          title?: string;
+          detail?: string;
+        }[])
+      : [];
+    return checks.map((check, index) => ({
+      id: `source-${check.id ?? index}`,
+      area: "Source",
+      level:
+        check.level === "blocking"
+          ? ("fail" as const)
+          : check.level === "warning"
+            ? "warn"
+            : "pass",
+      title: check.title ?? "Source validation",
+      detail: check.detail ?? "",
+    }));
+  }, [catalogImport]);
   const [arch, setArch] = useState<Architecture | null>(null);
   const [focus, setFocus] = useState<string | null>(null);
   const [q, setQ] = useState("");
@@ -158,6 +203,13 @@ function Designer() {
     setFocus(null);
   }, [loaded]);
   useEffect(() => setVersionId(null), [offering?.id]);
+  useEffect(() => {
+    if (
+      blueprintSource?.pipeline === "github-actions" ||
+      blueprintSource?.pipeline === "azure-devops"
+    )
+      setFlavour(blueprintSource.pipeline);
+  }, [blueprintSource]);
 
   const queryClient = useQueryClient();
   const runs = useOfferingRuns(offering?.id ?? "00000000-0000-0000-0000-000000000000");
@@ -203,17 +255,29 @@ function Designer() {
   const privateCount = selected.filter((s) => SERVICE_BY_ID.get(s.id)?.privateLink).length;
   const maxVersion = versions[0]?.version ?? "1.0.0";
   const siblings = list.filter((o) => o.product_id === offering.product_id);
-  const productOptions = BUSINESS_LINES.map((l) => ({
-    line: l.name,
-    products: [
-      ...new Map(
-        list
-          .filter((o) => o.products?.category === l.name)
-          .map((o) => [o.product_id, { id: o.product_id, name: o.products?.name ?? "" }]),
-      ).values(),
-    ],
-  })).filter((g) => g.products.length);
-  const review = reviewOffering({ selected, topology, hostingAnswers });
+  const productOptions = [
+    ...BUSINESS_LINES.map((l) => ({
+      line: l.name,
+      products: [
+        ...new Map(
+          list
+            .filter((o) => o.products?.category === l.name)
+            .map((o) => [o.product_id, { id: o.product_id, name: o.products?.name ?? "" }]),
+        ).values(),
+      ],
+    })).filter((g) => g.products.length),
+    {
+      line: "Other products",
+      products: [
+        ...new Map(
+          list
+            .filter((o) => !BUSINESS_LINES.some((line) => line.name === o.products?.category))
+            .map((o) => [o.product_id, { id: o.product_id, name: o.products?.name ?? "" }]),
+        ).values(),
+      ],
+    },
+  ].filter((group) => group.products.length);
+  const review = [...sourceReview, ...reviewOffering({ selected, topology, hostingAnswers })];
   const reviewState = verdict(review);
   const templates = list.flatMap((o) => {
     const v = ((o.offering_versions ?? []) as unknown as Version[])
@@ -230,7 +294,15 @@ function Designer() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <Link to="/products" className="hover:underline">
-                {offering.products?.category ?? "Products"}
+                Solution catalog
+              </Link>
+              <span>/</span>
+              <Link
+                to="/products/$productId"
+                params={{ productId: offering.product_id }}
+                className="hover:underline"
+              >
+                Overview
               </Link>
               <span>/</span>
               <Select
@@ -570,6 +642,7 @@ function Designer() {
           hostingAnswers={hostingAnswers}
           version={base.version}
           status={base.status}
+          sourceChecks={sourceReview}
         />
       )}
 
@@ -635,6 +708,25 @@ function Designer() {
               diagnostics, private endpoint and landing zone guardrails; customer differences are
               variables, never forks.
             </p>
+            {blueprintSource?.imported && (
+              <p className="mt-2 rounded-md border bg-muted/40 p-2 text-xs text-muted-foreground">
+                Imported from{" "}
+                <a
+                  href={blueprintSource.repository}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-foreground underline"
+                >
+                  {blueprintSource.repository}
+                </a>{" "}
+                at{" "}
+                <span className="font-mono">
+                  {blueprintSource.revision?.slice(0, 12) ?? blueprintSource.ref ?? "source ref"}
+                </span>
+                . Its {blueprintSource.iac} assets are retained as source evidence; customer
+                installs use the normalized, reviewed platform architecture below.
+              </p>
+            )}
           </div>
           <TerraformFiles
             name={slug}
@@ -717,12 +809,22 @@ function Designer() {
         offeringId={offering.id}
         base={base}
         nextVersion={editable ? base.version : semverBump(maxVersion)}
-        manifest={toManifest(slug, editable ? base.version : semverBump(maxVersion), arch, {
-          repository: "github.com/gridworks/grid-analytics-infra",
-          path: `offerings/${slug}`,
-          iac: "terraform",
-          pipeline: flavour,
-        })}
+        manifest={{
+          ...toManifest(
+            slug,
+            editable ? base.version : semverBump(maxVersion),
+            arch,
+            blueprintSource
+              ? { ...blueprintSource, pipeline: flavour }
+              : {
+                  repository: "github.com/gridworks/grid-analytics-infra",
+                  path: `offerings/${slug}`,
+                  iac: "terraform",
+                  pipeline: flavour,
+                },
+          ),
+          ...(catalogImport ? { catalogImport } : {}),
+        }}
         onSaved={(id) => setVersionId(id)}
       />
       <IntakeDialog
