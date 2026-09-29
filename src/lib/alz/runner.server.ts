@@ -205,6 +205,19 @@ export async function writeConfig(
   return dir;
 }
 
+/**
+ * Import blocks for resources that already exist in Azure but aren't in state yet, so plan adopts them instead
+ * of apply failing with "already exists". Rewritten on every plan; imports already done drop out of the list.
+ */
+export async function writeImports(foundationId: string, imports: { to: string; id: string }[]) {
+  const p = path.join(workDir(foundationId), "cloud-delivery.imports.tf");
+  if (!imports.length) return rm(p, { force: true });
+  await writeFile(
+    p,
+    imports.map((i) => `import {\n  to = ${i.to}\n  id = ${JSON.stringify(i.id)}\n}\n`).join("\n"),
+  );
+}
+
 /** Adopts a resource Azure created but Terraform lost track of (create succeeded, read-back failed). */
 export async function importResource(
   foundationId: string,
@@ -294,6 +307,7 @@ export async function stateAddresses(key: string): Promise<string[]> {
   try {
     const st = JSON.parse(await readFile(path.join(workDir(key), "terraform.tfstate"), "utf8")) as {
       resources?: {
+        module?: string;
         mode: string;
         type: string;
         name: string;
@@ -303,7 +317,7 @@ export async function stateAddresses(key: string): Promise<string[]> {
     return (st.resources ?? []).flatMap((r) =>
       (r.instances ?? [{}]).map(
         (i) =>
-          `${r.mode === "data" ? "data." : ""}${r.type}.${r.name}${i.index_key !== undefined ? `[${JSON.stringify(i.index_key)}]` : ""}`,
+          `${r.module ? `${r.module}.` : ""}${r.mode === "data" ? "data." : ""}${r.type}.${r.name}${i.index_key !== undefined ? `[${JSON.stringify(i.index_key)}]` : ""}`,
       ),
     );
   } catch {

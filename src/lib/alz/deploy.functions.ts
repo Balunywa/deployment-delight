@@ -5,7 +5,9 @@ import type { Json } from "../db-types";
 import {
   type Answers,
   LATEST_REF,
+  deployedGroups,
   hasHub,
+  mgIdFor,
   on,
   placementGroup,
   shortRef,
@@ -52,6 +54,8 @@ export type Deployment = {
   targets?: Partial<Record<TargetKey, string>>;
   vended?: { key: string; subscriptionId: string; alias: string }[];
   billingScope?: string;
+  /** Management groups this app created ahead of Terraform so subscriptions could be vended into them. */
+  precreatedGroups?: string[];
 };
 
 type FoundationRow = {
@@ -249,39 +253,65 @@ export const startDeployRun = createServerFn({ method: "POST" })
         if (data.action === "plan") {
           const targets: Partial<Record<TargetKey, string>> = { ...(deployment.targets ?? {}) };
           const vended = [...(deployment.vended ?? [])];
-          for (const t of targetsFor(answers)) {
+          const precreated = new Set(deployment.precreatedGroups ?? []);
+          const root = answers.intermediateRootId || "alz";
+          const groupOf = (key: TargetKey) => mgIdFor(answers, placementGroup(answers, key));
+          const plan = targetsFor(answers).map((t) => {
             const choice = data.targets[t.key];
-            if (choice?.mode === "existing") targets[t.key] = choice.subscriptionId;
-            else if (choice?.mode === "new" || !targets[t.key]) {
-              if (!data.billingScope)
-                throw new Error(`Pick a billing scope to create the ${t.label} subscription.`);
-              const alias = `${answers.intermediateRootId || "alz"}-${t.key}`;
-              // Straight into its platform group when the landing zone already exists; on a first deploy
-              // it's created in the tenant's default group and Terraform moves it during apply.
-              const group = `${answers.intermediateRootId || "alz"}-${placementGroup(answers, t.key)}`;
-              const exists = await arm.managementGroupExists(group).catch(() => false);
-              if (!exists)
-                log(
-                  `${t.label} subscription is created in the tenant's default management group; apply moves it into ${group}.`,
-                );
-              const id = await arm.vendSubscription({
-                alias,
-                displayName: `${answers.intermediateRootName || "ALZ"} ${t.label}`,
-                billingScope: data.billingScope,
-                workload: "Production",
-                managementGroupId: exists ? group : undefined,
+            const alias = `${root}-${t.key}`;
+            const ours = vended.find((v) => v.alias === alias);
+            const vend =
+              choice?.mode === "new" ||
+              (!choice && !targets[t.key]) ||
+              // Subscriptions this app vended stay under its control, including ones stranded at the root.
+              (!!ours &&
+                (choice?.mode !== "existing" || choice.subscriptionId === ours.subscriptionId));
+            return { ...t, choice, alias, vend, ours };
+          });
+          // Build the designed hierarchy before vending, so each new subscription is created straight in its
+          // management group instead of the tenant root. Policy and access follow on apply.
+          if (plan.some((t) => t.vend)) {
+            const tenantId = (await arm.whoAmI()).tenantId;
+            for (const g of deployedGroups(f.library_ref, answers)) {
+              const created = await arm.ensureManagementGroup({
+                id: g.id,
+                displayName: g.displayName,
+                parentId: g.parentId ?? tenantId,
                 log,
               });
+              if (created) precreated.add(g.id);
+            }
+            deployment.precreatedGroups = [...precreated];
+            await db.update("foundations", { deployment }, { id: f.id });
+          }
+          const billingScope = data.billingScope || deployment.billingScope || "";
+          for (const t of plan) {
+            if (t.vend) {
+              if (!billingScope && !t.ours)
+                throw new Error(`Pick a billing scope to create the ${t.label} subscription.`);
+              const group = groupOf(t.key);
+              const id = await arm.vendSubscription({
+                alias: t.alias,
+                displayName: `${answers.intermediateRootName || "ALZ"} ${t.label}`,
+                billingScope,
+                workload: "Production",
+                managementGroupId: group,
+                log,
+              });
+              if (!(await arm.subscriptionInGroup(id, group))) {
+                log(`Moving ${t.label} subscription ${id} into ${group}.`);
+                await arm.moveSubscription(id, group);
+              }
               targets[t.key] = id;
               if (!vended.some((v) => v.subscriptionId === id))
-                vended.push({ key: t.key, subscriptionId: id, alias });
+                vended.push({ key: t.key, subscriptionId: id, alias: t.alias });
               // Record each subscription as soon as it exists, so a later failure never loses track of it.
               await db.update(
                 "foundations",
-                { deployment: { ...deployment, targets, vended, billingScope: data.billingScope } },
+                { deployment: { ...deployment, targets, vended, billingScope } },
                 { id: f.id },
               );
-            }
+            } else if (t.choice?.mode === "existing") targets[t.key] = t.choice.subscriptionId;
             await arm.registerProviders(targets[t.key]!, log);
           }
           deployment.targets = targets;
@@ -302,8 +332,39 @@ export const startDeployRun = createServerFn({ method: "POST" })
             vars[p] = data.principals[p];
           }
           await runner.writeConfig(f.id, files, vars);
+          // Groups and placements made above already exist in Azure; Terraform adopts them instead of creating.
+          const inState = new Set(await runner.stateAddresses(f.id));
+          const imports: { to: string; id: string }[] = [];
+          for (const g of deployedGroups(f.library_ref, answers)) {
+            const to = `module.alz.azapi_resource.management_groups_level_${g.level}[${JSON.stringify(g.id)}]`;
+            if (precreated.has(g.id) && !inState.has(to))
+              imports.push({
+                to,
+                id: `/providers/Microsoft.Management/managementGroups/${g.id}?api-version=2023-04-01`,
+              });
+          }
+          for (const t of targetsFor(answers)) {
+            const to = `module.alz.azapi_resource.subscription_placement[${JSON.stringify(t.key)}]`;
+            const group = groupOf(t.key);
+            if (!inState.has(to) && (await arm.subscriptionInGroup(targets[t.key]!, group)))
+              imports.push({
+                to,
+                id: `/providers/Microsoft.Management/managementGroups/${group}/subscriptions/${targets[t.key]}?api-version=2023-04-01`,
+              });
+          }
+          await runner.writeImports(f.id, imports);
           log(`Configuration: ${files.length} files, ALZ library ${shortRef(f.library_ref)}.`);
+          if (imports.length)
+            log(
+              `Adopting ${imports.length} existing management group(s) and placement(s) into Terraform.`,
+            );
           const r = await runner.terraform("plan", f.id, log);
+          if (r.ok)
+            log(
+              plan.some((t) => t.vend)
+                ? "Plan complete. The management group hierarchy exists and new platform subscriptions are in their groups. Apply plan assigns policy and access and places any existing subscriptions."
+                : "Plan complete. Apply plan creates the management group hierarchy, moves the platform subscriptions into it, and assigns policy and access.",
+            );
           await finish(r.ok, r.summary);
           return;
         }
@@ -352,7 +413,21 @@ export const startDeployRun = createServerFn({ method: "POST" })
           await finish(r.ok, r.summary);
           return;
         }
+        await runner.writeImports(f.id, []);
         const r = await runner.terraform("destroy", f.id, log);
+        if (r.ok && deployment.precreatedGroups?.length) {
+          const tenantId = (await arm.whoAmI()).tenantId;
+          const levels = new Map(
+            deployedGroups(f.library_ref, answers).map((g) => [g.id, g.level]),
+          );
+          // Deepest first: a management group can only be deleted once it has no children.
+          const leftover = [...deployment.precreatedGroups].sort(
+            (a, b) => (levels.get(b) ?? 99) - (levels.get(a) ?? 99),
+          );
+          for (const id of leftover) await arm.removeManagementGroup(id, tenantId, log);
+          deployment.precreatedGroups = [];
+          await db.update("foundations", { deployment }, { id: f.id });
+        }
         if (r.ok && data.cancelVended) {
           for (const v of deployment.vended ?? []) {
             log(`Cancelling subscription ${v.subscriptionId} (${v.alias})`);

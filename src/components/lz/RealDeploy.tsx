@@ -195,10 +195,11 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       {!list.length && (
         <div className="rounded-md border border-border bg-muted/30 px-4 py-2.5 text-[12.5px] text-muted-foreground">
           <b className="font-medium text-foreground">How deploying works:</b> pick the platform
-          subscriptions, run a <b className="font-medium text-foreground">Plan</b> (read-only —
-          shows exactly what Terraform will create), then{" "}
-          <b className="font-medium text-foreground">Apply plan</b>. Nothing in Azure changes until
-          you apply.
+          subscriptions, then run a <b className="font-medium text-foreground">Plan</b>. When Plan
+          creates new subscriptions, it first builds the designed management group hierarchy (no
+          policy yet) and creates each subscription directly in its group. Review the plan, then
+          click <b className="font-medium text-foreground">Apply plan</b> to assign policy and
+          access and to move any existing subscriptions you picked into their groups.
         </div>
       )}
       <section className="rounded-md border border-border bg-card">
@@ -230,8 +231,10 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       <section className="rounded-md border border-border bg-card p-4">
         <h3 className="text-[13px] font-semibold">Platform subscriptions</h3>
         <p className="text-xs text-muted-foreground">
-          Each platform subscription is moved into its management group and gets the landing zone's
-          policies. Use empty subscriptions — policies apply to everything already in them.
+          New subscriptions are created directly in their management group from the design, which
+          Plan builds first. Existing subscriptions move into their groups on Apply. All get the
+          landing zone's policies. Use empty subscriptions — policies apply to everything already in
+          them.
         </p>
         <div className="mt-3 space-y-2">
           {r.targets.map((t) => {

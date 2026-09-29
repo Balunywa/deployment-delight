@@ -717,6 +717,47 @@ function alignHcl(src: string) {
   return lines.join("\n");
 }
 
+/** Whether the design needs its own architecture definition instead of the library's "alz" one. */
+function usesCustomArchitecture(
+  library: AlzLibrary,
+  answers: Answers,
+  groups: AlzLibrary["managementGroups"],
+) {
+  const canonical = new Set(library.managementGroups.map((m) => m.id));
+  return (
+    changesFor(library, answers).some((c) => c.action === "remove") ||
+    answers.intermediateRootId !== "alz" ||
+    groups.length !== library.managementGroups.length ||
+    groups.some((g) => !canonical.has(g.id)) ||
+    Object.keys(answers.groupNames).length > 0
+  );
+}
+
+/**
+ * The management groups Terraform deploys for the design, top-down, as Azure names them. `level` matches the
+ * ALZ module's management_groups_level_<n> resources; a null parent is the tenant root group.
+ */
+export function deployedGroups(ref: string, answers: Answers) {
+  const library = libraryFor(ref);
+  const groups = includedGroups(library, answers);
+  const custom = usesCustomArchitecture(library, answers, groups);
+  const byId = new Map(groups.map((m) => [m.id, m]));
+  const level = (id: string): number => {
+    const p = byId.get(id)?.parentId;
+    return p ? level(p) + 1 : 0;
+  };
+  return groups
+    .map((m) => ({
+      id: mgIdFor(answers, m.id),
+      displayName:
+        (custom && (m.id === "alz" ? answers.intermediateRootName : answers.groupNames[m.id])) ||
+        m.displayName,
+      parentId: m.parentId ? mgIdFor(answers, m.parentId) : null,
+      level: level(m.id),
+    }))
+    .sort((a, b) => a.level - b.level);
+}
+
 /** Files for the official AVM ALZ modules: pinned library, archetype overrides, defaults and platform modules. */
 export function terraformFor(ref: string, answers: Answers): { path: string; content: string }[] {
   const library = libraryFor(ref);
@@ -740,12 +781,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
   }
   const usesInherit = groups.some((g) => g.archetypes.includes("inherit"));
   const audits = changes.filter((c) => c.action === "audit");
-  const custom =
-    byArchetype.size > 0 ||
-    answers.intermediateRootId !== "alz" ||
-    groups.length !== library.managementGroups.length ||
-    groups.some((g) => !canonical.has(g.id)) ||
-    Object.keys(answers.groupNames).length > 0;
+  const custom = usesCustomArchitecture(library, answers, groups);
   const overrideName = (mgId: string, a: string) =>
     byArchetype.has(overrideFor(mgId, a)) ? overrideFor(mgId, a) : a;
   const mg = (id: string) => mgIdFor(answers, id);

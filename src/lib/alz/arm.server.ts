@@ -214,6 +214,90 @@ export async function managementGroupExists(id: string) {
   return r.status === 200;
 }
 
+const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000));
+
+/** Creates a management group under its parent if it isn't there yet. Returns whether it was created. */
+export async function ensureManagementGroup(opts: {
+  id: string;
+  displayName: string;
+  parentId: string;
+  log: (line: string) => void;
+}): Promise<boolean> {
+  const path = `/providers/Microsoft.Management/managementGroups/${opts.id}?api-version=2021-04-01`;
+  if ((await arm("GET", path)).status === 200) return false;
+  opts.log(`Creating management group "${opts.displayName}" (${opts.id}) under ${opts.parentId}…`);
+  const body = {
+    properties: {
+      displayName: opts.displayName,
+      details: {
+        parent: { id: `/providers/Microsoft.Management/managementGroups/${opts.parentId}` },
+      },
+    },
+  };
+  let put = await arm<{ error?: { message?: string } }>("PUT", path, body);
+  for (let attempt = 1; put.status === 429 && attempt <= 5; attempt++) {
+    await sleep(Math.max(15, Number(put.headers.get("retry-after") ?? 0) || 15 * attempt));
+    put = await arm("PUT", path, body);
+  }
+  if (put.status >= 400)
+    throw new Error(
+      `Creating management group ${opts.id} failed (${put.status}): ${put.data.error?.message ?? JSON.stringify(put.data).slice(0, 300)}`,
+    );
+  // Creation is asynchronous; children and subscriptions can only go in once the group reads back.
+  for (let i = 0; i < 60; i++) {
+    if ((await arm("GET", path)).status === 200) return true;
+    await sleep(5);
+  }
+  throw new Error(`Timed out waiting for management group ${opts.id}.`);
+}
+
+/** Whether a subscription sits directly in a management group. */
+export async function subscriptionInGroup(subscriptionId: string, groupId: string) {
+  const r = await arm(
+    "GET",
+    `/providers/Microsoft.Management/managementGroups/${groupId}/subscriptions/${subscriptionId}?api-version=2021-04-01`,
+  );
+  return r.status === 200;
+}
+
+/** Moves a subscription into a management group (no-op when it's already there). */
+export async function moveSubscription(subscriptionId: string, groupId: string) {
+  const r = await arm<{ error?: { message?: string } }>(
+    "PUT",
+    `/providers/Microsoft.Management/managementGroups/${groupId}/subscriptions/${subscriptionId}?api-version=2021-04-01`,
+  );
+  if (r.status >= 400)
+    throw new Error(
+      `Moving subscription ${subscriptionId} into ${groupId} failed (${r.status}): ${r.data.error?.message ?? JSON.stringify(r.data).slice(0, 300)}`,
+    );
+}
+
+/** Deletes an empty management group this app created; subscriptions still in it go back to the tenant root. */
+export async function removeManagementGroup(
+  id: string,
+  tenantId: string,
+  log: (l: string) => void,
+) {
+  const path = `/providers/Microsoft.Management/managementGroups/${id}?api-version=2021-04-01`;
+  const g = await arm<{ properties?: { children?: { type: string; name: string }[] } }>(
+    "GET",
+    `/providers/Microsoft.Management/managementGroups/${id}?api-version=2021-04-01&$expand=children`,
+  );
+  if (g.status === 404) return;
+  for (const c of g.data.properties?.children ?? [])
+    if (c.type.toLowerCase() === "/subscriptions") {
+      log(`Moving subscription ${c.name} out of ${id} to the tenant root group.`);
+      await moveSubscription(c.name, tenantId);
+    }
+  log(`Deleting management group ${id}.`);
+  const d = await arm<{ error?: { message?: string } }>("DELETE", path);
+  if (d.status >= 400 && d.status !== 404) {
+    log(`Couldn't delete management group ${id} (${d.status}): ${d.data.error?.message ?? ""}`);
+    return;
+  }
+  for (let i = 0; i < 60 && (await arm("GET", path)).status !== 404; i++) await sleep(5);
+}
+
 /** Creates (or finds) a subscription through the Subscription alias API. Idempotent by alias name. */
 export async function vendSubscription(opts: {
   alias: string;
