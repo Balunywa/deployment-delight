@@ -15,6 +15,7 @@
  * Sources: learn.microsoft.com/azure/virtual-network/virtual-networks-udr-overview, …/firewall/snat-private-range,
  * …/virtual-wan/how-to-routing-policies, the AVM hub-and-spoke and sub-vending module source.
  */
+import { AZURE_REGIONS } from "../regions";
 import { type Answers, hasFirewall, hasHub, on } from "./engine";
 import type { HopGap, Spoke } from "./scene";
 import type { SceneExtra } from "./scene";
@@ -81,7 +82,7 @@ export type Topology = {
   vnets: Vnet[];
   subnets: Subnet[];
   firewall: { ip: string; publicIp: string; sku: string; dnsProxy: boolean } | null;
-  gateway: { er: boolean; vpn: boolean } | null;
+  gateway: { er: boolean; vpn: boolean; erDown?: boolean } | null;
   routingIntent: boolean;
   onPrem: string;
   /** The spokes the scenarios use. */
@@ -90,7 +91,13 @@ export type Topology = {
   online?: string | undefined;
   /** Customer installs whose ranges have a GatewaySubnet route to the firewall. */
   gatewayRouted: Set<string>;
+  regions: { primary: string; secondary?: string | undefined };
+  /** What's been failed on purpose, to see how traffic reroutes. */
+  failure: Failure;
 };
+
+/** Failures to simulate: an ExpressRoute circuit, one availability zone, or the whole primary region. */
+export type Failure = "none" | "er" | "zone" | "region";
 
 const ON_PREM = "192.168.0.0/16";
 const INTERNET_HOST = "52.160.10.20";
@@ -103,6 +110,7 @@ const APPGW_PUBLIC = "20.51.9.30";
 export function topology(
   answers: Answers,
   scene: { spokes: Spoke[]; extras?: SceneExtra[] | undefined },
+  failure: Failure = "none",
 ): Topology {
   const hubNet = answers.connectivity === "hub_and_spoke";
   const wan = answers.connectivity === "virtual_wan";
@@ -187,6 +195,80 @@ export function topology(
       peers: [],
       role: "hub",
       label: `Virtual WAN hub · ${answers.primaryRegion}`,
+    });
+
+  // A hub in a second region: the module's default for a second hub is 10.1.0.0/16 (first /22 used), and hub
+  // networks are mesh-peered (global peering). The generated design deploys the same hub services there.
+  const second =
+    hasHub(answers) &&
+    !!answers.secondaryRegion &&
+    answers.secondaryRegion !== answers.primaryRegion;
+  if (second && hubNet) {
+    vnets.push({
+      id: "hub2",
+      name: "vnet-hub-2",
+      cidr: "10.1.0.0/22",
+      peers: ["hub"],
+      role: "hub",
+      label: `Hub virtual network · ${answers.secondaryRegion}`,
+    });
+    vnets.find((v) => v.id === "hub")!.peers.push("hub2");
+    if (on(answers.bastion))
+      subnets.push({
+        id: "hub2-bastion",
+        vnet: "hub2",
+        name: "AzureBastionSubnet",
+        cidr: "10.1.0.0/26",
+        ip: "10.1.0.4",
+        what: "Azure Bastion",
+        private: false,
+        publicIp: "20.52.8.20",
+      });
+    if (fw)
+      subnets.push({
+        id: "hub2-fw",
+        vnet: "hub2",
+        name: "AzureFirewallSubnet",
+        cidr: "10.1.0.64/26",
+        ip: "10.1.0.68",
+        what: `Azure Firewall ${answers.firewall}`,
+        private: false,
+        publicIp: "20.52.8.10",
+        routeTable: {
+          name: "rt-hub-fw-2",
+          propagation: true,
+          routes: [{ prefix: "0.0.0.0/0", nextHop: "Internet", source: "User" }],
+        },
+      });
+    if (gw)
+      subnets.push({
+        id: "hub2-gw",
+        vnet: "hub2",
+        name: "GatewaySubnet",
+        cidr: "10.1.0.192/27",
+        ip: "10.1.0.196",
+        what: on(answers.expressRoute) ? "ExpressRoute gateway" : "VPN gateway",
+        private: false,
+      });
+    if (dns)
+      subnets.push({
+        id: "hub2-dns",
+        vnet: "hub2",
+        name: "DNS resolver inbound",
+        cidr: "10.1.0.224/28",
+        ip: "10.1.0.228",
+        what: "DNS Private Resolver",
+        private: true,
+      });
+  }
+  if (second && wan)
+    vnets.push({
+      id: "hub2",
+      name: "Virtual hub 2",
+      cidr: "10.1.0.0/23",
+      peers: [],
+      role: "hub",
+      label: `Virtual WAN hub · ${answers.secondaryRegion}`,
     });
 
   // Spokes: subscriptions added in the design (their ranges are in the generated Terraform) and customer
@@ -323,13 +405,23 @@ export function topology(
     subnets,
     firewall,
     gateway:
-      gw && (hubNet || wan) ? { er: on(answers.expressRoute), vpn: on(answers.vpnGateway) } : null,
+      gw && (hubNet || wan)
+        ? failure === "er" && on(answers.expressRoute)
+          ? // The circuit is down: BGP over ExpressRoute is withdrawn; only the VPN (if any) still carries routes.
+            { er: false, vpn: on(answers.vpnGateway), erDown: true }
+          : { er: on(answers.expressRoute), vpn: on(answers.vpnGateway) }
+        : null,
     routingIntent: wan && fw,
     onPrem: ON_PREM,
     corpA: corpIds[0],
     corpB: corpIds[1],
     online,
     gatewayRouted,
+    regions: {
+      primary: answers.primaryRegion,
+      secondary: second ? answers.secondaryRegion : undefined,
+    },
+    failure,
   };
 }
 
@@ -375,6 +467,7 @@ export function effectiveRoutes(t: Topology, s: Subnet): Route[] {
   const learns =
     t.mode === "hub" &&
     !!t.gateway &&
+    (t.gateway.er || t.gateway.vpn) &&
     (vnet.role === "hub" || vnet.useRemoteGateways) &&
     (s.routeTable?.propagation ?? true);
   if (learns)
@@ -425,7 +518,7 @@ export function pick(routes: Route[], dst: string): { winner: Route | null; rows
 
 export type Packet = { src: string; dst: string; port: string };
 export type Decision = {
-  kind: "NSG" | "Firewall" | "WAF" | "DNS" | "Sign-in" | "Policy";
+  kind: "NSG" | "Firewall" | "WAF" | "DNS" | "Sign-in" | "Policy" | "Resilience";
   text: string;
   result: "allow" | "deny" | "inspect" | "needs-rule";
 };
@@ -444,7 +537,18 @@ export type SimHop = {
   drop?: string | undefined;
   gap?: HopGap | undefined;
 };
+/** The kind of traffic, for the legend's colours. */
+export type TrafficKind =
+  | "egress"
+  | "ingress"
+  | "internal"
+  | "private-endpoint"
+  | "ipsec"
+  | "management"
+  | "monitoring"
+  | "failover";
 export type SimResult = {
+  kind: TrafficKind;
   id: string;
   title: string;
   question: string;
@@ -736,7 +840,8 @@ function trace(
 const firstFw = (hops: SimHop[]) => hops.some((h) => h.at === "hub-fw" || h.at === "vhub-fw");
 
 export function simulate(t: Topology, answers: Answers, allowRules: boolean): SimResult[] {
-  const out: SimResult[] = [];
+  type Built = Omit<SimResult, "kind">;
+  const out: Built[] = [];
   const sub = (id?: string, kind = "workload") =>
     id ? t.subnets.find((s) => s.id === `${id}-${kind}`) : undefined;
   const name = (id?: string) => t.vnets.find((v) => v.id === id)?.name ?? "a Corp install";
@@ -748,7 +853,7 @@ export function simulate(t: Topology, answers: Answers, allowRules: boolean): Si
     : undefined;
 
   const run = (
-    base: Omit<SimResult, "forward" | "back" | "verdict" | "notes"> & { notes?: string[] },
+    base: Omit<SimResult, "forward" | "back" | "verdict" | "notes" | "kind"> & { notes?: string[] },
     start: string,
     pkt: Packet,
     opts: {
@@ -757,7 +862,7 @@ export function simulate(t: Topology, answers: Answers, allowRules: boolean): Si
       returnFrom?: (fwd: { at: string; hops: SimHop[] }) => string | null;
       isolatedIsGood?: boolean;
     } = {},
-  ): SimResult => {
+  ): Built => {
     const ctx: Ctx = { t, allowRules, sessions: new Set() };
     const fwd = trace(ctx, start, pkt, false, opts.intro);
     let back: SimHop[] = [];
@@ -846,158 +951,192 @@ export function simulate(t: Topology, answers: Answers, allowRules: boolean): Si
   // 3. On-premises → Corp workload
   if (A)
     out.push(
-      t.gateway
-        ? (() => {
-            const r = (() => {
-              const ctx: Ctx = { t, allowRules, sessions: new Set() };
-              const pkt = { src: "192.168.10.20", dst: A.ip, port: "1433" };
-              const entry: SimHop = {
+      t.gateway && !t.gateway.er && !t.gateway.vpn
+        ? {
+            id: "hybrid",
+            title: "The office reaches a Corp workload",
+            question: `192.168.10.20 (on-premises) → ${A.ip}:1433`,
+            color: "#9d7ff7",
+            available: true,
+            forward: [
+              {
                 at: "onprem",
-                title: t.gateway!.er
-                  ? "From the data center over ExpressRoute"
-                  : "From the office over a site-to-site VPN",
-                body: t.gateway!.er
-                  ? "Customer edge → Microsoft edge (private peering, BGP) → the ExpressRoute gateway."
-                  : "IPsec tunnel over the internet to the VPN gateway. On-premises learned the hub and spoke ranges by BGP (gateway transit).",
-                packet: pkt,
-                via: t.gateway!.er ? "ExpressRoute private peering" : "IPsec S2S",
-              };
-              const start = t.mode === "hub" ? "hub-gw" : null;
-              if (!start) {
-                // Virtual WAN: branch → hub router (→ firewall with routing intent) → spoke.
-                const hops: SimHop[] = [
-                  entry,
-                  {
-                    at: "vhub-gw",
-                    title: `${t.gateway!.er ? "ExpressRoute" : "VPN"} gateway in the virtual hub`,
-                    packet: pkt,
-                    via: t.routingIntent ? "Routing intent (private)" : "Default route table",
-                  },
-                ];
-                if (t.routingIntent) {
-                  if (!allowRules) {
+                title: "The ExpressRoute circuit is down",
+                packet: { src: "192.168.10.20", dst: A.ip, port: "1433" },
+                drop: "BGP over the circuit is withdrawn and there's no other path to Azure.",
+                gap: {
+                  severity: "fail",
+                  text: "Add a site-to-site VPN as the backup path. ExpressRoute stays primary while it's up; prefer its routes on-premises (higher local preference) to avoid asymmetric routing.",
+                  fix: { label: "Add a VPN gateway", patch: { vpnGateway: "yes" } },
+                },
+              },
+            ],
+            back: [],
+            verdict: {
+              status: "broken",
+              text: "On-premises is cut off: no backup for the ExpressRoute circuit.",
+            },
+            notes: [],
+          }
+        : t.gateway
+          ? (() => {
+              const r = (() => {
+                const ctx: Ctx = { t, allowRules, sessions: new Set() };
+                const pkt = { src: "192.168.10.20", dst: A.ip, port: "1433" };
+                const entry: SimHop = {
+                  at: "onprem",
+                  title: t.gateway!.er
+                    ? "From the data center over ExpressRoute"
+                    : "From the office over a site-to-site VPN",
+                  body: t.gateway!.er
+                    ? "Customer edge → Microsoft edge (private peering, BGP) → the ExpressRoute gateway."
+                    : "IPsec tunnel over the internet to the VPN gateway. On-premises learned the hub and spoke ranges by BGP (gateway transit).",
+                  packet: pkt,
+                  via: t.gateway!.er ? "ExpressRoute private peering" : "IPsec S2S",
+                };
+                const start = t.mode === "hub" ? "hub-gw" : null;
+                if (!start) {
+                  // Virtual WAN: branch → hub router (→ firewall with routing intent) → spoke.
+                  const hops: SimHop[] = [
+                    entry,
+                    {
+                      at: "vhub-gw",
+                      title: `${t.gateway!.er ? "ExpressRoute" : "VPN"} gateway in the virtual hub`,
+                      packet: pkt,
+                      via: t.routingIntent ? "Routing intent (private)" : "Default route table",
+                    },
+                  ];
+                  if (t.routingIntent) {
+                    if (!allowRules) {
+                      hops.push({
+                        at: "vhub-fw",
+                        title: "Hub firewall: no rule allows it",
+                        packet: pkt,
+                        decisions: [
+                          {
+                            kind: "Firewall",
+                            text: "The deployed policy has no rules",
+                            result: "deny",
+                          },
+                        ],
+                        drop: "Denied by the hub firewall.",
+                      });
+                      return { fwd: hops, ok: false, ctx };
+                    }
+                    ctx.sessions.add(key(pkt));
                     hops.push({
                       at: "vhub-fw",
-                      title: "Hub firewall: no rule allows it",
+                      title: "Hub firewall allows it (routing intent: private traffic)",
                       packet: pkt,
+                      via: "Hub router",
                       decisions: [
                         {
                           kind: "Firewall",
-                          text: "The deployed policy has no rules",
-                          result: "deny",
+                          text: "A rule allows it; private traffic isn't source-NATed",
+                          result: "allow",
                         },
                       ],
-                      drop: "Denied by the hub firewall.",
                     });
-                    return { fwd: hops, ok: false, ctx };
-                  }
-                  ctx.sessions.add(key(pkt));
+                  } else
+                    hops.push({
+                      at: "hub-router",
+                      title: "Hub router forwards it",
+                      packet: pkt,
+                      via: "VNet connection",
+                      gap: {
+                        severity: "warn",
+                        text: "Uninspected: branch-to-VNet goes straight through the hub router.",
+                      },
+                    });
                   hops.push({
-                    at: "vhub-fw",
-                    title: "Hub firewall allows it (routing intent: private traffic)",
+                    at: A.id,
+                    title: `Delivered to ${A.what}`,
                     packet: pkt,
-                    via: "Hub router",
                     decisions: [
                       {
-                        kind: "Firewall",
-                        text: "A rule allows it; private traffic isn't source-NATed",
+                        kind: "NSG",
+                        text: "Inbound 1433 from the on-premises range must be allowed",
                         result: "allow",
                       },
                     ],
                   });
-                } else
-                  hops.push({
-                    at: "hub-router",
-                    title: "Hub router forwards it",
-                    packet: pkt,
-                    via: "VNet connection",
-                    gap: {
-                      severity: "warn",
-                      text: "Uninspected: branch-to-VNet goes straight through the hub router.",
-                    },
-                  });
-                hops.push({
-                  at: A.id,
-                  title: `Delivered to ${A.what}`,
-                  packet: pkt,
-                  decisions: [
-                    {
-                      kind: "NSG",
-                      text: "Inbound 1433 from the on-premises range must be allowed",
-                      result: "allow",
-                    },
-                  ],
+                  return { fwd: hops, ok: true, ctx };
+                }
+                const tr = trace(ctx, start, pkt, false, {
+                  title: `${t.gateway!.er ? "ExpressRoute" : "VPN"} gateway: GatewaySubnet routes decide`,
                 });
-                return { fwd: hops, ok: true, ctx };
+                return { fwd: [entry, ...tr.hops], ok: tr.ok, ctx };
+              })();
+              let back: SimHop[] = [];
+              let backOk = true;
+              if (r.ok) {
+                const b = trace(
+                  r.ctx,
+                  A.id,
+                  { src: A.ip, dst: "192.168.10.20", port: "1433" },
+                  true,
+                );
+                back = b.hops;
+                backOk = b.ok;
               }
-              const tr = trace(ctx, start, pkt, false, {
-                title: `${t.gateway!.er ? "ExpressRoute" : "VPN"} gateway: GatewaySubnet routes decide`,
-              });
-              return { fwd: [entry, ...tr.hops], ok: tr.ok, ctx };
-            })();
-            let back: SimHop[] = [];
-            let backOk = true;
-            if (r.ok) {
-              const b = trace(r.ctx, A.id, { src: A.ip, dst: "192.168.10.20", port: "1433" }, true);
-              back = b.hops;
-              backOk = b.ok;
-            }
-            const bypassed = r.ok && !firstFw(r.fwd);
-            const drop = r.fwd.find((h) => h.drop) ?? back.find((h) => h.drop);
-            const res: SimResult = {
+              const bypassed = r.ok && !firstFw(r.fwd);
+              const drop = r.fwd.find((h) => h.drop) ?? back.find((h) => h.drop);
+              const res: Built = {
+                id: "hybrid",
+                title: "The office reaches a Corp workload",
+                question: `192.168.10.20 (on-premises) → ${A.ip}:1433 in ${name(t.corpA)}`,
+                color: "#9d7ff7",
+                available: true,
+                forward: r.fwd,
+                back,
+                notes: notes(
+                  t.firewall && rulesNote,
+                  t.mode === "hub" &&
+                    t.firewall &&
+                    !t.gatewayRouted.has(t.corpA!) &&
+                    "This install's range isn't in the GatewaySubnet route table, so the gateway uses the more specific peering route and skips the firewall. Subscriptions added in the design get that route automatically.",
+                  t.gateway?.erDown &&
+                    "The ExpressRoute circuit is down: its BGP routes are withdrawn and the site-to-site VPN carries the traffic. When the circuit is back, ExpressRoute is preferred again.",
+                  t.gateway?.er &&
+                    t.gateway.vpn &&
+                    "With both gateways, ExpressRoute is preferred over the VPN for identical prefixes.",
+                ),
+                verdict: !r.ok
+                  ? {
+                      status: drop?.decisions?.some((d) => d.result === "deny")
+                        ? "needs-rules"
+                        : "broken",
+                      text: drop?.drop ?? "Doesn't arrive.",
+                    }
+                  : !backOk
+                    ? {
+                        status: "broken",
+                        text: `The request arrives, but ${drop?.drop ?? "the reply is dropped."}`,
+                      }
+                    : bypassed
+                      ? {
+                          status: "uninspected",
+                          text: "Arrives and returns directly — no firewall on the path.",
+                        }
+                      : { status: "reaches", text: "Inspected by the firewall both ways." },
+              };
+              return res;
+            })()
+          : {
               id: "hybrid",
               title: "The office reaches a Corp workload",
-              question: `192.168.10.20 (on-premises) → ${A.ip}:1433 in ${name(t.corpA)}`,
+              question: "On-premises → Corp workload",
               color: "#9d7ff7",
-              available: true,
-              forward: r.fwd,
-              back,
-              notes: notes(
-                t.firewall && rulesNote,
-                t.mode === "hub" &&
-                  t.firewall &&
-                  !t.gatewayRouted.has(t.corpA!) &&
-                  "This install's range isn't in the GatewaySubnet route table, so the gateway uses the more specific peering route and skips the firewall. Subscriptions added in the design get that route automatically.",
-                t.gateway?.er &&
-                  t.gateway.vpn &&
-                  "With both gateways, ExpressRoute is preferred over the VPN for identical prefixes.",
-              ),
-              verdict: !r.ok
-                ? {
-                    status: drop?.decisions?.some((d) => d.result === "deny")
-                      ? "needs-rules"
-                      : "broken",
-                    text: drop?.drop ?? "Doesn't arrive.",
-                  }
-                : !backOk
-                  ? {
-                      status: "broken",
-                      text: `The request arrives, but ${drop?.drop ?? "the reply is dropped."}`,
-                    }
-                  : bypassed
-                    ? {
-                        status: "uninspected",
-                        text: "Arrives and returns directly — no firewall on the path.",
-                      }
-                    : { status: "reaches", text: "Inspected by the firewall both ways." },
-            };
-            return res;
-          })()
-        : {
-            id: "hybrid",
-            title: "The office reaches a Corp workload",
-            question: "On-premises → Corp workload",
-            color: "#9d7ff7",
-            available: false,
-            reason:
-              t.mode === "none"
-                ? "No central network."
-                : "No VPN or ExpressRoute gateway in the hub.",
-            forward: [],
-            back: [],
-            verdict: { status: "broken", text: "No connection to on-premises." },
-            notes: [],
-          },
+              available: false,
+              reason:
+                t.mode === "none"
+                  ? "No central network."
+                  : "No VPN or ExpressRoute gateway in the hub.",
+              forward: [],
+              back: [],
+              verdict: { status: "broken", text: "No connection to on-premises." },
+              notes: [],
+            },
     );
 
   // 4. Internet users → an Online install (Application Gateway is a proxy: two legs)
@@ -1300,5 +1439,150 @@ export function simulate(t: Topology, answers: Answers, allowRules: boolean): Si
       ],
     });
 
-  return out;
+  /* Failures */
+  if (t.failure === "zone") {
+    const zonal: Record<string, string> = {
+      "hub-fw":
+        "Azure Firewall spans the region's availability zones; the surviving zones carry this",
+      "vhub-fw": "The hub firewall spans availability zones; the surviving zones carry this",
+      "hub-gw":
+        "Zone-redundant gateway (VpnGw1AZ / ErGw1AZ, VPN active-active): an instance in another zone takes over",
+      "vhub-gw": "Hub gateways are zone-redundant: an instance in another zone takes over",
+    };
+    for (const r of out) {
+      for (const h of [...r.forward, ...r.back])
+        if (zonal[h.at])
+          h.decisions = [
+            ...(h.decisions ?? []),
+            { kind: "Resilience", text: zonal[h.at]!, result: "allow" },
+          ];
+      r.notes = [
+        "One availability zone is down. The platform keeps routing: the firewall spans the zones and the gateways use zone-redundant SKUs. A workload VM in the failed zone is down unless the install runs across zones.",
+        ...r.notes,
+      ];
+    }
+  }
+  if (t.failure === "region") {
+    const primary = t.regions.primary;
+    for (const r of out) {
+      const first = r.forward[0];
+      if (!r.available || !first) continue;
+      r.forward = [
+        {
+          at: first.at,
+          title: first.title,
+          packet: first.packet,
+          drop: `${primary} is down, and this path runs through its hub and installs.`,
+        },
+      ];
+      r.back = [];
+      r.verdict = { status: "broken", text: `Down with ${primary}.` };
+    }
+    const next =
+      AZURE_REGIONS.find(
+        (r) => r.name !== primary && r.geo === AZURE_REGIONS.find((x) => x.name === primary)?.geo,
+      )?.name ?? "centralus";
+    const sec = t.regions.secondary;
+    const gw2 = t.mode === "hub" ? "hub2-gw" : "vhub2-gw";
+    const fw2 = t.mode === "hub" ? "hub2-fw" : "vhub2-fw";
+    const pkt = { src: "192.168.20.20", dst: "10.1.0.4", port: "443" };
+    const hops: SimHop[] = [];
+    if (!sec || t.mode === "none")
+      hops.push({
+        at: "onprem2",
+        title: "Nowhere to fail over to",
+        packet: pkt,
+        drop: "There's no hub in a second region.",
+        gap: {
+          severity: "fail",
+          text: `Add a hub in a second region (${next}): its own firewall and gateways, globally peered with the primary, reached over a second ExpressRoute circuit or VPN.`,
+          fix: { label: `Add a hub in ${next}`, patch: { secondaryRegion: next } },
+        },
+      });
+    else {
+      hops.push({
+        at: "onprem2",
+        title: "From the second data center",
+        body: "Over a second ExpressRoute circuit at a different peering location (or a VPN), so one site's outage doesn't cut you off.",
+        packet: pkt,
+        via: t.gateway?.er ? "ExpressRoute (circuit 2)" : "IPsec S2S",
+      });
+      if (!t.gateway)
+        hops.push({
+          at: gw2,
+          title: `No gateway in ${sec}`,
+          packet: pkt,
+          drop: "The secondary hub has no VPN or ExpressRoute gateway.",
+          gap: {
+            severity: "fail",
+            text: "Add a VPN or ExpressRoute gateway (the design adds it to both hubs).",
+            fix: { label: "Add a VPN gateway", patch: { vpnGateway: "yes" } },
+          },
+        });
+      else {
+        hops.push({
+          at: gw2,
+          title: `The gateway in ${sec} takes the traffic`,
+          body: "BGP now only offers the secondary hub's routes; the primary hub's went away with the region.",
+          packet: pkt,
+          via: t.firewall ? "GatewaySubnet → firewall" : "Peering",
+        });
+        if (t.firewall)
+          hops.push({
+            at: fw2,
+            title: `The firewall in ${sec}`,
+            body: "Use one firewall policy for both regions (Azure Firewall Manager) so the rules are identical.",
+            packet: pkt,
+            decisions: [
+              {
+                kind: "Firewall",
+                text: "The secondary firewall enforces the same policy",
+                result: allowRules ? "allow" : "needs-rule",
+              },
+            ],
+          });
+        hops.push({
+          at: "dr-installs",
+          title: `Customer installs in ${sec}`,
+          packet: pkt,
+          drop: `No installs are deployed in ${sec} yet, so there's nothing to fail over to.`,
+          gap: {
+            severity: "warn",
+            text: `The platform survives in ${sec}; the workloads don't. Redeploy each install there from the same pipeline (active-passive), or run it active-active behind Azure Front Door so users fail over on their own.`,
+          },
+        });
+      }
+    }
+    out.unshift({
+      id: "failover",
+      title: `Fail over to ${sec ?? "a second region"}`,
+      question: sec ? `On-premises → the ${sec} hub → installs` : "On-premises → a second region",
+      color: "#e3008c",
+      available: true,
+      forward: hops,
+      back: [],
+      verdict: sec
+        ? {
+            status: "broken",
+            text: `Connectivity fails over to ${sec}, but no installs run there yet.`,
+          }
+        : { status: "broken", text: "No second region: a regional outage takes everything down." },
+      notes: [
+        "High availability keeps a region running through a zone or link failure. Disaster recovery needs a separate, complete copy in another region to fail over to.",
+      ],
+    });
+  }
+
+  const KIND: Record<string, TrafficKind> = {
+    egress: "egress",
+    eastwest: "internal",
+    hybrid: t.gateway && t.gateway.er && !t.gateway.erDown ? "internal" : "ipsec",
+    ingress: "ingress",
+    "private-endpoint": "private-endpoint",
+    bastion: "management",
+    telemetry: "monitoring",
+    p2s: "ipsec",
+    failover: "failover",
+  };
+  return out.map((r) => ({ ...r, kind: KIND[r.id] ?? "internal" }));
 }

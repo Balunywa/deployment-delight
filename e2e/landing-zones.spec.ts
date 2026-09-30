@@ -20,6 +20,49 @@ const step = (page: Page, n: number, label: string) =>
   page.getByRole("button", { name: new RegExp(`^${n}\\s*${label}`) }).first();
 
 test.describe("platform landing zones", () => {
+  test("traffic simulator: high availability and disaster recovery what-ifs", async ({ page }) => {
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await step(page, 2, "Design").click();
+    const map = page.locator(".react-flow");
+    // ExpressRoute alongside the VPN, and a hub in a second region.
+    await map
+      .locator(".react-flow__node")
+      .filter({ hasText: "ExpressRoute gateway" })
+      .first()
+      .getByTitle("Add to the design")
+      .click();
+    await map.getByText("Add a hub in a second region").click();
+    await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    const scenarios = page.getByRole("complementary", { name: "Traffic scenarios" });
+    const drawing = page.getByRole("img", { name: /Network topology/ });
+
+    // Everything at once, colour-coded like the legend.
+    await expect(drawing).toContainText("Hub VNet · secondary");
+    await expect(drawing).toContainText("MSEE · peering location 2");
+    await expect(drawing).toContainText("HTTPS egress");
+
+    // The circuit fails: BGP over it is withdrawn and the VPN carries on-premises traffic.
+    await page.getByRole("radio", { name: /ExpressRoute circuit fails/ }).click();
+    await scenarios.getByRole("button", { name: /The office reaches a Corp workload/ }).click();
+    await expect(page.getByText(/site-to-site VPN carries the traffic/)).toBeVisible();
+
+    // A zone fails: zone-redundant firewall and gateways keep routing.
+    await page.getByRole("radio", { name: /An availability zone fails/ }).click();
+    await scenarios.getByRole("button", { name: /A Corp workload calls an internet API/ }).click();
+    await page.getByRole("button", { name: "Pause" }).click();
+    await page.getByRole("button", { name: "Next hop" }).click();
+    await expect(page.getByRole("region", { name: "Current hop" })).toContainText(
+      "spans the region's availability zones",
+    );
+
+    // The primary region fails: connectivity fails over, the workloads have nothing to fail over to.
+    await page.getByRole("radio", { name: /The primary region fails/ }).click();
+    await scenarios.getByRole("button", { name: /Fail over to eastus/ }).click();
+    await page.getByRole("button", { name: "Pause" }).click();
+    for (let i = 0; i < 4; i++) await page.getByRole("button", { name: "Next hop" }).click();
+    await expect(page.getByTestId("drop")).toContainText("No installs are deployed in eastus");
+  });
+
   test("traffic simulator opens from the design's Traffic tab @readonly", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
     await step(page, 2, "Design").click();
@@ -163,12 +206,13 @@ test.describe("platform landing zones", () => {
   test("traffic simulator: a packet through the real routes, both ways", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
     await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    const scenarios = page.getByRole("complementary", { name: "Traffic scenarios" });
     const verdict = page.locator("[data-verdict]");
     const hop = page.getByRole("region", { name: "Current hop" });
     const next = page.getByRole("button", { name: "Next hop" });
 
     // Egress: the spoke's UDR wins, the firewall source-NATs it.
-    await page.getByRole("button", { name: /A Corp workload calls an internet API/ }).click();
+    await scenarios.getByRole("button", { name: /A Corp workload calls an internet API/ }).click();
     await expect(verdict).toHaveAttribute("data-verdict", "reaches");
     await page.getByRole("button", { name: "Pause" }).click();
     await expect(hop.locator("tr[data-active]")).toContainText("VirtualAppliance");
@@ -178,12 +222,12 @@ test.describe("platform landing zones", () => {
     await expect(verdict).toHaveAttribute("data-verdict", "needs-rules");
 
     // Installs are isolated by default…
-    await page.getByRole("button", { name: /One customer install talks to another/ }).click();
+    await scenarios.getByRole("button", { name: /One customer install talks to another/ }).click();
     await expect(verdict).toHaveAttribute("data-verdict", "isolated");
 
     // …and a customer install without a GatewaySubnet route is asymmetric: the reply dies at the firewall.
     await page.getByRole("radio", { name: "Assume allowed" }).click();
-    await page.getByRole("button", { name: /The office reaches a Corp workload/ }).click();
+    await scenarios.getByRole("button", { name: /The office reaches a Corp workload/ }).click();
     await expect(verdict).toHaveAttribute("data-verdict", "broken");
     await page.getByRole("button", { name: "Pause" }).click();
     for (let i = 0; i < 6; i++) if (await next.isEnabled()) await next.click();
