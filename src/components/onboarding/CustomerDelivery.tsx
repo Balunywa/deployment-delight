@@ -11,6 +11,7 @@ import {
   TARGET_META,
   TOOL_META,
   type TargetMode,
+  customerRepoOf,
   namesFor,
   regionLabel,
   ringsFor,
@@ -83,9 +84,11 @@ export function CustomerDelivery({
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
           <p className="text-[13px] font-semibold">
             {TOOL_META[delivery.tool].title} ·{" "}
-            <span className="font-mono text-xs">{delivery.repo}</span>
+            <span className="font-mono text-xs">{customerRepoOf(code, delivery)}</span>
           </p>
-          <p className="font-mono text-[11px] text-muted-foreground">installs/{code}.yaml</p>
+          <p className="font-mono text-[11px] text-muted-foreground">
+            environments/&lt;env&gt;/&lt;install&gt;.yaml
+          </p>
         </div>
         <table className="w-full text-left text-xs">
           <thead className="bg-muted/60 text-[11px] text-muted-foreground">
@@ -122,7 +125,7 @@ export function CustomerDelivery({
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px]">{mg ?? "—"}</td>
                 <td className="px-3 py-2 font-mono text-[11px]">
-                  {names.environment}
+                  {names.environment}-plan · {names.environment}
                   <span
                     className="block text-[10px] text-muted-foreground"
                     title={names.oidcSubject}
@@ -159,21 +162,23 @@ export function CustomerDelivery({
       <TriggerTable triggers={triggersFor(delivery, code)} />
       {rows.length > 0 && (
         <CodeBlock
-          title={`installs/${code}.yaml`}
-          code={[
-            `customer: ${code}`,
-            `environments:`,
-            ...rows.flatMap(({ plan, names, mg }) => [
-              `  ${ENV_META[plan.env]?.short ?? plan.env}:`,
-              `    region: ${plan.region}`,
-              `    target: ${plan.target}`,
-              plan.target === "new_subscription"
-                ? `    subscription: { vend: ${names.subscription}${mg ? `, managementGroup: ${mg}` : ""} }`
-                : `    subscription: ${plan.subscriptionId || "<from install link>"}`,
-              `    resourceGroup: ${names.resourceGroup}`,
-              `    ${gh ? "githubEnvironment" : "adoEnvironment"}: ${names.environment}`,
-            ]),
-          ].join("\n")}
+          title={`${customerRepoOf(code, delivery)} · environments`}
+          code={rows
+            .map(({ e, plan, names, mg }) =>
+              [
+                `# environments/${ENV_META[plan.env]?.short ?? plan.env}/<install>.yaml${e.offerings?.name ? ` · ${e.offerings.name}` : ""}`,
+                `environment: ${plan.env}`,
+                `region: ${plan.region}`,
+                `target: ${plan.target}`,
+                plan.target === "new_subscription"
+                  ? `subscription: "<vend:${names.subscription}>"`
+                  : `subscription: ${plan.subscriptionId || "<from install link>"}`,
+                `resourceGroup: ${names.resourceGroup}`,
+                ...(mg ? [`managementGroup: ${mg}`] : []),
+                `# ${gh ? "GitHub" : "pipeline"} environments: ${names.environment}-plan (read-only), ${names.environment}`,
+              ].join("\n"),
+            )
+            .join("\n---\n")}
         />
       )}
     </div>

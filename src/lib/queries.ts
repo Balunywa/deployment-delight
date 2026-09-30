@@ -18,6 +18,7 @@ import {
   listProducts,
   listWaves,
 } from "@/lib/data.functions";
+import { getDeliveryUnit, listDeliveryUnits } from "@/lib/delivery.functions";
 import { getCurrentUser, getSolution } from "@/lib/solutions.functions";
 
 export const organizationQuery = queryOptions({
@@ -77,6 +78,18 @@ export const currentUserQuery = queryOptions({
   queryFn: () => getCurrentUser(),
   staleTime: Infinity,
 });
+export const deliveryUnitsQuery = queryOptions({
+  queryKey: ["delivery-units"],
+  queryFn: () => listDeliveryUnits(),
+});
+export const deliveryUnitQuery = (
+  key:
+    { unitId: string } | { productId: string } | { customerId: string } | { foundationId: string },
+) =>
+  queryOptions({
+    queryKey: ["delivery-unit", key],
+    queryFn: () => getDeliveryUnit({ data: key }),
+  });
 export const solutionQuery = (productId: string) =>
   queryOptions({
     queryKey: ["solution", productId],

@@ -34,6 +34,7 @@ import { currency, dateTime, describe, relative, titleize } from "@/lib/format";
 import { auditQuery, customerQuery } from "@/lib/queries";
 import { productOf } from "@/lib/product-catalog";
 import { useFleet } from "@/lib/use-fleet";
+import { UnitCard } from "@/components/delivery/UnitCard";
 import { CustomerDelivery } from "@/components/onboarding/CustomerDelivery";
 
 export const Route = createFileRoute("/customers/$customerId")({
@@ -559,13 +560,18 @@ function CustomerDetail() {
           </Panel>
         </TabsContent>
 
-        <TabsContent value="delivery" className="mt-4">
-          <CustomerDelivery
-            code={c.customer_code}
-            envs={envs}
-            subscriptionId={conn?.subscription_id ?? null}
-            hosted={c.azure_model === "isv_hosted"}
-          />
+        <TabsContent value="delivery" className="mt-4 grid gap-4 lg:grid-cols-[1fr_300px]">
+          <div className="min-w-0">
+            <CustomerDelivery
+              code={c.customer_code}
+              envs={envs}
+              subscriptionId={conn?.subscription_id ?? null}
+              hosted={c.azure_model === "isv_hosted"}
+            />
+          </div>
+          <aside>
+            <UnitCard link={{ customerId: c.id }} />
+          </aside>
         </TabsContent>
 
         <TabsContent value="access" className="mt-4 grid gap-4 lg:grid-cols-2">

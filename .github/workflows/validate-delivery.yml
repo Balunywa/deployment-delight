@@ -1,0 +1,67 @@
+name: Validate delivery platform generation
+
+# Proves what Cloud Delivery generates for the delivery platform is sound:
+#   1. every unit spec passes the isolation rules (identities pinned to environment + template, one state file
+#      per environment and install, production-like environments have reviewers)
+#   2. every generated workflow passes actionlint, and each unit's caller matches the template it calls
+#   3. the cd-vending Terraform validates against the real GitHub and azurerm providers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/lib/delivery/**"
+      - "scripts/delivery-generate.ts"
+      - ".github/workflows/validate-delivery.yml"
+  pull_request:
+    paths:
+      - "src/lib/delivery/**"
+      - "scripts/delivery-generate.ts"
+      - ".github/workflows/validate-delivery.yml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Generate the platform and check isolation rules
+        run: bun scripts/delivery-generate.ts "$RUNNER_TEMP/out"
+
+      - name: Install actionlint
+        run: |
+          curl -sSL -o al.tgz https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz
+          mkdir -p "$RUNNER_TEMP/bin" && tar -xzf al.tgz -C "$RUNNER_TEMP/bin" actionlint
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: actionlint every generated workflow
+        working-directory: ${{ runner.temp }}/out
+        run: find . -path '*/.github/workflows/*.yml' -print0 | xargs -0 actionlint
+
+      - name: Callers match the templates they call
+        working-directory: ${{ runner.temp }}/out
+        run: |
+          set -euo pipefail
+          for repo in lz-* sol-* cust-* cd-vending; do
+            work="$RUNNER_TEMP/check-$repo"
+            rm -rf "$work" && cp -R "$repo" "$work"
+            cp cd-delivery-templates/.github/workflows/*.yml "$work/.github/workflows/"
+            sed -i -E 's#uses: [A-Za-z0-9-]+/cd-delivery-templates/(\.github/workflows/[a-z]+\.yml)@[A-Za-z0-9.]+#uses: ./\1#' "$work"/.github/workflows/*.yml
+            (cd "$work" && git init -q . && actionlint .github/workflows/*.yml)
+            echo "$repo: callers match"
+          done
+
+      - name: terraform validate cd-vending
+        working-directory: ${{ runner.temp }}/out/cd-vending/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false >/dev/null
+          terraform validate -no-color

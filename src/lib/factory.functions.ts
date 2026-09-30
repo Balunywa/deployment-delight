@@ -7,6 +7,7 @@ import type { Tables } from "./db-types";
 import { fromManifest, toManifest } from "./architecture";
 import {
   DEFAULT_DELIVERY,
+  customerRepoOf,
   ENV_KEYS,
   ENV_META,
   envName,
@@ -1075,7 +1076,11 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         delivery: z
           .object({
             tool: z.enum(["github-actions", "azure-devops"]),
-            repo: z.string().min(3).max(140),
+            org: z
+              .string()
+              .min(1)
+              .max(39)
+              .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, "A GitHub or Azure DevOps organization name"),
             autoDeployNonProd: z.boolean(),
             prodApprovers: z.string().max(120),
             prodWaitMinutes: z.number().int().min(0).max(43200),
@@ -1317,11 +1322,16 @@ export const onboardCustomer = createServerFn({ method: "POST" })
         azureModel: data.azureModel,
         accessMethod: data.accessMethod,
         delivery: delivery.tool,
-        repo: delivery.repo,
-        installFile: `installs/${data.customerCode}.yaml`,
+        repository: customerRepoOf(data.customerCode, delivery),
+        installFiles: `environments/<env>/<install>.yaml`,
         overrides: Object.keys(data.overrides),
       },
     });
+
+    // The customer gets its own repository, environments, identities and state: file its vending request.
+    const { ensureAndRequest } = await import("./delivery/units.server");
+    const { currentUser } = await import("./identity.server");
+    const vending = await ensureAndRequest(db, { customer_id: customer.id }, currentUser().name);
 
     return {
       customerId: customer.id,
@@ -1329,6 +1339,9 @@ export const onboardCustomer = createServerFn({ method: "POST" })
       environments: environments ?? [],
       version: published.version,
       landing,
+      repository: customerRepoOf(data.customerCode, delivery),
+      vendingUrl: vending?.requested ? (vending.url ?? null) : null,
+      vendingBlocked: vending && !vending.requested ? vending.reason : null,
     };
   });
 
@@ -1866,5 +1879,8 @@ export const createFoundation = createServerFn({ method: "POST" })
       resource_id: data.name,
       new_value: { scenario: s.id, prefix: data.prefix, region: data.region },
     });
+    const { ensureAndRequest } = await import("./delivery/units.server");
+    const { currentUser } = await import("./identity.server");
+    await ensureAndRequest(db, { foundation_id: f.id }, currentUser().name);
     return { foundationId: f.id };
   });

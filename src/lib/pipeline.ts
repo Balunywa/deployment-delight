@@ -4,6 +4,13 @@
  * src/lib/offering/terraform.ts).
  */
 import { SERVICE_BY_ID, type Selected, type Topology } from "@/lib/catalog";
+import {
+  DEFAULT_PLATFORM,
+  ENV_SHORT,
+  repoName,
+  slugify,
+  sortEnvironments,
+} from "@/lib/delivery/model";
 
 export type Job = { id: string; name: string; module?: string; detail: string; gate?: boolean };
 export type Stage = { id: string; name: string; jobs: Job[] };
@@ -111,114 +118,62 @@ export function deploySteps(selected: Selected[], topology: Topology) {
     .map((j) => ({ name: j.name, module: j.module as string }));
 }
 
-const ENV_SHORT: Record<string, string> = {
-  development: "dev",
-  test: "test",
-  qa: "qa",
-  uat: "uat",
-  staging: "stg",
-  production: "prod",
-};
-const ENV_ORDER = ["development", "test", "qa", "uat", "staging", "production"];
-
 /**
- * The CI/CD workflow every customer install runs: validate once, then plan and apply each environment in
- * ring order with its own Terraform state; production waits for the environment's required reviewers.
+ * How an offering is delivered: its solution repository (sol-<solution>) releases it with the pinned solution
+ * template — build once, attest, sandbox deploy, publish — and customers receive it through promotion pull
+ * requests on their own cust-<code> repositories, environment by environment.
  */
 export function workflowFor(
-  productSlug: string,
-  _selected: Selected[],
+  solution: string,
+  offering: string,
   topology: Topology,
   flavour: "github-actions" | "azure-devops",
 ) {
-  const envs = ENV_ORDER.filter((e) => topology.environments.includes(e)).map(
-    (e) => ENV_SHORT[e] ?? e,
-  );
-  const dir = `offerings/${productSlug}`;
-  if (flavour === "azure-devops") {
+  const p = DEFAULT_PLATFORM;
+  const repo = repoName("solution", solution);
+  const envs = sortEnvironments(topology.environments).map((e) => ENV_SHORT[e] ?? e);
+  const install = `${slugify(solution)}-${slugify(offering)}`;
+  const footer = [
+    ``,
+    `# Release ${offering}: tag ${offering}/vX.Y.Z on main.`,
+    `#   validate → build offerings/${offering}/ once → attest → sandbox deploy → publish the release`,
+    `# The control plane registers the release as an immutable version with its digest, then rolls it out in`,
+    `# waves: a promotion pull request per customer repository changes`,
+    `#   cust-<code>/environments/<env>/${install}.yaml  (${envs.join(" → ")})`,
+    `# and each customer's own pipeline plans, waits for approval where required, and applies.`,
+  ];
+  if (flavour === "azure-devops")
     return [
-      `# azure-pipelines/deliver-${productSlug}.yml — one pipeline for every customer install`,
-      `parameters:`,
-      `  - name: install`,
-      `    displayName: Customer code, e.g. metro-energy`,
-      `    type: string`,
-      `trigger: none`,
-      `pool: { vmImage: ubuntu-latest }`,
-      `stages:`,
-      `  - stage: land`,
-      `    displayName: Land`,
-      `    jobs:`,
-      `      - job: validate`,
-      `        steps:`,
-      `          - task: TerraformInstaller@1`,
-      `          - script: terraform -chdir=${dir} fmt -check && terraform -chdir=${dir} init -backend=false && terraform -chdir=${dir} validate`,
-      ...envs.flatMap((e, i) => [
-        `  - stage: ${e}`,
-        `    dependsOn: ${i === 0 ? "land" : envs[i - 1]}`,
-        `    jobs:`,
-        `      - deployment: deploy_${e}`,
-        `        environment: \${{ parameters.install }}-${e}  # approvals and checks live on the environment`,
-        `        strategy:`,
-        `          runOnce:`,
-        `            deploy:`,
-        `              steps:`,
-        `                - checkout: self`,
-        `                - task: TerraformInstaller@1`,
-        `                - task: AzureCLI@2  # workload identity federation, no secrets`,
-        `                  inputs:`,
-        `                    azureSubscription: \${{ parameters.install }}-${e}`,
-        `                    scriptType: bash`,
-        `                    addSpnToEnvironment: true`,
-        `                    inlineScript: |`,
-        `                      export ARM_USE_OIDC=true ARM_OIDC_TOKEN=$idToken ARM_CLIENT_ID=$servicePrincipalId ARM_TENANT_ID=$tenantId`,
-        `                      terraform -chdir=${dir} init -backend-config=key=\${{ parameters.install }}-${e}.tfstate`,
-        `                      terraform -chdir=${dir} plan -var-file=../../installs/\${{ parameters.install }}/${e}.tfvars.json -out=tfplan`,
-        `                      terraform -chdir=${dir} apply tfplan`,
-        `                      terraform -chdir=${dir} output -json`,
-      ]),
+      `# ${repo}/azure-pipelines/solution.yml — extends the required template`,
+      `trigger:`,
+      `  tags: { include: ["*/v*"] }`,
+      `pr:`,
+      `  branches: { include: [main] }`,
+      `resources:`,
+      `  repositories:`,
+      `    - repository: templates`,
+      `      type: git`,
+      `      name: ${p.org}/${p.templatesRepo}`,
+      `      ref: refs/tags/${p.templatesRef}`,
+      `extends:`,
+      `  template: solution.yml@templates  # environments: sandbox (service connection), release (approval)`,
+      ...footer,
     ].join("\n");
-  }
   return [
-    `# .github/workflows/deliver-${productSlug}.yml — one workflow for every customer install`,
-    `name: deliver-${productSlug}`,
+    `# ${repo}/.github/workflows/solution.yml — calls the pinned template`,
+    `name: solution`,
     `on:`,
-    `  workflow_dispatch:`,
-    `    inputs:`,
-    `      install: { required: true, description: "Customer code, e.g. metro-energy" }`,
-    `permissions: { id-token: write, contents: read }  # OIDC federation, no secrets`,
-    `env:`,
-    `  TF_IN_AUTOMATION: "1"`,
+    `  pull_request:`,
+    `  push:`,
+    `    tags: ["*/v*"]`,
+    `permissions: {}`,
     `jobs:`,
-    `  land:`,
-    `    name: Land`,
-    `    runs-on: ubuntu-latest`,
-    `    steps:`,
-    `      - uses: actions/checkout@v4`,
-    `      - uses: hashicorp/setup-terraform@v3`,
-    `      - run: terraform -chdir=${dir} fmt -check`,
-    `      - run: terraform -chdir=${dir} init -backend=false && terraform -chdir=${dir} validate`,
-    ...envs.flatMap((e, i) => [
-      `  ${e}:`,
-      `    name: ${e}`,
-      `    needs: ${i === 0 ? "land" : envs[i - 1]}`,
-      `    runs-on: ubuntu-latest`,
-      `    environment: \${{ inputs.install }}-${e}  # ${e === "prod" ? "required reviewers" : "per-environment credentials"}`,
-      `    steps:`,
-      `      - uses: actions/checkout@v4`,
-      `      - uses: hashicorp/setup-terraform@v3`,
-      `      - uses: azure/login@v2`,
-      `        with:`,
-      `          client-id: \${{ vars.AZURE_CLIENT_ID }}`,
-      `          tenant-id: \${{ vars.AZURE_TENANT_ID }}`,
-      `          subscription-id: \${{ vars.AZURE_SUBSCRIPTION_ID }}`,
-      `      - name: terraform plan`,
-      `        env: { ARM_USE_OIDC: "true", ARM_CLIENT_ID: "\${{ vars.AZURE_CLIENT_ID }}", ARM_TENANT_ID: "\${{ vars.AZURE_TENANT_ID }}" }`,
-      `        run: |`,
-      `          terraform -chdir=${dir} init -backend-config=key=\${{ inputs.install }}-${e}.tfstate`,
-      `          terraform -chdir=${dir} plan -var-file=../../installs/\${{ inputs.install }}/${e}.tfvars.json -out=tfplan`,
-      `      - name: terraform apply`,
-      `        env: { ARM_USE_OIDC: "true", ARM_CLIENT_ID: "\${{ vars.AZURE_CLIENT_ID }}", ARM_TENANT_ID: "\${{ vars.AZURE_TENANT_ID }}" }`,
-      `        run: terraform -chdir=${dir} apply tfplan && terraform -chdir=${dir} output -json`,
-    ]),
+    `  solution:`,
+    `    uses: ${p.org}/${p.templatesRepo}/.github/workflows/solution.yml@${p.templatesRef}`,
+    `    permissions:`,
+    `      contents: write`,
+    `      id-token: write`,
+    `      attestations: write`,
+    ...footer,
   ].join("\n");
 }

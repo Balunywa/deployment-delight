@@ -665,8 +665,9 @@ function Designer() {
             <div>
               <h2 className="text-sm font-semibold">Delivery pipeline</h2>
               <p className="text-xs text-muted-foreground">
-                Generated from the architecture. Every customer install runs this same pipeline —
-                only parameters differ.
+                Released from the solution's own repository with the pinned template: built once,
+                attested, test deployed to the sandbox. Customers receive it through promotion pull
+                requests on their own repositories.
               </p>
             </div>
             <div className="flex rounded-sm border border-border p-0.5 text-xs">
@@ -690,10 +691,15 @@ function Designer() {
           <CodeBlock
             title={
               flavour === "github-actions"
-                ? `.github/workflows/deliver-${slug}.yml`
-                : `azure-pipelines/deliver-${slug}.yml`
+                ? `sol-${slugOf(offering.products?.name ?? slug)}/.github/workflows/solution.yml`
+                : `sol-${slugOf(offering.products?.name ?? slug)}/azure-pipelines/solution.yml`
             }
-            code={workflowFor(slug, selected, topology, flavour)}
+            code={workflowFor(
+              slugOf(offering.products?.name ?? slug),
+              slugOf(modelOf(offering.name)),
+              topology,
+              flavour,
+            )}
           />
         </div>
       )}

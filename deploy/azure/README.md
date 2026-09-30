@@ -21,14 +21,19 @@ request creates the database and its tables (and loads the demo data, if selecte
 
 ## How the app code gets there
 
-1. `.github/workflows/release-app.yml` builds the app on every push to `main` and publishes a
-   self-contained `cloud-delivery-app.zip` as the `app-latest` GitHub release.
+1. `.github/workflows/release-app.yml` builds a self-contained `cloud-delivery-app.zip` once per trigger,
+   with a build provenance attestation (`gh attestation verify cloud-delivery-app.zip --repo <owner>/<repo>`):
+   - a `vX.Y.Z` tag publishes an **immutable** release `vX.Y.Z`. Pin that in production by setting the
+     template's `packageUrl` to `https://github.com/<owner>/<repo>/releases/download/vX.Y.Z/cloud-delivery-app.zip`;
+   - every push to `main` refreshes the `app-latest` **edge** build, which the demo Deploy to Azure button
+     uses by default. It moves on every push.
 2. The template sets `WEBSITE_RUN_FROM_PACKAGE` to that release URL, so App Service mounts the zip
    read-only and starts it with `node .output/server/index.mjs`.
 3. On first use the app creates its database, applies `db/migrations` and, if selected, `db/seed`
    (`AUTO_MIGRATE=true`, `SEED_DEMO_DATA`). The app's own identity owns the database it creates.
 
-To pick up a new release on a running console, restart the web app.
+To pick up a new release on a running console, point `packageUrl` at the new version (or, on the edge
+build, restart the web app).
 
 ## Settings and identities
 

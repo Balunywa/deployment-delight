@@ -115,10 +115,10 @@ export function PipelineGraph({
   const c = code || "customer";
   return (
     <div className="space-y-3 overflow-x-auto rounded-md border border-border bg-muted/30 p-3">
-      <Lane label="On the pull request" sub={`installs/${c}.yaml`}>
+      <Lane label="On the pull request" sub={`cust-${c} · environments/*`}>
         <Node
           title="Opened"
-          sub={`onboard/${c}`}
+          sub={`cust-${c}`}
           state={states["pr"]}
           icon={<GitPullRequest className="size-3.5 text-primary" />}
         />
@@ -129,7 +129,7 @@ export function PipelineGraph({
           state={states["validate"]}
         />
         <Arrow />
-        <Node title="Plan" sub={`terraform plan × ${rings.length}`} state={states["plan"]} />
+        <Node title="Plan" sub={`read-only identity × ${rings.length}`} state={states["plan"]} />
         <span className="ml-3 max-w-[200px] text-[10.5px] leading-snug text-muted-foreground">
           Results are posted on the pull request — reviewers see exactly what changes.
         </span>
@@ -143,7 +143,7 @@ export function PipelineGraph({
             {i > 0 && <Arrow />}
             <Node
               title={`Deploy ${ENV_META[r.envs[0]!].short}`}
-              sub={`${c}-${ENV_META[r.envs[0]!].short}`}
+              sub={`environment ${ENV_META[r.envs[0]!].short}`}
               state={states[`deploy-${r.id}`]}
               gate={r.gate}
               gateWaiting={states[`gate-${r.id}`] === "waiting"}
@@ -155,8 +155,8 @@ export function PipelineGraph({
       </Lane>
       <p className="flex items-center gap-1.5 border-t border-border pt-2 text-[11px] text-muted-foreground">
         {gh
-          ? "One workflow for every customer — .github/workflows/deliver.yml. Each ring is a GitHub environment with its own OIDC credential."
-          : "One pipeline for every customer — azure-pipelines/deliver.yml. Each ring is an Azure Pipelines environment with its own service connection."}
+          ? `This customer's own repository, cust-${c}, calls the pinned install template. Each ring is a GitHub environment with its own plan and apply identities, trusted only for that environment.`
+          : `This customer's own repository, cust-${c}, extends the required install template. Each ring is an Azure Pipelines environment with its own service connection.`}
       </p>
     </div>
   );

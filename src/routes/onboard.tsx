@@ -68,7 +68,9 @@ import {
   TARGET_META,
   TOOL_META,
   type TargetMode,
+  customerRepoOf,
   deliveryWorkflow,
+  type InstallContext,
   installFile,
   namesFor,
   onboardingChecks,
@@ -427,7 +429,7 @@ function Onboard() {
     customer.name.trim().length >= 2 && codeOk,
     true,
     envPlans.length > 0 && !checks.some((c) => c.area === "Targets" && c.level === "fail"),
-    delivery.repo.includes("/"),
+    /^[A-Za-z0-9][A-Za-z0-9-]{0,38}$/.test(delivery.org),
     verdict(checks) !== "fail",
   ];
   const setPlan = (e: EnvKey, patch: Partial<EnvPlan>) =>
@@ -455,18 +457,22 @@ function Onboard() {
   const gh = delivery.tool === "github-actions";
 
   const bound = Object.fromEntries(required.map((i) => [i.key, value(i.key)]));
-  const fileText = installFile({
+  const installCtx: InstallContext = {
     code: customerCode,
     name: customer.name,
-    offering: slug(pick.offering.name),
+    solution: slug(pick.offering.products?.name ?? pick.offering.name),
+    offering: slug(modelOf(pick.offering.name)),
     version: pick.version.version,
-    landingZone: arch.topology.landingZone,
     placement: placement.path.filter((p) => p.id !== "root"),
     plans: submitPlans,
     delivery,
     inputs: viaLink ? {} : bound,
     tenantId: hosted || viaLink ? "" : tenantId,
-  });
+    hosted,
+    regulated: pick.offering.offering_type === "regulated",
+  };
+  const customerRepoName = customerRepoOf(customerCode, delivery);
+  const fileText = installFile(installCtx);
 
   const start = async () => {
     // Pin the code: once the customer exists, the suggestion would move on to the next free one.
@@ -475,25 +481,25 @@ function Onboard() {
     const steps: Launch["steps"] = [
       {
         id: "record",
-        label: "Customer and install file",
-        detail: `installs/${customerCode}.yaml`,
+        label: "Customer, and a vending request for its own repository",
+        detail: `${customerRepoName} · requests/customer/${customerCode}.yaml on cd-vending`,
         state: "running",
       },
       {
         id: "pr",
         label: gh
-          ? `Pull request on ${delivery.repo}`
-          : `Pull request in Azure Repos (${delivery.repo})`,
-        detail: `onboard/${customerCode} → main`,
+          ? `First pull request on ${customerRepoName}`
+          : `First pull request in Azure Repos (${customerRepoName})`,
+        detail: `environments/<env>/${installCtx.solution}-${installCtx.offering}.yaml → main`,
         state: "queued",
       },
       {
         id: "envs",
-        label: gh ? "GitHub environments" : "Azure Pipelines environments",
+        label: gh ? `GitHub environments in ${customerRepoName}` : "Azure Pipelines environments",
         detail: envPlans
           .map(
             (p) =>
-              `${namesFor(customerCode, p, delivery).environment}${ENV_META[p.env].prod && delivery.prodApprovers ? " (required reviewers)" : ""}`,
+              `${namesFor(customerCode, p, delivery).environment}-plan, ${namesFor(customerCode, p, delivery).environment}${ENV_META[p.env].prod && delivery.prodApprovers ? " (required reviewers)" : ""}`,
           )
           .join(" · "),
         state: "queued",
@@ -501,7 +507,7 @@ function Onboard() {
       {
         id: "oidc",
         label: gh ? "Federated credentials (OIDC)" : "Workload identity federation",
-        detail: `${envPlans.length} subject${envPlans.length === 1 ? "" : "s"}, no secrets stored`,
+        detail: `A plan and an apply identity per environment (${envPlans.length * 2}), each trusting only its environment and the pinned template`,
         state: "queued",
       },
       ...(vending.length
@@ -1382,14 +1388,10 @@ function Onboard() {
                   </div>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <Field
-                      label={gh ? "Delivery repository" : "Project / repository"}
-                      value={delivery.repo}
-                      onChange={(v) => setDelivery({ ...delivery, repo: v })}
-                      hint={
-                        gh
-                          ? "The repository you deployed Cloud Delivery from."
-                          : "Azure DevOps project and Azure Repos repository."
-                      }
+                      label={gh ? "GitHub organization" : "Azure DevOps organization"}
+                      value={delivery.org}
+                      onChange={(v) => setDelivery({ ...delivery, org: v.trim() })}
+                      hint={`This customer gets its own repository: ${customerRepoName}. Its identities trust only that repository.`}
                       mono
                     />
                     <Field
@@ -1536,7 +1538,7 @@ function Onboard() {
                     />
                   </div>
                 </Card>
-                <Card title="The run" subtitle={`${tool.title} · ${delivery.repo}`}>
+                <Card title="The run" subtitle={`${tool.title} · ${customerRepoName}`}>
                   <PipelineGraph code={customerCode} rings={rings} delivery={delivery} />
                   <div className="mt-3 flex gap-2">
                     <Button
@@ -1544,14 +1546,14 @@ function Onboard() {
                       variant={showFiles === "install" ? "default" : "outline"}
                       onClick={() => setShowFiles(showFiles === "install" ? null : "install")}
                     >
-                      installs/{customerCode}.yaml
+                      environments/*
                     </Button>
                     <Button
                       size="sm"
                       variant={showFiles === "workflow" ? "default" : "outline"}
                       onClick={() => setShowFiles(showFiles === "workflow" ? null : "workflow")}
                     >
-                      {gh ? ".github/workflows/deliver.yml" : "azure-pipelines/deliver.yml"}
+                      {gh ? ".github/workflows/install.yml" : "azure-pipelines/install.yml"}
                     </Button>
                   </div>
                   {showFiles && (
@@ -1559,16 +1561,12 @@ function Onboard() {
                       <CodeBlock
                         title={
                           showFiles === "install"
-                            ? `installs/${customerCode}.yaml · the only file this onboarding adds`
+                            ? `environments/<env>/${installCtx.solution}-${installCtx.offering}.yaml · ${customerRepoName}`
                             : gh
-                              ? ".github/workflows/deliver.yml · shared by every customer"
-                              : "azure-pipelines/deliver.yml · shared by every customer"
+                              ? `.github/workflows/install.yml · ${customerRepoName}, calling the pinned template`
+                              : `azure-pipelines/install.yml · ${customerRepoName}, extending the required template`
                         }
-                        code={
-                          showFiles === "install"
-                            ? fileText
-                            : deliveryWorkflow(slug(pick.offering.name), delivery)
-                        }
+                        code={showFiles === "install" ? fileText : deliveryWorkflow(installCtx)}
                       />
                     </div>
                   )}

@@ -57,14 +57,42 @@ Either way, it's the same product setup, the same deployment process and the sam
    existing resource group. Placement in the management group hierarchy comes from the landing zone design,
    one subscription per environment in the same group, as the Cloud Adoption Framework recommends. Hosted
    by you: nothing is needed from the customer. In their Azure: send their admin a link to approve access.
-4. **Onboarding is a pull request.** Launching adds one file, `installs/<customer>.yaml`, to your delivery
-   repository. The same workflow (GitHub Actions by default, or Azure Pipelines) validates and plans every
-   environment on the pull request; merging deploys ring by ring, and production waits for its required
-   reviewers. Each environment is a GitHub environment with its own OIDC federated credential — no
-   secrets. The same workflow runs on new offering releases (upgrades), nightly (drift) and by hand.
+4. **Onboarding is a pull request on the customer's own repository.** Launching files a vending request for
+   `cust-<customer>`, then adds one file per environment, `environments/<env>/<solution>-<model>.yaml`,
+   pinning the offering version and its digest. The customer's workflow calls the pinned install template:
+   the pull request plans every environment with read-only identities; merging applies them in ring order,
+   and production waits for its reviewers and bake time. Each environment has its own plan and apply
+   identities, trusted only for that repository, environment and template — no secrets. New versions arrive
+   as promotion pull requests; drift is checked nightly.
    _The demo engine simulates the GitHub calls and Azure deployments._
 5. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
    versions in stages instead of all at once.
+
+## Delivery units: isolation per landing zone, solution and customer
+
+Everything Cloud Delivery deploys is a **delivery unit** with its own repository, pipeline, cloud identities
+and Terraform state; approvals attach to the unit's environments, and branches stay short-lived
+([strategy and research](docs/delivery-isolation-strategy.md)). **Platform → Delivery units** (`/delivery`) lists
+every unit, its environments and reviewers, identities (scope, roles, federated subject), state files,
+isolation findings and the repository content vending creates.
+
+| Unit                            | Repository              | Promotion                                                                             |
+| ------------------------------- | ----------------------- | ------------------------------------------------------------------------------------- |
+| Landing zone (one per tenant)   | `lz-<tenant>`           | Plan on pull request, apply after approval; canary landing zone first                 |
+| Solution                        | `sol-<product>`         | Tag `<offering>/vX.Y.Z` → build once → attest → sandbox → immutable version           |
+| Customer                        | `cust-<customer>`       | Promotion pull requests bump each environment's pinned version                        |
+| Shared modules and policy packs | `cd-modules`            | SemVer tags; consumers pin                                                            |
+| Pipeline templates              | `cd-delivery-templates` | Identities trust only these workflows, at a pinned tag                                |
+| Vending                         | `cd-vending`            | One request file per unit; two approvals create repo, environments, identities, state |
+
+- `src/lib/delivery/model.ts` resolves a unit into its spec and checks the isolation rules;
+  `templates.ts`, `scaffold.ts` and `vending.ts` generate the templates repository, each unit's repository
+  content, and the vending requests plus the Terraform that applies them.
+- Submitting a solution, onboarding a customer and creating a landing zone file the unit's vending request.
+  With `CD_GITHUB_TOKEN` (a GitHub App installation token) it's opened as a pull request on `cd-vending`;
+  without it, it's recorded in the console and nothing outside it changes (see `.env.example`).
+- `bun scripts/delivery-generate.ts <dir>` writes all of it; CI (`validate-delivery.yml`) lints every workflow,
+  checks callers against templates, validates the vending Terraform and fails on isolation findings.
 
 ## Platform landing zones
 

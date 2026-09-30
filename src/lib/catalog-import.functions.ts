@@ -525,6 +525,7 @@ export const importCatalogSource = createServerFn({ method: "POST" })
           : "Customer Hosted";
     const pool = await db.db();
     const client = await pool.connect();
+    let result: { productId: string; offeringId: string; versionId: string; checks: ImportCheck[] };
     try {
       await client.query("begin");
       const product = await client.query<{ id: string }>(
@@ -603,16 +604,19 @@ export const importCatalogSource = createServerFn({ method: "POST" })
         ],
       );
       await client.query("commit");
-      return {
-        productId,
-        offeringId,
-        versionId: version.rows[0]!.id,
-        checks,
-      };
+      result = { productId, offeringId, versionId: version.rows[0]!.id, checks };
     } catch (error) {
       await client.query("rollback");
       throw error;
     } finally {
       client.release();
     }
+    // The solution gets its own repository, sandbox identities and state: file its vending request.
+    const { ensureAndRequest } = await import("./delivery/units.server");
+    const vending = await ensureAndRequest(db, { product_id: result.productId }, user.name);
+    return {
+      ...result,
+      repository: vending?.unit.repository ?? null,
+      vendingUrl: vending?.requested ? (vending.url ?? null) : null,
+    };
   });

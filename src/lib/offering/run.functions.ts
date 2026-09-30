@@ -86,8 +86,29 @@ const ENV_LABEL: Record<string, string> = {
 };
 
 const running = new Set<string>();
-const workspace = (offeringId: string, env: string) =>
-  `installs/${offeringId}/${ENV_SHORT[env] ?? env}`;
+/** One Terraform workspace and state per install and environment, so two installs never share state. */
+const workspace = (offeringId: string, prefix: string, env: string) =>
+  `installs/${offeringId}/${prefix}/${ENV_SHORT[env] ?? env}`;
+
+/**
+ * Earlier builds kept one workspace per offering and environment. Move it under its install prefix the first
+ * time that install runs again, so an existing test deploy keeps its state instead of being created twice.
+ */
+async function adoptLegacyWorkspace(offeringId: string, prefix: string, env: string) {
+  const { existsSync } = await import("node:fs");
+  const { readFile, rename, mkdir } = await import("node:fs/promises");
+  const path = await import("node:path");
+  const { workDir } = await import("../alz/runner.server");
+  const legacy = workDir(`installs/${offeringId}/${ENV_SHORT[env] ?? env}`);
+  const target = workDir(workspace(offeringId, prefix, env));
+  if (existsSync(target) || !existsSync(path.join(legacy, "terraform.tfstate"))) return;
+  const vars = JSON.parse(
+    await readFile(path.join(legacy, "cloud-delivery.auto.tfvars.json"), "utf8").catch(() => "{}"),
+  ) as { install_name?: string };
+  if (vars.install_name !== installName(prefix, env)) return;
+  await mkdir(path.dirname(target), { recursive: true });
+  await rename(legacy, target);
+}
 const installName = (prefix: string, env: string) => `${prefix}-${ENV_SHORT[env] ?? env}`;
 const rgNameFor = (s: RunSettings, env: string) =>
   s.resourceGroup.mode === "existing" && s.resourceGroup.name
@@ -503,15 +524,16 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           enable_defender: data.enableDefender,
         });
         for (const e of envs) {
+          await adoptLegacyWorkspace(offering.id, data.installPrefix, e);
           await runner.writeConfig(
-            workspace(offering.id, e),
+            workspace(offering.id, data.installPrefix, e),
             files,
             vars(e, true, ENV_ORDER.indexOf(e)),
           );
         }
         logTo(current)(`${files.length} files: ${files.map((f) => f.path).join(", ")}`);
         logTo(current)(
-          `One workspace and state per environment: ${envs.map((e) => workspace(offering.id, e)).join(", ")}`,
+          `One workspace and state per install and environment: ${envs.map((e) => workspace(offering.id, data.installPrefix, e)).join(", ")}`,
         );
         end(
           current,
@@ -521,7 +543,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
 
         current = stepOf(land, "validate");
         start(land, current);
-        const first = workspace(offering.id, envs[0]!);
+        const first = workspace(offering.id, data.installPrefix, envs[0]!);
         if (
           (await runner.terraformCmd(
             first,
@@ -540,7 +562,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         const rgLog = logTo(current);
         const decisions: Record<string, string> = {};
         for (const e of envs) {
-          const key = workspace(offering.id, e);
+          const key = workspace(offering.id, data.installPrefix, e);
           const name = rgNameFor(settings, e);
           const inState = (await runner.stateAddresses(key)).includes(
             "azurerm_resource_group.this[0]",
@@ -607,7 +629,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
         const results: Record<string, unknown> = {};
         for (const e of ordered) {
           const stage = stages.find((s) => s.id === e)!;
-          const key = workspace(offering.id, e);
+          const key = workspace(offering.id, data.installPrefix, e);
           if (data.action === "destroy") {
             current = stepOf(stage, "destroy");
             start(stage, current);

@@ -1,8 +1,11 @@
 /*
  * Customer onboarding and delivery model, shared by the onboarding wizard, the offering review and the
- * server. Onboarding a customer is configuration: one install file per customer, committed to the ISV's
- * delivery repository, picked up by the same GitHub Actions (or Azure Pipelines) workflow for every customer.
+ * server. Each customer is delivered from its own repository (cust-<code>) holding configuration only: one file
+ * per install per environment pinning an offering version. Its workflows call the shared, pinned templates, and
+ * its cloud identities trust only that repository, environment and template (src/lib/delivery).
  */
+import { DEFAULT_PLATFORM, oidcSubject, repoName, resolveUnit } from "./delivery/model";
+import { customerRepo, installStem } from "./delivery/scaffold";
 import { sizing } from "./skus";
 import {
   type Answers,
@@ -57,7 +60,10 @@ export type EnvPlan = {
 export type DeliveryTool = "github-actions" | "azure-devops";
 export type Delivery = {
   tool: DeliveryTool;
-  repo: string;
+  /** GitHub organization (or Azure DevOps organization) that owns the customer's cust-<code> repository. */
+  org: string;
+  /** Before per-customer repositories: one shared "owner/repo". Read for older records only. */
+  repo?: string;
   /** Non-production environments deploy as soon as their plan is clean. */
   autoDeployNonProd: boolean;
   prodApprovers: string;
@@ -68,7 +74,7 @@ export type Delivery = {
 
 export const DEFAULT_DELIVERY: Delivery = {
   tool: "github-actions",
-  repo: "gridworks/cloud-delivery",
+  org: DEFAULT_PLATFORM.org,
   autoDeployNonProd: true,
   prodApprovers: "platform-approvers",
   prodWaitMinutes: 0,
@@ -78,11 +84,11 @@ export const DEFAULT_DELIVERY: Delivery = {
 export const TOOL_META: Record<DeliveryTool, { title: string; body: string }> = {
   "github-actions": {
     title: "GitHub Actions",
-    body: "Pull request per onboarding, GitHub environments per customer environment, OIDC to Azure — no secrets.",
+    body: "A repository per customer, GitHub environments per customer environment, OIDC pinned to the approved template — no secrets.",
   },
   "azure-devops": {
     title: "Azure Pipelines",
-    body: "Same flow on Azure DevOps: build validation on the pull request, environments with approvals and checks, workload identity federation.",
+    body: "Same flow on Azure DevOps: a repository per customer, required templates, environments with approvals and checks, workload identity federation.",
   },
 };
 
@@ -111,10 +117,20 @@ export type Names = {
   oidcSubject: string;
 };
 
+/** The delivery organization, also for records saved when every customer shared one "owner/repo". */
+export const orgOf = (d: Pick<Delivery, "org" | "repo">) =>
+  d.org || d.repo?.split("/")[0] || DEFAULT_PLATFORM.org;
+
+/** Each customer is delivered from its own repository: <org>/cust-<code>. */
+export const customerRepoOf = (code: string, d: Pick<Delivery, "org" | "repo">) =>
+  `${orgOf(d)}/${repoName("customer", code)}`;
+
 export function namesFor(code: string, p: EnvPlan, d: Delivery): Names {
   const short = ENV_META[p.env].short;
   const install = `${code}-${short}`;
-  const environment = install;
+  // Environments live inside the customer's own repository, so the name needs no customer prefix.
+  const environment = short;
+  const repo = repoName("customer", code);
   return {
     install,
     subscription: `sub-${install}`,
@@ -123,8 +139,8 @@ export function namesFor(code: string, p: EnvPlan, d: Delivery): Names {
     environment,
     oidcSubject:
       d.tool === "github-actions"
-        ? `repo:${d.repo}:environment:${environment}`
-        : `sc://${d.repo.split("/")[0]}/${d.repo.split("/")[1] ?? "delivery"}/${install}`,
+        ? oidcSubject({ ...DEFAULT_PLATFORM, org: orgOf(d) }, repo, environment, "install.yml")
+        : `sc://${orgOf(d)}/${repo}/${environment}`,
   };
 }
 
@@ -398,162 +414,150 @@ export type Trigger = { event: string; when: string; runs: string };
 
 export function triggersFor(d: Delivery, code: string): Trigger[] {
   const gh = d.tool === "github-actions";
+  const repo = repoName("customer", code);
   return [
     {
       event: gh ? "pull_request" : "PR build validation",
-      when: `Onboarding opens a pull request adding installs/${code}.yaml`,
-      runs: "Validate and plan (terraform plan) every environment; results posted on the pull request",
+      when: `Onboarding opens the first pull request on ${repo}: one environments/<env>/<install>.yaml per environment`,
+      runs: "Plan every environment with its read-only identity; results posted on the pull request",
     },
     {
       event: gh ? "push → main" : "CI trigger · main",
       when: "The pull request is merged",
-      runs: "Deploy ring by ring; production waits for its reviewers",
+      runs: "Apply environment by environment; production waits for its reviewers and bake time",
     },
     {
-      event: gh ? "repository_dispatch · release" : "Pipeline resource · release",
-      when: "A new offering version is published",
-      runs: "Upgrade every install on the offering, in waves",
+      event: "Promotion pull request",
+      when: "A new offering version is released and this customer's wave comes up",
+      runs: "The control plane bumps the pinned version and digest; the same plan → approve → apply flow runs",
     },
     ...(d.driftSchedule
       ? [
           {
             event: gh ? "schedule · 0 5 * * *" : "Scheduled trigger · daily",
             when: "Every night",
-            runs: "Drift check (terraform plan -detailed-exitcode) on every install; opens an issue when something changed",
+            runs: "Drift check (terraform plan -detailed-exitcode) per install; opens an issue when something changed",
           },
         ]
       : []),
     {
       event: gh ? "workflow_dispatch" : "Manual run",
       when: "Someone runs it by hand",
-      runs: "Redeploy or repair one install",
+      runs: "Re-plan and redeploy this customer's installs",
     },
   ];
 }
 
-/** The customer's install file: the only thing onboarding adds to the repository. */
-export function installFile(o: {
+export type InstallContext = {
   code: string;
   name: string;
+  /** Solution and delivery model slugs, e.g. grid-analytics / enterprise-private. */
+  solution: string;
   offering: string;
   version: string;
-  landingZone: string;
   placement: PlacementNode[];
   plans: EnvPlan[];
   delivery: Delivery;
   inputs: Record<string, string>;
   tenantId: string;
-}) {
-  const lines = [
-    `# installs/${o.code}.yaml — added by Cloud Delivery. One file per customer; no per-customer code.`,
-    `customer: ${o.code}`,
-    `name: ${JSON.stringify(o.name)}`,
-    `offering: ${o.offering}`,
-    `version: ${o.version}`,
-    ...(o.tenantId ? [`tenant: ${o.tenantId}`] : []),
-    `placement: ${o.placement.map((p) => p.id).join(" / ")}`,
-    `environments:`,
-  ];
-  for (const p of sortEnvs(o.plans.map((x) => x.env)).map((e) =>
-    o.plans.find((x) => x.env === e)!,
-  )) {
-    const n = namesFor(o.code, p, o.delivery);
-    lines.push(
-      `  ${ENV_META[p.env].short}:`,
-      `    region: ${p.region}`,
-      `    target: ${p.target}`,
-      ...(p.target === "new_subscription"
-        ? [
-            `    subscription: { vend: ${n.subscription}, managementGroup: ${o.placement.at(-1)?.id} }`,
-          ]
-        : [`    subscription: ${p.subscriptionId || "<from install link>"}`]),
-      `    resourceGroup: ${n.resourceGroup}`,
-      `    ${o.delivery.tool === "github-actions" ? "githubEnvironment" : "adoEnvironment"}: ${n.environment}`,
-    );
-  }
-  const keys = Object.entries(o.inputs).filter(([k, v]) => v && k !== "subscriptionId");
-  if (keys.length) {
-    lines.push(`inputs:`);
-    for (const [k, v] of keys) lines.push(`  ${k}: ${JSON.stringify(v)}`);
-  }
-  return lines.join("\n");
+  hosted: boolean;
+  regulated?: boolean;
+};
+
+/** The customer's repository as onboarding creates it: spec (for vending) and its first pull request's files. */
+export function customerDelivery(o: InstallContext) {
+  const platform = { ...DEFAULT_PLATFORM, org: orgOf(o.delivery) };
+  const install = installStem({ solution: o.solution, offering: o.offering });
+  const plans = sortEnvs(o.plans.map((x) => x.env)).map((e) => o.plans.find((x) => x.env === e)!);
+  const spec = resolveUnit(
+    {
+      kind: "customer",
+      slug: o.code,
+      name: o.name,
+      tenantId: o.tenantId || null,
+      hosted: o.hosted,
+      criticality: o.regulated ? "regulated" : "standard",
+      environments: plans.map((p) => ({
+        env: p.env,
+        subscriptionId: p.target === "new_subscription" ? null : p.subscriptionId || null,
+        subscriptionName: namesFor(o.code, p, o.delivery).subscription,
+        installs: [install],
+      })),
+      offerings: [install],
+    },
+    platform,
+  );
+  const variables = Object.fromEntries(
+    Object.entries(o.inputs)
+      .filter(([k, v]) => v && k !== "subscriptionId")
+      .map(([k, v]) => [k.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`), v]),
+  );
+  const files = customerRepo(spec, platform, {
+    code: o.code,
+    tenantId: o.tenantId || null,
+    hosted: o.hosted,
+    connection: o.hosted ? "isv_hosted" : "federated_identity",
+    environments: plans.map((p) => {
+      const n = namesFor(o.code, p, o.delivery);
+      return {
+        env: p.env,
+        solution: o.solution,
+        offering: o.offering,
+        version: o.version,
+        digest: null,
+        region: p.region,
+        target: p.target,
+        subscriptionId: p.target === "new_subscription" ? null : p.subscriptionId || null,
+        subscriptionName: n.subscription,
+        resourceGroup: n.resourceGroup,
+        managementGroup: o.placement.at(-1)?.id ?? null,
+        variables: {
+          install_name: n.install,
+          environment: ENV_META[p.env].short,
+          location: p.region,
+          ...variables,
+        },
+      };
+    }),
+  });
+  return { spec, files, install };
 }
 
-/** The single delivery workflow every customer install runs through. */
-export function deliveryWorkflow(slug: string, d: Delivery) {
-  if (d.tool === "azure-devops")
+/** The environment files onboarding adds to the customer's repository, shown together. */
+export function installFile(o: InstallContext) {
+  return customerDelivery(o)
+    .files.filter((f) => f.path.startsWith("environments/"))
+    .map((f) => f.content.trimEnd())
+    .join("\n---\n");
+}
+
+/** The customer repository's workflow: one job per environment, in ring order, calling the pinned template. */
+export function deliveryWorkflow(o: InstallContext) {
+  const { spec, files } = customerDelivery(o);
+  if (o.delivery.tool === "azure-devops") {
+    const envs = spec.environments.filter((e) => !e.name.endsWith("-plan"));
     return [
-      `# azure-pipelines/deliver.yml — one pipeline for every customer install`,
+      `# azure-pipelines/install.yml · ${orgOf(o.delivery)}/${spec.repository.name}`,
       `trigger:`,
       `  branches: { include: [main] }`,
-      `  paths: { include: [installs/*] }`,
+      `  paths: { include: [environments/*] }`,
       `pr:`,
-      `  paths: { include: [installs/*] }`,
-      ...(d.driftSchedule
-        ? [
-            `schedules:`,
-            `  - cron: "0 5 * * *"`,
-            `    displayName: Nightly drift check`,
-            `    always: true`,
-          ]
-        : []),
+      `  paths: { include: [environments/*] }`,
       `resources:`,
-      `  pipelines:`,
-      `    - pipeline: release`,
-      `      source: ${slug}-release  # a published offering version upgrades every install`,
-      `stages:`,
-      `  - stage: validate`,
-      `    jobs: [{ template: templates/validate.yml }]  # terraform fmt + validate, policy + quota preflight`,
-      `  - stage: plan`,
-      `    jobs: [{ template: templates/plan.yml }]  # terraform plan per environment`,
-      `  - template: templates/rings.yml  # one deployment job per environment, in order`,
-      `    parameters:`,
-      `      environments: \${{ split(variables.installEnvironments, ',') }}`,
-      `      # Environment "<customer>-prod" carries the approval check (${d.prodApprovers || "none"})`,
-      `      # and workload identity federation to the customer's subscription.`,
+      `  repositories:`,
+      `    - repository: templates  # required template check on every environment`,
+      `      type: git`,
+      `      name: ${orgOf(o.delivery)}/cd-delivery-templates`,
+      `      ref: refs/tags/${DEFAULT_PLATFORM.templatesRef}`,
+      `extends:`,
+      `  template: install.yml@templates`,
+      `  parameters:`,
+      `    environments: [${envs.map((e) => e.name).join(", ")}]  # ring order`,
+      `    # Each environment has its own workload identity federation service connection, scoped to one`,
+      `    # subscription; production carries the approval check (${o.delivery.prodApprovers || "none"}).`,
     ].join("\n");
-  return [
-    `# .github/workflows/deliver.yml — one workflow for every customer install`,
-    `name: deliver`,
-    `on:`,
-    `  pull_request: { paths: ["installs/**"] }`,
-    `  push: { branches: [main], paths: ["installs/**"] }`,
-    `  repository_dispatch: { types: [release-published] }  # new offering version`,
-    ...(d.driftSchedule ? [`  schedule: [{ cron: "0 5 * * *" }]  # nightly drift check`] : []),
-    `  workflow_dispatch:`,
-    `    inputs: { install: { required: true, description: "e.g. metro-energy-prod" } }`,
-    `permissions: { id-token: write, contents: read, pull-requests: write }`,
-    `jobs:`,
-    `  changed:`,
-    `    runs-on: ubuntu-latest`,
-    `    outputs: { installs: \${{ steps.list.outputs.installs }} }`,
-    `    steps:`,
-    `      - uses: actions/checkout@v4`,
-    `      - id: list  # installs × environments touched by this event`,
-    `        run: ./delivery/list-installs.sh "\${{ github.event_name }}" >> "$GITHUB_OUTPUT"`,
-    `  plan:`,
-    `    needs: changed`,
-    `    strategy: { matrix: { install: \${{ fromJson(needs.changed.outputs.installs) }} } }`,
-    `    runs-on: ubuntu-latest`,
-    `    environment: \${{ matrix.install }}-plan  # read-only identity`,
-    `    steps:`,
-    `      - uses: actions/checkout@v4`,
-    `      - uses: azure/login@v2  # OIDC: federated credential per GitHub environment`,
-    `        with: { client-id: \${{ vars.AZURE_CLIENT_ID }}, tenant-id: \${{ vars.AZURE_TENANT_ID }}, subscription-id: \${{ vars.AZURE_SUBSCRIPTION_ID }} }`,
-    `      - run: ./delivery/validate.sh \${{ matrix.install }}   # terraform fmt + validate, policy + quota preflight`,
-    `      - run: ./delivery/whatif.sh \${{ matrix.install }}     # posts the plan on the pull request`,
-    `  deploy:`,
-    `    if: github.event_name != 'pull_request'`,
-    `    needs: [changed, plan]`,
-    `    strategy: { max-parallel: 1, matrix: { install: \${{ fromJson(needs.changed.outputs.installs) }} } }  # ring order: dev → … → prod`,
-    `    runs-on: ubuntu-latest`,
-    `    environment: \${{ matrix.install }}  # prod: required reviewers (${d.prodApprovers || "none"})${d.prodWaitMinutes ? `, wait timer ${d.prodWaitMinutes} min` : ""}`,
-    `    steps:`,
-    `      - uses: actions/checkout@v4`,
-    `      - uses: azure/login@v2`,
-    `        with: { client-id: \${{ vars.AZURE_CLIENT_ID }}, tenant-id: \${{ vars.AZURE_TENANT_ID }}, subscription-id: \${{ vars.AZURE_SUBSCRIPTION_ID }} }`,
-    `      - run: ./delivery/deploy.sh \${{ matrix.install }}     # az deployment sub create, then policy + smoke tests`,
-  ].join("\n");
+  }
+  return files.find((f) => f.path === ".github/workflows/install.yml")?.content ?? "";
 }
 
 /**

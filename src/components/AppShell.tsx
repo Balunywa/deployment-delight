@@ -7,6 +7,7 @@ import {
   Cog,
   DollarSign,
   GitBranch,
+  GitFork,
   Landmark,
   LayoutDashboard,
   PanelLeftClose,
@@ -41,6 +42,7 @@ type Path =
   | "/offerings"
   | "/upgrades"
   | "/foundations"
+  | "/delivery"
   | "/onboard"
   | "/customers"
   | "/estate"
@@ -68,7 +70,10 @@ const nav: { label: string; items: NavItem[] }[] = [
   },
   {
     label: "Platform",
-    items: [{ to: "/foundations", label: "Landing zones", icon: Landmark }],
+    items: [
+      { to: "/foundations", label: "Landing zones", icon: Landmark },
+      { to: "/delivery", label: "Delivery units", icon: GitFork },
+    ],
   },
   {
     label: "Customers",

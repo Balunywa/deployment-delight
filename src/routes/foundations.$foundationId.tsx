@@ -12,6 +12,7 @@ import { ChangeBar, ReviewView, StepBar } from "@/components/lz/Flow";
 import { RealDeploy } from "@/components/lz/RealDeploy";
 import { describeChanges } from "@/lib/alz/changes";
 import { assess } from "@/lib/alz/assess";
+import { UnitLink } from "@/components/delivery/UnitCard";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -145,6 +146,7 @@ function FoundationDetail() {
               <Pill tone="neutral">
                 <span className="font-mono">ALZ {shortRef(f.library_ref)}</span>
               </Pill>
+              <UnitLink link={{ foundationId: f.id }} />
               {f.deployed_ref && f.deployed_ref !== f.library_ref && (
                 <Pill tone="warning">deployed {shortRef(f.deployed_ref)}</Pill>
               )}

@@ -20,6 +20,7 @@ import { toast } from "sonner";
 
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
 import { MaturityBadge, OwnerAvatar } from "@/components/catalog/Badges";
+import { UnitCard } from "@/components/delivery/UnitCard";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -319,6 +320,7 @@ function SolutionPage() {
         </div>
 
         <aside className="space-y-4">
+          <UnitCard link={{ productId: p.id }} />
           <OwnersCard
             productId={p.id}
             owners={owners}

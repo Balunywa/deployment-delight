@@ -1,0 +1,28 @@
+# Code owners review changes to their area (enforced by the main branch ruleset: "Require review from Code Owners").
+# This repository has one maintainer today; each line names the team that should own it once teams exist
+# (see docs/delivery-isolation-strategy.md, section 4.7).
+
+# Default: control-plane owners
+*                                   @Balunywa
+
+# Platform landing zones (platform team)
+/src/lib/alz/                       @Balunywa
+/src/components/lz/                 @Balunywa
+/scripts/alz-*                      @Balunywa
+
+# Solutions, offerings and the catalog (solutions team)
+/src/lib/offering/                  @Balunywa
+/src/lib/catalog*.ts                @Balunywa
+/src/lib/solutions*.ts              @Balunywa
+
+# Delivery units, pipeline templates and vending (platform + security)
+/src/lib/delivery/                  @Balunywa
+/src/lib/delivery.functions.ts      @Balunywa
+/scripts/delivery-generate.ts       @Balunywa
+
+# Schema and migrations (control-plane owners)
+/db/                                @Balunywa
+
+# CI/CD and deployment (platform + security)
+/.github/                           @Balunywa
+/deploy/                            @Balunywa

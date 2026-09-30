@@ -1,0 +1,34 @@
+name: CI
+
+# Required on every pull request to main: type-check, lint and build the console.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  merge_group:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: bun install --frozen-lockfile
+      - name: Type-check
+        run: npx tsc --noEmit -p .
+      - name: Lint
+        run: npx eslint .
+      - name: Build
+        run: npx vite build

@@ -21,6 +21,8 @@ import { Route as UpgradesRouteImport } from './routes/upgrades'
 import { Route as ConnectCustomerIdRouteImport } from './routes/connect.$customerId'
 import { Route as CustomersIndexRouteImport } from './routes/customers.index'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
+import { Route as DeliveryIndexRouteImport } from './routes/delivery.index'
+import { Route as DeliveryUnitIdRouteImport } from './routes/delivery.$unitId'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
 import { Route as DeploymentsDeploymentIdRouteImport } from './routes/deployments.$deploymentId'
 import { Route as FoundationsIndexRouteImport } from './routes/foundations.index'
@@ -88,6 +90,16 @@ const CustomersCustomerIdRoute = CustomersCustomerIdRouteImport.update({
   path: '/customers/$customerId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DeliveryIndexRoute = DeliveryIndexRouteImport.update({
+  id: '/delivery/',
+  path: '/delivery/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeliveryUnitIdRoute = DeliveryUnitIdRouteImport.update({
+  id: '/delivery/$unitId',
+  path: '/delivery/$unitId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DeploymentsIndexRoute = DeploymentsIndexRouteImport.update({
   id: '/deployments/',
   path: '/deployments/',
@@ -131,10 +143,12 @@ export interface FileRoutesByFullPath {
   '/upgrades': typeof UpgradesRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/delivery/$unitId': typeof DeliveryUnitIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/customers/': typeof CustomersIndexRoute
+  '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
@@ -151,10 +165,12 @@ export interface FileRoutesByTo {
   '/upgrades': typeof UpgradesRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/delivery/$unitId': typeof DeliveryUnitIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/customers': typeof CustomersIndexRoute
+  '/delivery': typeof DeliveryIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
   '/foundations': typeof FoundationsIndexRoute
   '/products': typeof ProductsIndexRoute
@@ -172,10 +188,12 @@ export interface FileRoutesById {
   '/upgrades': typeof UpgradesRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
+  '/delivery/$unitId': typeof DeliveryUnitIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/customers/': typeof CustomersIndexRoute
+  '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
@@ -194,10 +212,12 @@ export interface FileRouteTypes {
     | '/upgrades'
     | '/connect/$customerId'
     | '/customers/$customerId'
+    | '/delivery/$unitId'
     | '/deployments/$deploymentId'
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/customers/'
+    | '/delivery/'
     | '/deployments/'
     | '/foundations/'
     | '/products/'
@@ -214,10 +234,12 @@ export interface FileRouteTypes {
     | '/upgrades'
     | '/connect/$customerId'
     | '/customers/$customerId'
+    | '/delivery/$unitId'
     | '/deployments/$deploymentId'
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/customers'
+    | '/delivery'
     | '/deployments'
     | '/foundations'
     | '/products'
@@ -234,10 +256,12 @@ export interface FileRouteTypes {
     | '/upgrades'
     | '/connect/$customerId'
     | '/customers/$customerId'
+    | '/delivery/$unitId'
     | '/deployments/$deploymentId'
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/customers/'
+    | '/delivery/'
     | '/deployments/'
     | '/foundations/'
     | '/products/'
@@ -255,10 +279,12 @@ export interface RootRouteChildren {
   UpgradesRoute: typeof UpgradesRoute
   ConnectCustomerIdRoute: typeof ConnectCustomerIdRoute
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
+  DeliveryUnitIdRoute: typeof DeliveryUnitIdRoute
   DeploymentsDeploymentIdRoute: typeof DeploymentsDeploymentIdRoute
   FoundationsFoundationIdRoute: typeof FoundationsFoundationIdRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
+  DeliveryIndexRoute: typeof DeliveryIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
   FoundationsIndexRoute: typeof FoundationsIndexRoute
   ProductsIndexRoute: typeof ProductsIndexRoute
@@ -350,6 +376,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CustomersCustomerIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/delivery/': {
+      id: '/delivery/'
+      path: '/delivery'
+      fullPath: '/delivery/'
+      preLoaderRoute: typeof DeliveryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/delivery/$unitId': {
+      id: '/delivery/$unitId'
+      path: '/delivery/$unitId'
+      fullPath: '/delivery/$unitId'
+      preLoaderRoute: typeof DeliveryUnitIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/deployments/': {
       id: '/deployments/'
       path: '/deployments'
@@ -407,10 +447,12 @@ const rootRouteChildren: RootRouteChildren = {
   UpgradesRoute: UpgradesRoute,
   ConnectCustomerIdRoute: ConnectCustomerIdRoute,
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
+  DeliveryUnitIdRoute: DeliveryUnitIdRoute,
   DeploymentsDeploymentIdRoute: DeploymentsDeploymentIdRoute,
   FoundationsFoundationIdRoute: FoundationsFoundationIdRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   CustomersIndexRoute: CustomersIndexRoute,
+  DeliveryIndexRoute: DeliveryIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
   FoundationsIndexRoute: FoundationsIndexRoute,
   ProductsIndexRoute: ProductsIndexRoute,

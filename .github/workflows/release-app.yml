@@ -1,15 +1,17 @@
 name: Release Cloud Delivery app
 
-# Builds a self-contained, prebuilt package of the Cloud Delivery console and publishes it as a stable
-# release asset. The Deploy to Azure template points WEBSITE_RUN_FROM_PACKAGE at this asset, so App Service
-# mounts it read-only and starts it — no build on the server, no manual publish step.
+# Builds a self-contained, prebuilt package of the Cloud Delivery console, once per trigger, with a build
+# provenance attestation (verify with: gh attestation verify cloud-delivery-app.zip --repo <owner>/<repo>).
 #
-# Stable download URL:
-#   https://github.com/<owner>/<repo>/releases/download/app-latest/cloud-delivery-app.zip
+#   Tag vX.Y.Z  → an immutable release vX.Y.Z. Pin this in production:
+#                 https://github.com/<owner>/<repo>/releases/download/vX.Y.Z/cloud-delivery-app.zip
+#   Push to main → the "app-latest" edge build the demo Deploy to Azure button uses. It moves on every push;
+#                 don't use it where you need a fixed version.
 
 on:
   push:
     branches: [main]
+    tags: ["v*.*.*"]
     paths:
       - "src/**"
       - "db/**"
@@ -20,16 +22,19 @@ on:
       - ".github/workflows/release-app.yml"
   workflow_dispatch: {}
 
-permissions:
-  contents: write
+permissions: {}
 
 concurrency:
-  group: release-app
-  cancel-in-progress: true
+  group: release-app-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@v4
 
@@ -62,24 +67,64 @@ jobs:
             "scripts": { "start": "node .output/server/index.mjs" }
           }
           JSON
-          ls -la "$STAGE"
 
       - name: Zip package (contents at archive root)
         run: |
           set -euo pipefail
-          OUT="$RUNNER_TEMP/cloud-delivery-app.zip"
-          ( cd "$RUNNER_TEMP/cloud-delivery-app" && zip -qr "$OUT" . )
-          echo "ARTIFACT_ZIP=$OUT" >> "$GITHUB_ENV"
-          ls -la "$OUT"
+          ( cd "$RUNNER_TEMP/cloud-delivery-app" && zip -qr "$GITHUB_WORKSPACE/cloud-delivery-app.zip" . )
+          sha256sum cloud-delivery-app.zip | tee cloud-delivery-app.zip.sha256
 
-      - name: Publish stable release asset
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: cloud-delivery-app.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app
+          path: |
+            cloud-delivery-app.zip
+            cloud-delivery-app.zip.sha256
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app
+      - name: Publish the immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" cloud-delivery-app.zip cloud-delivery-app.zip.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title "Cloud Delivery $TAG" --verify-tag \
+            --notes "Built once from $GITHUB_SHA with a build provenance attestation. SHA-256: $(cut -d' ' -f1 cloud-delivery-app.zip.sha256)"
+
+  edge:
+    if: github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: app
+      - name: Update the app-latest edge build
         uses: softprops/action-gh-release@v2
         with:
           tag_name: app-latest
-          name: Cloud Delivery app (latest build)
+          name: Cloud Delivery app (edge build from main)
+          prerelease: true
+          make_latest: false
           body: |
-            Prebuilt, self-contained Cloud Delivery console.
-            Consumed by deploy/azure/azuredeploy.json via WEBSITE_RUN_FROM_PACKAGE.
+            Edge build of the Cloud Delivery console from main, for the demo Deploy to Azure button.
+            It changes on every push. For production, pin a vX.Y.Z release instead.
             Commit: ${{ github.sha }}
-          files: ${{ env.ARTIFACT_ZIP }}
-          make_latest: true
+          files: |
+            cloud-delivery-app.zip
+            cloud-delivery-app.zip.sha256
