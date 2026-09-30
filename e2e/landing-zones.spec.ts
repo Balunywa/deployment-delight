@@ -20,6 +20,17 @@ const step = (page: Page, n: number, label: string) =>
   page.getByRole("button", { name: new RegExp(`^${n}\\s*${label}`) }).first();
 
 test.describe("platform landing zones", () => {
+  test("traffic simulator opens from the design's Traffic tab @readonly", async ({ page }) => {
+    await openZone(page, /GridWorks hosting tenant/);
+    await step(page, 2, "Design").click();
+    await page.getByRole("button", { name: "Traffic", exact: true }).click();
+    await page.getByRole("link", { name: /Simulate it end to end/ }).click();
+    await loaded(page);
+    await expect(page.getByRole("heading", { name: "Traffic, end to end" })).toBeVisible();
+    await expect(page.getByRole("img", { name: /Network topology/ })).toBeVisible();
+    await expect(page.locator("[data-verdict]")).toBeVisible();
+  });
+
   test("the list explains the three kinds of landing zone @readonly", async ({ page }) => {
     await open(page, "/foundations");
     await expect(page.getByRole("heading", { level: 1, name: "Landing zones" })).toBeVisible();
@@ -147,6 +158,37 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText(/rt-hub-gateway \(GatewaySubnet\)/).first()).toBeVisible();
     await page.getByRole("button", { name: "Terraform", exact: true }).click();
     await expect(page.getByText(/route_table_custom_routes/).first()).toBeVisible();
+  });
+
+  test("traffic simulator: a packet through the real routes, both ways", async ({ page }) => {
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    const verdict = page.locator("[data-verdict]");
+    const hop = page.getByRole("region", { name: "Current hop" });
+    const next = page.getByRole("button", { name: "Next hop" });
+
+    // Egress: the spoke's UDR wins, the firewall source-NATs it.
+    await page.getByRole("button", { name: /A Corp workload calls an internet API/ }).click();
+    await expect(verdict).toHaveAttribute("data-verdict", "reaches");
+    await page.getByRole("button", { name: "Pause" }).click();
+    await expect(hop.locator("tr[data-active]")).toContainText("VirtualAppliance");
+    await next.click();
+    await expect(hop).toContainText("Source NAT");
+    await page.getByRole("radio", { name: "As deployed" }).click();
+    await expect(verdict).toHaveAttribute("data-verdict", "needs-rules");
+
+    // Installs are isolated by default…
+    await page.getByRole("button", { name: /One customer install talks to another/ }).click();
+    await expect(verdict).toHaveAttribute("data-verdict", "isolated");
+
+    // …and a customer install without a GatewaySubnet route is asymmetric: the reply dies at the firewall.
+    await page.getByRole("radio", { name: "Assume allowed" }).click();
+    await page.getByRole("button", { name: /The office reaches a Corp workload/ }).click();
+    await expect(verdict).toHaveAttribute("data-verdict", "broken");
+    await page.getByRole("button", { name: "Pause" }).click();
+    for (let i = 0; i < 6; i++) if (await next.isEnabled()) await next.click();
+    await expect(page.getByTestId("drop")).toContainText("asymmetric");
+    await expect(page.locator("svg title").filter({ hasText: /asymmetric/ })).toHaveCount(1);
   });
 
   test("the map: two views, click a box to zoom in, breadcrumb, Esc back @readonly", async ({

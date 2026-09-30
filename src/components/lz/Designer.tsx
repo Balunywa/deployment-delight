@@ -1818,6 +1818,12 @@ function TrafficPanel({ flows, flow, setFlowId, step, setStep, playing, setPlayi
           How packets really move in this design: the route that decides each hop, the NSG and
           firewall checks on the way, and where it breaks. Change the design and the paths change.
         </p>
+        <a
+          href={`?view=traffic${flow ? `&flow=${flow.id}` : ""}`}
+          className="mt-2 inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-[12px] font-medium text-primary-foreground"
+        >
+          Simulate it end to end, subnet by subnet →
+        </a>
       </div>
       <ul className="divide-y divide-border">
         {flows.map((f) => {

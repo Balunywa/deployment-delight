@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { CodeBlock } from "@/components/CodeBlock";
 import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
+import { TrafficSimulator } from "@/components/lz/TrafficSimulator";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
 import { ChangeBar, ReviewView, StepBar } from "@/components/lz/Flow";
 import { RealDeploy } from "@/components/lz/RealDeploy";
@@ -32,18 +33,21 @@ import {
   withDefaults,
 } from "@/lib/alz/engine";
 import { type Placement, placements, placementsFor } from "@/lib/alz/placement";
+import { sceneExtras, spokesFor } from "@/lib/alz/scene";
 import { pinFoundationLibrary, saveFoundationAnswers } from "@/lib/factory.functions";
 import { relative } from "@/lib/format";
 import { customersQuery, foundationQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type View = "design" | "assessment" | "review" | "policies" | "version" | "iac" | "deploy";
+type View =
+  "design" | "assessment" | "review" | "policies" | "version" | "iac" | "deploy" | "traffic";
 
 export const Route = createFileRoute("/foundations/$foundationId")({
-  validateSearch: (s: Record<string, unknown>): { view?: View } => {
+  validateSearch: (s: Record<string, unknown>): { view?: View; flow?: string } => {
     const v = s["view"];
+    const flow = typeof s["flow"] === "string" ? { flow: s["flow"] } : {};
     if (v === "hierarchy" || v === "setup") return { view: "design" };
-    return typeof v === "string" ? { view: v as View } : {};
+    return typeof v === "string" ? { view: v as View, ...flow } : {};
   },
   head: () => ({ meta: [{ title: "Landing zone · Cloud Delivery" }] }),
   component: FoundationDetail,
@@ -146,6 +150,7 @@ function FoundationDetail() {
           : null;
   const tabs: [View, string][] = managed
     ? [
+        ["traffic", "Traffic flows"],
         ["policies", "Policies"],
         ["version", "ALZ version"],
         ["iac", "Terraform"],
@@ -314,6 +319,31 @@ function FoundationDetail() {
                 : undefined
             }
           />
+        )}
+        {view === "traffic" && managed && (
+          <div className="px-4 py-4 lg:px-8">
+            <div className="mb-3">
+              <h2 className="text-[15px] font-semibold">Traffic, end to end</h2>
+              <p className="text-[12.5px] text-muted-foreground">
+                A packet through the network this design deploys: every subnet's effective routes,
+                the route Azure picks, the NSG and firewall decisions, and the reply. Change the
+                design and the paths change.
+                {dirty && " Showing your unsaved design."}
+              </p>
+            </div>
+            <TrafficSimulator
+              answers={answers}
+              spokes={spokesFor(
+                ["corp", "online", "local", "sandbox"].filter((g) =>
+                  tree.some((n) => n.libraryId === g),
+                ),
+                placed,
+              )}
+              extras={sceneExtras(answers, lib, tree)}
+              initial={search.flow}
+              set={setAnswers ? (p) => setAnswers({ ...answers, ...p }) : undefined}
+            />
+          </div>
         )}
         {view === "policies" && <PoliciesView tree={tree} />}
         {view === "version" && (

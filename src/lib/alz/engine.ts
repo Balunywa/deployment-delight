@@ -937,6 +937,8 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         `      virtual_network_gateways = {`,
         `        route_table_creation_enabled               = true`,
         `        route_table_gateway_firewall_route_enabled = false`,
+        // Microsoft: route propagation shouldn't be disabled on GatewaySubnet (the module defaults it off).
+        `        route_table_bgp_route_propagation_enabled  = true`,
         `        route_table_custom_routes = {`,
         ...gatewayRoutes.map(
           (s) =>
