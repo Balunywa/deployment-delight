@@ -97,17 +97,56 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText("Users reach an Online install")).toBeVisible();
     await expect(page.getByText(/Step 1 of \d/).first()).toBeVisible();
     await page
-      .getByRole("button", { name: /Arrives at / })
+      .getByRole("button", { name: /Application Gateway WAF v2/ })
       .first()
       .click();
     await expect(page.getByText(/Step 2 of \d/).first()).toBeVisible();
-    // The path is drawn on the map, hop to hop.
+    // The path is drawn on the map, hop to hop, with what routes each hop.
     await expect(page.locator('.react-flow__edge[data-id^="flow:"]').first()).toBeAttached();
-    // A flow the design can't carry says what to add instead (e.g. no firewall in a live, edited design).
-    const corp = page.getByRole("button", { name: /^A Corp workload calls the internet/ });
-    if (/Add Azure Firewall/.test((await corp.textContent()) ?? "")) return;
-    await corp.click();
-    await expect(page.getByText(/Step 1 of \d/).first()).toBeVisible();
+    await expect(page.locator(".react-flow").getByText("HTTPS 443 · public IP")).toBeVisible();
+    // Every flow ends in a verdict, like a reachability analysis.
+    await page.getByText("A Corp workload calls the internet").click();
+    await expect(page.locator("[data-outcome]").first()).toBeVisible();
+  });
+
+  test("traffic follows real Azure routing: firewall, isolation, asymmetric on-premises path", async ({
+    page,
+  }) => {
+    // Harbor: hub and spoke, Azure Firewall, a site-to-site VPN gateway.
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await step(page, 2, "Design").click();
+    await page.getByRole("button", { name: "Traffic", exact: true }).click();
+    const outcome = page.locator("[data-outcome]");
+
+    await page.getByText("A Corp workload calls the internet").click();
+    await expect(outcome).toHaveAttribute("data-outcome", "needs-rules");
+    await expect(page.getByText(/0\.0\.0\.0\/0 → VirtualAppliance/).first()).toBeVisible();
+
+    await page.getByText("One Corp install talks to another").click();
+    await expect(outcome).toHaveAttribute("data-outcome", "isolated");
+    await expect(page.getByTitle("Traffic stops here")).toBeVisible();
+
+    // A customer install has no GatewaySubnet route: the reply is dropped by the firewall.
+    await page.getByText("The office reaches a Corp workload").click();
+    await expect(outcome).toHaveAttribute("data-outcome", "broken");
+    await expect(page.getByText(/Asymmetric/).first()).toBeVisible();
+
+    // A subscription added in the design gets its gateway route, so the same path is inspected both ways.
+    await page.getByRole("button", { name: "Design", exact: true }).click();
+    await page
+      .locator(".react-flow__node")
+      .filter({ hasText: "Add a subscription" })
+      .nth(1)
+      .click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByPlaceholder(/Shared services/).fill("acme");
+    await dialog.getByRole("button", { name: "Add subscription" }).click();
+    await page.getByRole("button", { name: "Traffic", exact: true }).click();
+    await page.getByText("The office reaches a Corp workload").click();
+    await expect(outcome).toHaveAttribute("data-outcome", "needs-rules");
+    await expect(page.getByText(/rt-hub-gateway \(GatewaySubnet\)/).first()).toBeVisible();
+    await page.getByRole("button", { name: "Terraform", exact: true }).click();
+    await expect(page.getByText(/route_table_custom_routes/).first()).toBeVisible();
   });
 
   test("the map: two views, click a box to zoom in, breadcrumb, Esc back @readonly", async ({

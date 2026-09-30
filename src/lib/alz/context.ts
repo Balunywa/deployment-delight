@@ -15,7 +15,7 @@ import {
 } from "./engine";
 import { PERSONAS, POLICY_OPTIONS } from "./governance";
 import type { Placement } from "./placement";
-import { flowsFor, spokesFor } from "./scene";
+import { flowsFor, sceneExtras, spokesFor } from "./scene";
 import { WORKLOADS } from "./workloads";
 
 export function designContext(
@@ -29,7 +29,7 @@ export function designContext(
     ["corp", "online", "local", "sandbox"].filter((g) => tree.some((t) => t.libraryId === g)),
     placed,
   );
-  const flows = flowsFor({ spokes }, answers);
+  const flows = flowsFor({ spokes, extras: sceneExtras(answers, lib, tree) }, answers);
   const byGroup = (g: string) => placed.filter((p) => p.landingZone === g);
   return JSON.stringify({
     landingZone: opts.name,

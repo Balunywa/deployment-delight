@@ -55,7 +55,7 @@ import {
   shortRef,
 } from "@/lib/alz/engine";
 import type { Placement } from "@/lib/alz/placement";
-import { type Flow, type Sel, type Spoke, flowsFor, spokesFor } from "@/lib/alz/scene";
+import { type Flow, type Sel, type Spoke, flowsFor, sceneExtras, spokesFor } from "@/lib/alz/scene";
 import { cn } from "@/lib/utils";
 
 type Lens = "build" | "traffic";
@@ -198,7 +198,10 @@ export function LandingZoneDesigner({
       ),
     [tree, placed],
   );
-  const flows = useMemo(() => flowsFor({ spokes }, answers), [spokes, answers]);
+  const flows = useMemo(
+    () => flowsFor({ spokes, extras: sceneExtras(answers, lib, tree) }, answers),
+    [spokes, answers, lib, tree],
+  );
   const changes = useMemo(() => changesFor(lib, answers), [lib, answers]);
   const flow = panel === "traffic" ? (flows.find((f) => f.id === flowId) ?? null) : null;
 
@@ -1785,54 +1788,41 @@ function ExtDetail({ id }: IP & { id: string }) {
 
 /* ------------------------------------------------------------------ traffic */
 
-function TrafficPanel({
-  flows,
-  flow,
-  setFlowId,
-  step,
-  setStep,
-  playing,
-  setPlaying,
-  set,
-  answers,
-}: IP) {
-  const fix = (f: Flow): { label: string; patch: Partial<Answers> } | null => {
-    if (!set) return null;
-    if (!hasHub(answers) && f.id !== "ingress" && f.id !== "telemetry")
-      return { label: "Add a hub network", patch: { connectivity: "hub_and_spoke" } };
-    if (!answers.landingZones.includes("corp") && f.id !== "ingress" && f.id !== "telemetry")
-      return {
-        label: "Add the Corp landing zone",
-        patch: { landingZones: [...answers.landingZones, "corp"] },
-      };
-    switch (f.id) {
-      case "egress":
-      case "eastwest":
-        return { label: "Add Azure Firewall Standard", patch: { firewall: "Standard" } };
-      case "hybrid":
-        return { label: "Add a VPN gateway", patch: { vpnGateway: "yes" } };
-      case "private-endpoint":
-        return { label: "Turn on central private DNS", patch: { privateDns: "platform" } };
-      case "bastion":
-        return { label: "Add Azure Bastion", patch: { bastion: "yes" } };
-      case "telemetry":
-        return { label: "Use Azure Monitor", patch: { monitoring: "azure_monitor" } };
-      default:
-        return null;
-    }
-  };
+const OUTCOME: Record<NonNullable<Flow["outcome"]>["status"], { label: string; cls: string }> = {
+  reaches: { label: "Reaches", cls: "bg-[#dff6dd] text-[#107c10]" },
+  "needs-rules": { label: "Needs firewall/NSG rules", cls: "bg-[#fff4ce] text-[#8a6100]" },
+  isolated: { label: "Isolated", cls: "bg-[#e5f1fb] text-[#0f6cbd]" },
+  blocked: { label: "Blocked", cls: "bg-[#fde7e9] text-[#a4262c]" },
+  uninspected: { label: "Uninspected", cls: "bg-[#fff4ce] text-[#8a6100]" },
+  broken: { label: "Doesn't work", cls: "bg-[#fde7e9] text-[#a4262c]" },
+};
+const CHECK_TONE: Record<string, string> = {
+  allow: "text-[#107c10]",
+  inspect: "text-[#0f6cbd]",
+  deny: "text-[#a4262c]",
+  "needs-rule": "text-[#8a6100]",
+};
+const CHECK_WORD: Record<string, string> = {
+  allow: "allow",
+  inspect: "inspects",
+  deny: "deny",
+  "needs-rule": "needs a rule",
+};
+
+function TrafficPanel({ flows, flow, setFlowId, step, setStep, playing, setPlaying, set }: IP) {
   return (
     <div>
       <div className="border-b border-border px-4 py-3">
         <h2 className="text-[14px] font-semibold">Traffic flows</h2>
         <p className="text-[12px] text-muted-foreground">
-          Paths that exist in this design, hop by hop. Change the design and they change with it.
+          How packets really move in this design: the route that decides each hop, the NSG and
+          firewall checks on the way, and where it breaks. Change the design and the paths change.
         </p>
       </div>
       <ul className="divide-y divide-border">
         {flows.map((f) => {
           const active = flow?.id === f.id;
-          const fx = !f.available ? fix(f) : null;
+          const o = f.outcome ? OUTCOME[f.outcome.status] : null;
           return (
             <li key={f.id} className={cn(active && "bg-muted/40")}>
               <button
@@ -1846,29 +1836,44 @@ function TrafficPanel({
                     border: `2px solid ${f.color}`,
                   }}
                 />
-                <span className="min-w-0">
-                  <span
-                    className={cn(
-                      "block text-[12.5px] font-medium",
-                      !f.available && "text-muted-foreground",
+                <span className="min-w-0 flex-1">
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <span
+                      className={cn(
+                        "text-[12.5px] font-medium",
+                        !f.available && "text-muted-foreground",
+                      )}
+                    >
+                      {f.title}
+                    </span>
+                    {f.available && o && (
+                      <span className={cn("rounded px-1.5 text-[10px] font-semibold", o.cls)}>
+                        {o.label}
+                      </span>
                     )}
-                  >
-                    {f.title}
                   </span>
                   <span className="block text-[11.5px] text-muted-foreground">
                     {f.available ? f.summary : f.reason}
                   </span>
                 </span>
               </button>
-              {active && !f.available && fx && (
+              {active && !f.available && f.fix && set && (
                 <div className="px-4 pb-3 pl-9">
-                  <Button size="sm" variant="outline" onClick={() => set?.(fx.patch)}>
-                    {fx.label}
+                  <Button size="sm" variant="outline" onClick={() => set(f.fix!.patch)}>
+                    {f.fix.label}
                   </Button>
                 </div>
               )}
               {active && f.available && (
                 <div className="px-4 pb-3 pl-9">
+                  {f.outcome && (
+                    <p
+                      className={cn("mb-2 rounded-md px-2 py-1.5 text-[11.5px]", o?.cls)}
+                      data-outcome={f.outcome.status}
+                    >
+                      <b>{o?.label}.</b> {f.outcome.text}
+                    </p>
+                  )}
                   <div className="mb-2 flex items-center gap-2">
                     <Button
                       size="sm"
@@ -1893,6 +1898,7 @@ function TrafficPanel({
                             i === step
                               ? "border-transparent bg-card shadow-sm ring-1"
                               : "border-border opacity-75 hover:opacity-100",
+                            s.gap?.severity === "fail" && "border-[#a4262c]/50",
                           )}
                           style={
                             i === step
@@ -1902,7 +1908,7 @@ function TrafficPanel({
                         >
                           <p className="flex items-center gap-1.5 text-[12px] font-semibold">
                             <span
-                              className="grid size-4 place-items-center rounded-full text-[9.5px] text-white"
+                              className="grid size-4 shrink-0 place-items-center rounded-full text-[9.5px] text-white"
                               style={{ background: f.color }}
                             >
                               {i + 1}
@@ -1910,22 +1916,95 @@ function TrafficPanel({
                             {s.title}
                           </p>
                           <p className="mt-0.5 text-[11.5px] text-muted-foreground">{s.body}</p>
+                          {s.route && (
+                            <p className="mt-1 rounded-sm bg-muted/60 px-1.5 py-1 font-mono text-[10.5px] leading-snug">
+                              <span className="font-sans font-semibold text-foreground">
+                                {s.route.kind} route ·{" "}
+                              </span>
+                              {s.route.text}
+                            </p>
+                          )}
+                          {s.checks?.map((c) => (
+                            <p key={c.text} className="mt-1 flex gap-1 text-[11px]">
+                              <span className={cn("shrink-0 font-semibold", CHECK_TONE[c.result])}>
+                                {c.kind} {CHECK_WORD[c.result]}:
+                              </span>
+                              <span className="text-foreground/80">{c.text}</span>
+                            </p>
+                          ))}
                           {s.policy && (
                             <p className="mt-1 flex gap-1 text-[11px] text-foreground/80">
                               <ShieldCheck className="mt-px size-3 shrink-0 text-success" />
                               {s.policy}
                             </p>
                           )}
+                          {s.gap && (
+                            <span
+                              className={cn(
+                                "mt-1.5 block rounded-sm px-1.5 py-1 text-[11px]",
+                                s.gap.severity === "fail"
+                                  ? "bg-[#fde7e9] text-[#a4262c]"
+                                  : "bg-[#fff4ce] text-[#5c4400]",
+                              )}
+                            >
+                              <b>{s.gap.severity === "fail" ? "Gap: " : "To do: "}</b>
+                              {s.gap.text}
+                              {s.gap.fix && set && (
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  className="ml-1 font-semibold underline"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    set(s.gap!.fix!.patch);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      e.stopPropagation();
+                                      set(s.gap!.fix!.patch);
+                                    }
+                                  }}
+                                >
+                                  {s.gap.fix.label}
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </button>
                       </li>
                     ))}
                   </ol>
+                  {f.returnPath && (
+                    <p className="mt-2 text-[11px] text-muted-foreground">
+                      <b className="text-foreground">Return path:</b> {f.returnPath}
+                    </p>
+                  )}
                 </div>
               )}
             </li>
           );
         })}
       </ul>
+      <div className="space-y-1 border-t border-border px-4 py-3 text-[11px] text-muted-foreground">
+        <p className="font-semibold text-foreground">How Azure picks a route</p>
+        <p>
+          Longest prefix wins; for the same prefix a route table entry (UDR) beats BGP, which beats
+          Azure's system routes. That's why spokes send 0.0.0.0/0 to the firewall, and why the
+          gateway needs each spoke's exact range to force on-premises traffic through it.
+        </p>
+        <p>
+          Azure Route Server isn't needed here: Azure Firewall is steered with route tables (or
+          Virtual WAN routing intent). Route Server is for third-party appliances that exchange BGP.
+        </p>
+        <a
+          className="text-primary hover:underline"
+          href="https://learn.microsoft.com/en-us/azure/virtual-network/virtual-networks-udr-overview"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Virtual network traffic routing (Microsoft Learn)
+        </a>
+      </div>
     </div>
   );
 }

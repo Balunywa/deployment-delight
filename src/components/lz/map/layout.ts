@@ -9,6 +9,7 @@
 import {
   Boxes,
   Globe,
+  Laptop,
   Layers,
   LayoutDashboard,
   Network,
@@ -279,7 +280,10 @@ export function architecture({
   const has = (id: string) => tree.some((n) => n.libraryId === id);
   const exists = (id: string) => lib.managementGroups.some((m) => m.id === id);
   const vended = new Set(a.extraSubscriptions.map((x) => x.customerId).filter(Boolean));
-  const extras = a.extraSubscriptions.map((x, i) => ({ x, ...spokeOf(a, lib, x, i) }));
+  // Numbered as the generated Terraform numbers them, so the address ranges shown match what deploys.
+  const extras = a.extraSubscriptions
+    .filter((x) => tree.some((t) => t.libraryId === x.group))
+    .map((x, i) => ({ x, ...spokeOf(a, lib, x, i) }));
 
   const C0 = 0;
   const C1 = EXT.w + 80;
@@ -397,7 +401,11 @@ export function architecture({
         {
           kind: "zone",
           title: `${wan ? "Virtual hub" : "Hub virtual network"} · ${a.primaryRegion}`,
-          subtitle: wan ? "Secured hub with routing intent" : "Every Corp install peers here",
+          subtitle: wan
+            ? fw
+              ? "Secured hub · routing intent sends traffic to the firewall"
+              : "Hub router only · any-to-any, no inspection"
+            : "Every Corp install peers here",
           tone: "vnet",
           on: true,
           sel: { kind: "res", id: wan ? "vhub" : "hubvnet" },
@@ -793,6 +801,21 @@ export function architecture({
         sel: { kind: "ext", id: "onprem" },
       },
     ],
+    ...(hub && on(a.vpnGateway)
+      ? ([
+          [
+            "remote",
+            at("vpngw", 200) + 70,
+            {
+              kind: "ext",
+              label: "Remote engineers",
+              detail: "Point-to-site VPN",
+              icon: Laptop,
+              sel: { kind: "ext", id: "onprem" },
+            },
+          ],
+        ] as [string, number, ExtData][])
+      : []),
     [
       "operator",
       at("bastion", 300) + 20,
@@ -832,7 +855,7 @@ export function architecture({
     nodes: b.nodes,
     edges: b.edges,
     sections: [
-      { label: "Outside Azure", ids: ["users", "internet", "onprem", "operator"] },
+      { label: "Outside Azure", ids: ["users", "internet", "onprem", "remote", "operator"] },
       { label: "Connectivity", ids: ["sub:connectivity", "sub:identity"] },
       {
         label: "Landing zones",

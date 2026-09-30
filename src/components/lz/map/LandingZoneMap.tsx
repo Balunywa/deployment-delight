@@ -8,9 +8,12 @@ import "@xyflow/react/dist/style.css";
 import {
   Background,
   BackgroundVariant,
+  BaseEdge,
   ConnectionMode,
   Controls,
   type Edge,
+  EdgeLabelRenderer,
+  type EdgeProps,
   Handle,
   MarkerType,
   MiniMap,
@@ -20,6 +23,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  getSmoothStepPath,
   useReactFlow,
 } from "@xyflow/react";
 import {
@@ -73,6 +77,10 @@ type Ctx = {
   step: number;
   color: string;
   involved: Set<string> | null;
+  /** Where the traffic stops (blocked, isolated or broken). */
+  stopAt: string | null;
+  /** Hops with a gap, and how bad. */
+  gaps: Map<string, "fail" | "warn">;
 };
 const MapCtx = createContext<Ctx>({
   sel: null,
@@ -82,6 +90,8 @@ const MapCtx = createContext<Ctx>({
   step: 0,
   color: "#0078d4",
   involved: null,
+  stopAt: null,
+  gaps: new Map(),
 });
 
 const same = (a: Sel | null, b: Sel | undefined) =>
@@ -147,6 +157,7 @@ function Hops({ id }: { id: string }) {
   const c = useContext(MapCtx);
   const hops = c.hops.get(id);
   if (!hops) return null;
+  const gap = c.gaps.get(id);
   return (
     <span className="absolute -top-2.5 -left-2.5 z-10 flex gap-0.5">
       {hops.map((i) => (
@@ -161,6 +172,25 @@ function Hops({ id }: { id: string }) {
           {i + 1}
         </span>
       ))}
+      {c.stopAt === id && (
+        <span
+          title="Traffic stops here"
+          className="grid size-5 place-items-center rounded-full bg-[#a4262c] text-[11px] font-bold text-white shadow ring-2 ring-white"
+        >
+          ✕
+        </span>
+      )}
+      {gap && c.stopAt !== id && (
+        <span
+          title={gap === "fail" ? "Gap on this hop" : "Needs attention on this hop"}
+          className={cn(
+            "grid size-5 place-items-center rounded-full text-[11px] font-bold text-white shadow ring-2 ring-white",
+            gap === "fail" ? "bg-[#a4262c]" : "bg-[#c19c00]",
+          )}
+        >
+          !
+        </span>
+      )}
     </span>
   );
 }
@@ -501,6 +531,65 @@ function GovCard({ id, data }: NodeProps<Node<GovData>>) {
   );
 }
 
+/** A hop of a traffic flow: the path, a packet moving along it, and what routes it. */
+function PacketEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  markerEnd,
+  label,
+  data,
+}: EdgeProps) {
+  const [path, lx, ly] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 12,
+    offset: 22,
+  });
+  const d = data as { color: string; current: boolean; gap?: "fail" | "warn" };
+  return (
+    <>
+      <path d={path} fill="none" stroke={d.color} strokeOpacity={0.15} strokeWidth={10} />
+      <BaseEdge
+        id={id}
+        path={path}
+        {...(style ? { style } : {})}
+        {...(markerEnd ? { markerEnd } : {})}
+      />
+      <circle r={d.current ? 5 : 3.5} fill={d.color} stroke="white" strokeWidth={1.5}>
+        <animateMotion dur={d.current ? "1.4s" : "2.6s"} repeatCount="indefinite" path={path} />
+      </circle>
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            className={cn(
+              "nodrag nopan pointer-events-none absolute rounded border bg-white px-1.5 py-px font-mono text-[10px] whitespace-nowrap shadow-sm",
+              d.current ? "z-20 font-semibold" : "opacity-90",
+            )}
+            style={{
+              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              borderColor: d.color,
+              color: d.gap === "fail" ? "#a4262c" : "#323130",
+            }}
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+const edgeTypes = { packet: PacketEdge };
+
 const nodeTypes = {
   zone: ZoneNode,
   item: ItemNode,
@@ -635,8 +724,19 @@ function MapInner({
       step,
       color: active?.color ?? "#0078d4",
       involved: active ? new Set(hops.keys()) : null,
+      stopAt:
+        active && ["blocked", "isolated", "broken"].includes(active.outcome?.status ?? "")
+          ? (hopIds.filter(Boolean).at(-1) ?? null)
+          : null,
+      gaps: new Map(
+        active
+          ? active.steps.flatMap((st, i) =>
+              st.gap && hopIds[i] ? [[hopIds[i]!, st.gap.severity] as const] : [],
+            )
+          : [],
+      ),
     }),
-    [sel, edit, baseline, answers, hops, step, active],
+    [sel, edit, baseline, answers, hops, step, active, hopIds],
   );
 
   const nodes: Node[] = useMemo(
@@ -674,7 +774,8 @@ function MapInner({
         targetHandle: t,
         type: "smoothstep",
         pathOptions: { borderRadius: 10, offset: 18 },
-        label: e.label,
+        // While a flow plays, its own hop labels are the ones to read.
+        label: active ? undefined : e.label,
         labelStyle: { fontSize: 10.5, fill: st.stroke, fontWeight: 500 },
         labelBgStyle: { fill: "#ffffff" },
         labelBgPadding: [4, 2] as [number, number],
@@ -700,10 +801,10 @@ function MapInner({
           target: to,
           sourceHandle: s,
           targetHandle: t,
-          type: "smoothstep",
-          pathOptions: { borderRadius: 12, offset: 22 },
-          animated: true,
-          style: { stroke: active.color, strokeWidth: current ? 3.5 : 2.4 },
+          type: "packet",
+          label: active.steps[i]?.via,
+          data: { color: active.color, current, gap: active.steps[i]?.gap?.severity },
+          style: { stroke: active.color, strokeWidth: current ? 3.2 : 2 },
           markerEnd: { type: MarkerType.ArrowClosed, color: active.color, width: 16, height: 16 },
           zIndex: 10,
         };
@@ -951,6 +1052,7 @@ function MapInner({
             nodes={nodes}
             edges={edges}
             nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
             onInit={() => setReady(true)}
             onNodeClick={click}
             onPaneClick={() => onSelect(null)}

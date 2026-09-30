@@ -922,6 +922,31 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
       : []),
   ];
 
+  // On-premises traffic to a spoke only goes through the firewall if the GatewaySubnet has a route for that
+  // spoke's exact range (a broader route loses to the more specific peering route). Without it the request
+  // bypasses the firewall and the reply, sent to the firewall by the spoke's 0.0.0.0/0 route, is dropped.
+  const gatewayRoutes =
+    hub && fw && (on(answers.vpnGateway) || on(answers.expressRoute))
+      ? answers.extraSubscriptions
+          .filter((x) => groups.some((g) => g.id === x.group))
+          .map((x, i) => ({ x, ...spokeOf(answers, library, x, i) }))
+          .filter((s) => s.peered)
+      : null;
+  const gatewayRouteTable = gatewayRoutes
+    ? [
+        `      virtual_network_gateways = {`,
+        `        route_table_creation_enabled               = true`,
+        `        route_table_gateway_firewall_route_enabled = false`,
+        `        route_table_custom_routes = {`,
+        ...gatewayRoutes.map(
+          (s) =>
+            `          ${s.x.id.replace(/[^a-z0-9]+/gi, "_")} = { name = ${q(`to-${s.x.name}-via-firewall`.toLowerCase().replace(/[^a-z0-9-]+/g, "-"))}, address_prefix = ${q(s.cidr)} }`,
+        ),
+        `        }`,
+        `      }`,
+      ]
+    : [];
+
   const connectivity = hub
     ? [
         `module "connectivity" {`,
@@ -954,6 +979,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         `      default_hub_address_space = "10.0.0.0/16"`,
         ...enabledResources([`        dns_resolver_policy                   = ${b(dns)}`]),
         ...firewallSku,
+        ...gatewayRouteTable,
         `    }`,
         ...(second
           ? [
@@ -1343,7 +1369,9 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         `      name               = ${q(`vnet-${alias}`)}`,
         `      address_space      = [${q(cidr)}]`,
         `      resource_group_key = "network"`,
-        ...(peered && hub && dns
+        // The hub module's DNS address is the firewall, which only answers DNS when its proxy is on (Standard
+        // or Premium with the resolver and zones). Otherwise leave Azure's default DNS rather than a dead address.
+        ...(peered && hub && dns && fw && answers.firewall !== "Basic"
           ? [`      dns_servers        = [module.connectivity.dns_server_ip_addresses["primary"]]`]
           : []),
         `      subnets = {`,
@@ -1363,6 +1391,10 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
           ? [
               `      hub_peering_enabled     = true`,
               `      hub_network_resource_id = module.connectivity.resource_id["primary"]`,
+              // Gateway transit needs a gateway in the hub; Azure rejects the peering otherwise.
+              ...(on(answers.vpnGateway) || on(answers.expressRoute)
+                ? []
+                : [`      hub_peering_options_tohub = { use_remote_gateways = false }`]),
             ]
           : []),
         ...(peered && wan
