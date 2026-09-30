@@ -33,3 +33,9 @@ dist-ssr
 
 # alzlibtool library download cache
 .alzlib
+
+# Playwright end-to-end test output
+/test-results/
+/test-results-*/
+/playwright-report/
+/blob-report/

@@ -80,25 +80,46 @@ function parseRepositoryUrl(input: string) {
   };
 }
 
-async function github<T>(path: string): Promise<T> {
-  const token = process.env["GITHUB_TOKEN"];
-  const response = await fetch(`https://api.github.com${path}`, {
+async function githubFetch(path: string, token: string | undefined) {
+  return fetch(`https://api.github.com${path}`, {
     headers: {
       Accept: "application/vnd.github+json",
       "User-Agent": "cloud-delivery-catalog-importer",
       "X-GitHub-Api-Version": "2022-11-28",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(token ? { Authorization: "Bearer " + token } : {}),
     },
     signal: AbortSignal.timeout(20_000),
   });
+}
+
+async function github<T>(path: string): Promise<T> {
+  const token = process.env["GITHUB_TOKEN"];
+  let response = await githubFetch(path, token);
+  // A token can be refused where anonymous access works, e.g. a public repository in an organization that
+  // enforces SAML single sign-on the token isn't authorized for. Public sources shouldn't depend on it.
+  let tokenRefused = "";
+  if (token && (response.status === 401 || response.status === 403)) {
+    tokenRefused = await response
+      .clone()
+      .json()
+      .then((b: { message?: string }) => b.message ?? "")
+      .catch(() => "");
+    response = await githubFetch(path, undefined);
+  }
   if (!response.ok) {
     const remaining = response.headers.get("x-ratelimit-remaining");
+    const detail = await response
+      .json()
+      .then((b: { message?: string }) => b.message ?? "")
+      .catch(() => "");
     const reason =
       response.status === 404
         ? "Repository or revision not found, or the repository is private."
         : response.status === 403 && remaining === "0"
-          ? "GitHub API rate limit reached. Configure GITHUB_TOKEN and try again."
-          : `GitHub returned ${response.status}.`;
+          ? tokenRefused
+            ? `GitHub refused the configured token (${tokenRefused.replace(/\.+$/, "")}) and the anonymous rate limit is used up. Authorize the token for this organization, or try again later.`
+            : "GitHub API rate limit reached. Configure GITHUB_TOKEN and try again."
+          : `GitHub returned ${response.status}${detail ? `: ${detail}` : ""}.`;
     throw new Error(reason);
   }
   return (await response.json()) as T;
@@ -160,15 +181,24 @@ const TERRAFORM_SERVICES: Record<string, string> = {
   azurerm_application_insights: "app-insights",
 };
 
+// Resource types that are part of a catalog service without being its primary resource type.
 const ARM_ALIASES: Record<string, string> = {
   "microsoft.app/jobs": "container-apps",
+  "microsoft.app/containerapps": "container-apps",
+  "microsoft.web/serverfarms": "app-service",
   "microsoft.operationalinsights/workspaces": "monitoring",
+  "microsoft.insights/actiongroups": "monitoring",
+  "microsoft.insights/metricalerts": "monitoring",
+  "microsoft.insights/scheduledqueryrules": "monitoring",
+  "microsoft.insights/datacollectionrules": "monitoring",
+  "microsoft.portal/dashboards": "monitoring",
 };
 
 const IGNORED_ARM_TYPES = [
   "microsoft.resources/deployments",
   "microsoft.resources/deploymentscripts",
   "microsoft.authorization/roleassignments",
+  "microsoft.authorization/roledefinitions",
   "microsoft.managedidentity/userassignedidentities",
   "microsoft.network/virtualnetworks",
   "microsoft.network/privateendpoints",
@@ -221,7 +251,23 @@ function analyzeArchitecture(sources: { path: string; content: string }[]) {
   };
 }
 
-async function inspect(repositoryUrl: string): Promise<CatalogInspection> {
+// Inspecting reads up to ~20 GitHub API calls; the wizard's Inspect and Submit steps share one result.
+const INSPECTION_TTL_MS = 10 * 60_000;
+const inspections = new Map<string, { at: number; value: Promise<CatalogInspection> }>();
+
+function inspect(repositoryUrl: string): Promise<CatalogInspection> {
+  const key = repositoryUrl.trim().replace(/\/+$/, "").toLowerCase();
+  const hit = inspections.get(key);
+  if (hit && Date.now() - hit.at < INSPECTION_TTL_MS) return hit.value;
+  const value = inspectUncached(repositoryUrl);
+  inspections.set(key, { at: Date.now(), value });
+  value.catch(() => inspections.delete(key));
+  for (const [k, v] of inspections)
+    if (Date.now() - v.at >= INSPECTION_TTL_MS) inspections.delete(k);
+  return value;
+}
+
+async function inspectUncached(repositoryUrl: string): Promise<CatalogInspection> {
   const parsed = parseRepositoryUrl(repositoryUrl);
   const repo = await github<GitHubRepo>(`/repos/${parsed.owner}/${parsed.repo}`);
   const ref = parsed.ref ?? repo.default_branch;
@@ -430,15 +476,19 @@ export const importCatalogSource = createServerFn({ method: "POST" })
     const user = (await import("./identity.server")).currentUser();
     const inspection = await inspect(data.repositoryUrl);
     const db = await import("./db.server");
+    // One repository can hold several solutions in different folders; the source is repository + folder.
     const duplicate = await db.maybeOne<{ name: string }>(
       `select p.name from public.offering_versions v
          join public.offerings o on o.id = v.offering_id
          join public.products p on p.id = o.product_id
-       where v.manifest_json #>> '{source,repository}' = $1 limit 1`,
-      [inspection.repository.url],
+       where v.manifest_json #>> '{source,repository}' = $1
+         and coalesce(v.manifest_json #>> '{source,path}', '') = $2 limit 1`,
+      [inspection.repository.url, inspection.repository.path],
     );
     if (duplicate)
-      throw new Error(`This repository is already in the catalog as "${duplicate.name}".`);
+      throw new Error(
+        `This ${inspection.repository.path ? "folder" : "repository"} is already in the catalog as "${duplicate.name}".`,
+      );
     const sameName = await db.maybeOne(
       "select 1 from public.products where organization_id = $1 and lower(name) = lower($2)",
       [ORG_ID, data.name],

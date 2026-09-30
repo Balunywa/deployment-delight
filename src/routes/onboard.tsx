@@ -18,7 +18,7 @@ import {
   UserCog,
   Workflow,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
@@ -2184,10 +2184,14 @@ function Field({
   mono?: boolean;
   invalid?: boolean;
 }) {
+  const id = useId();
   return (
     <div>
-      <Label className="text-xs">{label}</Label>
+      <Label htmlFor={id} className="text-xs">
+        {label}
+      </Label>
       <Input
+        id={id}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className={cn("mt-1", mono && "font-mono text-xs", invalid && "border-danger")}
