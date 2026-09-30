@@ -250,8 +250,8 @@ version without a big-bang upgrade."
 
 _[Click]_ **Compliance**, then **Audit**.
 
-**You:** "Drift is checked every night, and every decision is recorded. The audit trail can't be edited, even by
-us."
+**You:** "Drift is checked every night, and every decision is recorded. The audit trail is append-only: entries
+can't be edited or deleted."
 
 ---
 
@@ -313,5 +313,5 @@ chapter from the video (chapter times are in `demo/out/chapters.txt`). Keep goin
 4. **Designer:** review on every change; code generated; no forks.
 5. **Onboard:** Northwind → own repo → a file per environment → PR → approve prod → live.
 6. **Isolation:** identities per environment, pinned to the template; state per environment.
-7. **Upgrades:** rings; drift nightly; audit can't be edited.
+7. **Upgrades:** rings; drift nightly; audit is append-only.
 8. **Close:** their words back; pilot with one solution and one customer; who decides; date.
