@@ -4,13 +4,15 @@
  */
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Lightbulb, Send, Sparkles, Undo2, Wand2 } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ExternalLink, Lightbulb, Send, Sparkles, Undo2, Wand2 } from "lucide-react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
+import { StatusIcon } from "@/components/lz/map/StatusIcon";
 import { askAdvisor, getAdvisorStatus } from "@/lib/advisor.functions";
+import { type Check, type CheckArea, accessChecks, checkSummary } from "@/lib/alz/access-checks";
 import type { Answers, MgNode } from "@/lib/alz/engine";
 import {
   ALZ_ROLES,
@@ -74,6 +76,7 @@ export function AccessPanel({
     );
   return (
     <div className="space-y-3 p-4">
+      {!focusScope && <BestPracticeChecks tree={tree} answers={answers} set={set} />}
       {!focusScope && (
         <div>
           <h2 className="text-[14px] font-semibold">Who gets access, and where</h2>
@@ -648,4 +651,101 @@ export function Markdown({ text }: { text: string }) {
   }
   flush();
   return <div>{blocks}</div>;
+}
+
+/* ------------------------------------------------------ best-practice checks */
+
+const AREAS: CheckArea[] = ["Identity", "Tenant root", "Access", "Policy"];
+const ORDER: Record<Check["status"], number> = { fail: 0, warn: 1, confirm: 2, pass: 3 };
+
+/** Access, identity and policy checked against Microsoft's guidance, with one-click fixes. */
+export function BestPracticeChecks({
+  tree,
+  answers,
+  set,
+}: {
+  tree: MgNode[];
+  answers: Answers;
+  set: Patch;
+}) {
+  const checks = useMemo(() => accessChecks(answers, tree), [answers, tree]);
+  const s = checkSummary(checks);
+  const fixable = checks.filter((c) => c.fix && (c.status === "warn" || c.status === "fail"));
+  // Fixes are computed from the design they were checked on, so apply them one at a time and re-check.
+  const fixAll = () => {
+    let a = answers;
+    const done = new Set<string>();
+    for (let i = 0; i < 20; i++) {
+      const next = accessChecks(a, tree).find(
+        (c) => c.fix && (c.status === "warn" || c.status === "fail") && !done.has(c.id),
+      );
+      if (!next?.fix) break;
+      done.add(next.id);
+      a = { ...a, ...next.fix.patch };
+    }
+    set?.(a);
+  };
+  return (
+    <section className="rounded-md border border-border" aria-label="Best-practice checks">
+      <header className="border-b border-border px-3 py-2">
+        <h3 className="text-[13px] font-semibold">Checked against Microsoft's guidance</h3>
+        <p className="text-[11.5px] text-muted-foreground">
+          {s.passed} of {s.scored} pass
+          {s.fix > 0 && ` · ${s.fix} to fix`}
+          {s.confirm > 0 && ` · ${s.confirm} to confirm in the tenant`}. Updates as you change the
+          design.
+        </p>
+        {set && fixable.length > 0 && (
+          <Button size="sm" variant="outline" className="mt-2" onClick={fixAll}>
+            <Wand2 className="size-3.5" /> Fix{" "}
+            {fixable.length === 1 ? "it" : `all ${fixable.length}`}
+          </Button>
+        )}
+      </header>
+      {AREAS.map((area) => {
+        const list = checks
+          .filter((c) => c.area === area)
+          .sort((x, y) => ORDER[x.status] - ORDER[y.status]);
+        if (!list.length) return null;
+        return (
+          <div key={area} className="border-b border-border px-3 py-2 last:border-b-0">
+            <p className="mb-1 text-[10.5px] font-semibold tracking-wider text-muted-foreground uppercase">
+              {area}
+            </p>
+            <ul className="space-y-2">
+              {list.map((c) => (
+                <li key={c.id} className="flex gap-2 text-[12px]" data-status={c.status}>
+                  <StatusIcon status={c.status} className="mt-0.5" />
+                  <div className="min-w-0">
+                    <p className="font-medium">{c.title}</p>
+                    {c.status !== "pass" && (
+                      <p className="text-[11.5px] text-muted-foreground">{c.detail}</p>
+                    )}
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
+                      {set && c.fix && c.status !== "pass" && (
+                        <button
+                          className="font-medium text-primary hover:underline"
+                          onClick={() => set(c.fix!.patch)}
+                        >
+                          {c.fix.label}
+                        </button>
+                      )}
+                      <a
+                        href={c.source.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-0.5 text-muted-foreground hover:text-primary"
+                      >
+                        {c.source.label} <ExternalLink className="size-3" />
+                      </a>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        );
+      })}
+    </section>
+  );
 }

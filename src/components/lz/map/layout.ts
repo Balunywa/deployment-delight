@@ -32,6 +32,8 @@ import {
   platformResources,
   spokeOf,
 } from "@/lib/alz/engine";
+import { type Check, issuesAt } from "@/lib/alz/access-checks";
+import { PERSONAS, POLICY_OPTIONS } from "@/lib/alz/governance";
 import type { Sel, Spoke } from "@/lib/alz/scene";
 import { workloadById } from "@/lib/alz/workloads";
 import { AZURE_REGIONS } from "@/lib/regions";
@@ -88,7 +90,21 @@ export type MgData = {
   toggle?: (() => void) | undefined;
   actions?: Action[] | undefined;
 };
-export type NodeData = ZoneData | ItemData | ExtData | LabelData | MgData;
+export type GovData = {
+  kind: "gov";
+  variant: "mg" | "root" | "entra";
+  title: string;
+  policies?: string | undefined;
+  added?: string[] | undefined;
+  weakened?: number | undefined;
+  access?: { label: string; role: string; flag: boolean }[] | undefined;
+  /** Checks shown as lines (tenant root, Entra ID). */
+  lines?: Check[] | undefined;
+  issues: Check[];
+  sel?: Sel | undefined;
+  actions?: Action[] | undefined;
+};
+export type NodeData = ZoneData | ItemData | ExtData | LabelData | MgData | GovData;
 
 export type MapNode = {
   id: string;
@@ -103,7 +119,7 @@ export type MapEdge = {
   id: string;
   source: string;
   target: string;
-  kind: "peering" | "onprem" | "public" | "tree" | "ghost";
+  kind: "peering" | "onprem" | "public" | "tree" | "ghost" | "identity";
   label?: string | undefined;
 };
 export type Graph = {
@@ -219,6 +235,10 @@ export type BuildInput = {
   spokes: Spoke[];
   set?: Patch | undefined;
   onAdd: (a: Adding) => void;
+  /** Best-practice checks, for the access and policy view. */
+  checks?: Check[] | undefined;
+  /** Open the access or policy dialog for a management group. */
+  onGovern?: ((g: { kind: "access" | "policy"; scope: string }) => void) | undefined;
   /** A scanned tenant: the parts and management groups actually found, and ALZ coverage per group. */
   asIs?: { parts: Set<string>; counts: Record<string, string>; present: Set<string> } | undefined;
 };
@@ -1018,6 +1038,134 @@ export function hierarchy({ lib, tree, answers: a, spokes, set, onAdd, asIs }: B
       ...(tree.some((t) => t.libraryId === "sandbox")
         ? [{ label: "Sandbox", ids: ["mg:sandbox"] }]
         : []),
+    ].filter((s) => b.nodes.some((n) => n.id === s.ids[0])),
+  };
+}
+
+/* ---------------------------------------------------------- access & policy */
+
+const GOV = { w: 248, h: 140 };
+const GOV_X = 286;
+const GOV_Y = 156;
+
+/** Who has what, and which policies apply, on each management group — from Entra ID down. */
+export function governance({ tree, answers: a, set, checks = [], onGovern }: BuildInput): Graph {
+  const b = new Builder();
+  const root = tree.find((n) => !n.parentId);
+  if (!root) return { nodes: [], edges: [], sections: [] };
+  const flagged = new Set(
+    checks
+      .filter((c) => c.id.startsWith("least:") && c.status !== "pass")
+      .map((c) => c.id.slice(6)),
+  );
+  type T = { id: string; data: GovData; kids: T[] };
+  const make = (n: MgNode): T => {
+    const id = n.libraryId;
+    return {
+      id: n.parentId ? `mg:${id}` : "mg-root",
+      kids: tree.filter((k) => k.parentId === n.id).map(make),
+      data: {
+        kind: "gov",
+        variant: "mg",
+        title: n.displayName,
+        policies: `${n.enforced} policies here · ${n.inherited} inherited`,
+        added: a.policyAdds
+          .filter((p) => p.scope === id)
+          .map((p) => POLICY_OPTIONS.find((o) => o.id === p.id)?.name ?? p.id),
+        weakened: Object.keys(a.policyOverrides).filter((k) => k.startsWith(`${id}/`)).length,
+        access: a.rbac
+          .filter((r) => r.scope === id)
+          .map((r) => ({
+            label: PERSONAS.find((p) => p.id === r.persona)?.label ?? r.persona,
+            role: r.role,
+            flag: flagged.has(r.persona),
+          })),
+        issues: issuesAt(checks, id),
+        sel: { kind: "mg", id },
+        actions:
+          set && onGovern
+            ? [
+                {
+                  label: "+ access",
+                  title: "Give a team a role here",
+                  onClick: () => onGovern({ kind: "access", scope: id }),
+                },
+                {
+                  label: "+ policy",
+                  title: "Assign a policy here",
+                  onClick: () => onGovern({ kind: "policy", scope: id }),
+                },
+              ]
+            : undefined,
+      },
+    };
+  };
+  const top: T = {
+    id: "tenant-root",
+    kids: [make(root)],
+    data: {
+      kind: "gov",
+      variant: "root",
+      title: "Tenant root group",
+      lines: checks.filter((c) => c.scope === "tenant-root"),
+      issues: issuesAt(checks, "tenant-root"),
+    },
+  };
+  let leaf = 0;
+  const place = (t: T, depth: number, parent?: string): number => {
+    let y: number;
+    if (!t.kids.length) y = leaf++ * GOV_Y;
+    else {
+      const ys = t.kids.map((k) => place(k, depth + 1, t.id));
+      y = (ys[0]! + ys[ys.length - 1]!) / 2;
+    }
+    b.nodes.push({
+      id: t.id,
+      type: "gov",
+      rel: { x: depth * GOV_X, y },
+      abs: { x: depth * GOV_X, y, ...GOV },
+      data: t.data,
+    });
+    if (parent)
+      b.edges.push({ id: `tree:${parent}->${t.id}`, source: parent, target: t.id, kind: "tree" });
+    return y;
+  };
+  // Entra ID sits right above the tenant root it signs people into.
+  const rootY = place(top, 0);
+  const entraY = rootY - GOV.h - 56;
+  b.nodes.push({
+    id: "entra",
+    type: "gov",
+    rel: { x: 0, y: entraY },
+    abs: { x: 0, y: entraY, ...GOV },
+    data: {
+      kind: "gov",
+      variant: "entra",
+      title: "Microsoft Entra ID",
+      lines: checks.filter((c) => c.scope === "entra"),
+      issues: issuesAt(checks, "entra"),
+    },
+  });
+  b.edges.push({
+    id: "tree:entra->tenant-root",
+    source: "entra",
+    target: "tenant-root",
+    kind: "identity",
+    label: "Groups sign in",
+  });
+  const subtree = (id: string) => {
+    const ids = [id];
+    for (let i = 0; i < ids.length; i++)
+      for (const e of b.edges) if (e.source === ids[i] && e.target !== "entra") ids.push(e.target);
+    return ids;
+  };
+  return {
+    nodes: b.nodes,
+    edges: b.edges,
+    sections: [
+      { label: "Identity & root", ids: ["entra", "tenant-root", "mg-root"] },
+      { label: "Platform", ids: subtree("mg:platform") },
+      { label: "Landing zones", ids: subtree("mg:landingzones") },
     ].filter((s) => b.nodes.some((n) => n.id === s.ids[0])),
   };
 }

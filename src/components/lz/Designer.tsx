@@ -329,6 +329,17 @@ export function LandingZoneDesigner({
             step={step}
             baseline={baseline}
             full={full}
+            onShowChecks={() => {
+              setSel(null);
+              setPanel("access");
+              setOpen(true);
+            }}
+            onViewChange={(v) => {
+              if (v !== "governance") return;
+              setSel(null);
+              setPanel("access");
+              setOpen(true);
+            }}
           />
         </div>
       </section>

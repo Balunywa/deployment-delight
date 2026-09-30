@@ -22,7 +22,20 @@ import {
   ReactFlowProvider,
   useReactFlow,
 } from "@xyflow/react";
-import { Building2, ChevronRight, KeyRound, Maximize, Network, Plus } from "lucide-react";
+import {
+  Building2,
+  CheckCircle2,
+  ChevronRight,
+  CircleAlert,
+  CircleHelp,
+  KeyRound,
+  Maximize,
+  Network,
+  Plus,
+  ShieldCheck,
+  UserRound,
+  XCircle,
+} from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AlzLibrary, Answers, MgNode } from "@/lib/alz/engine";
@@ -31,9 +44,14 @@ import { cn } from "@/lib/utils";
 
 import { TOOLS, toggleTool, toolOn } from "./parts";
 import { type Adding, AddDialog } from "../HierarchyEditor";
+import { type Check, accessChecks, checkSummary } from "@/lib/alz/access-checks";
+
 import { changedIds } from "./changed";
+import { StatusIcon } from "./StatusIcon";
+import { type Govern, GovernDialog } from "./GovernDialog";
 import {
   type ExtData,
+  type GovData,
   type Graph,
   type ItemData,
   type LabelData,
@@ -42,10 +60,11 @@ import {
   type Rect,
   type ZoneData,
   architecture,
+  governance,
   hierarchy,
 } from "./layout";
 
-type View = "architecture" | "hierarchy";
+export type View = "architecture" | "hierarchy" | "governance";
 type Ctx = {
   sel: Sel | null;
   edit: boolean;
@@ -369,7 +388,127 @@ function MgCard({ id, data }: NodeProps<Node<MgData>>) {
   );
 }
 
-const nodeTypes = { zone: ZoneNode, item: ItemNode, ext: ExtNode, label: LabelNode, mg: MgCard };
+function GovCard({ id, data }: NodeProps<Node<GovData>>) {
+  const c = useContext(MapCtx);
+  const worst = data.issues.some((x) => x.status === "fail")
+    ? "fail"
+    : data.issues.length
+      ? "warn"
+      : null;
+  return (
+    <div
+      className={cn(
+        "group relative flex h-full w-full flex-col gap-1 overflow-hidden rounded-lg border px-3 py-2 transition-colors",
+        data.variant === "entra"
+          ? "border-[#8661c5]/50 bg-[#f7f3fc]"
+          : data.variant === "root"
+            ? "border-dashed border-[#8a8886] bg-white"
+            : "cursor-pointer border-[#c8c6c4] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:border-[#0078d4]",
+        worst === "fail" && "border-[#a4262c]/60",
+        worst === "warn" && "border-[#c19c00]/60",
+        same(c.sel, data.sel) && "ring-2 ring-[#0078d4] ring-offset-2",
+        c.changed.has(id) && "cd-glow",
+      )}
+    >
+      <Handles />
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate text-[13px] leading-tight font-semibold">
+          {data.title}
+        </p>
+        {worst ? (
+          <span
+            className={cn(
+              "shrink-0 rounded-full px-1.5 text-[10px] font-semibold text-white",
+              worst === "fail" ? "bg-[#a4262c]" : "bg-[#c19c00]",
+            )}
+          >
+            {data.issues.length} to fix
+          </span>
+        ) : (
+          data.variant === "mg" && <CheckCircle2 className="size-3.5 shrink-0 text-[#107c10]" />
+        )}
+      </div>
+      {data.lines ? (
+        <ul className="space-y-0.5">
+          {data.lines.map((l) => (
+            <li
+              key={l.id}
+              className="flex items-start gap-1 text-[10.5px] leading-snug"
+              title={l.detail}
+            >
+              <StatusIcon status={l.status} className="mt-px size-3" />
+              <span className="line-clamp-2">{l.title}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <>
+          <p className="flex items-center gap-1 truncate text-[10.5px] text-[#605e5c]">
+            <ShieldCheck className="size-3 shrink-0" /> {data.policies}
+          </p>
+          {!!data.added?.length && (
+            <p className="truncate text-[10.5px] text-[#0078d4]" title={data.added.join(", ")}>
+              + {data.added.join(", ")}
+            </p>
+          )}
+          {!!data.weakened && (
+            <p className="text-[10.5px] text-[#a4262c]">
+              {data.weakened} ALZ polic{data.weakened === 1 ? "y" : "ies"} weakened
+            </p>
+          )}
+          <ul className="mt-0.5 space-y-0.5 border-t border-[#edebe9] pt-1">
+            {data.access?.slice(0, 3).map((r) => (
+              <li
+                key={r.label}
+                className={cn(
+                  "flex items-center gap-1 truncate text-[10.5px]",
+                  r.flag && "text-[#a4262c]",
+                )}
+              >
+                <UserRound className="size-3 shrink-0" />
+                <span className="truncate">
+                  <b className="font-medium">{r.label}</b> · {r.role}
+                </span>
+              </li>
+            ))}
+            {(data.access?.length ?? 0) > 3 && (
+              <li className="text-[10.5px] text-[#605e5c]">+{data.access!.length - 3} more</li>
+            )}
+            {!data.access?.length && (
+              <li className="text-[10.5px] text-[#8a8886]">No roles assigned here — inherited</li>
+            )}
+          </ul>
+          {!!data.actions?.length && (
+            <div className="mt-auto flex gap-1.5">
+              {data.actions.map((a) => (
+                <button
+                  key={a.label}
+                  title={a.title}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    a.onClick();
+                  }}
+                  className="nodrag nopan rounded border border-[#c7e0f4] bg-[#f5f9fd] px-1.5 text-[10.5px] leading-5 font-medium text-[#0078d4] hover:border-[#0078d4]"
+                >
+                  {a.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const nodeTypes = {
+  zone: ZoneNode,
+  item: ItemNode,
+  ext: ExtNode,
+  label: LabelNode,
+  mg: MgCard,
+  gov: GovCard,
+};
 
 /* ------------------------------------------------------------------ edges */
 
@@ -379,6 +518,7 @@ const EDGE: Record<string, { stroke: string; dash?: string; width: number }> = {
   public: { stroke: "#2fb3e8", dash: "6 4", width: 1.6 },
   tree: { stroke: "#8a8886", width: 1.3 },
   ghost: { stroke: "#c8c6c4", dash: "4 4", width: 1.2 },
+  identity: { stroke: "#8661c5", dash: "6 4", width: 1.6 },
 };
 
 type Side = "t" | "r" | "b" | "l";
@@ -406,6 +546,9 @@ export type LandingZoneMapProps = {
   /** The saved design; anything that differs glows until it's saved. */
   baseline?: Answers | undefined;
   full?: boolean;
+  /** Open the full list of best-practice checks (the Access panel). */
+  onShowChecks?: (() => void) | undefined;
+  onViewChange?: ((v: View) => void) | undefined;
   /** Draw a scanned tenant: found parts solid, missing ones dashed. */
   asIs?: { parts: Set<string>; counts: Record<string, string>; present: Set<string> } | undefined;
 };
@@ -431,11 +574,16 @@ function MapInner({
   baseline,
   full,
   asIs,
+  onShowChecks,
+  onViewChange,
 }: LandingZoneMapProps) {
   const rf = useReactFlow();
   const box = useRef<HTMLDivElement>(null);
   const [view, setView] = useState<View>("architecture");
   const [adding, setAdding] = useState<Adding>(null);
+  const [govern, setGovern] = useState<Govern>(null);
+  const checks = useMemo(() => accessChecks(answers, tree), [answers, tree]);
+  const summary = checkSummary(checks);
   const edit = !!set;
   const active = flow?.available ? flow : null;
   // A traffic flow is drawn on the architecture.
@@ -445,7 +593,7 @@ function MapInner({
 
   const graph: Graph = useMemo(
     () =>
-      (view === "architecture" ? architecture : hierarchy)({
+      (view === "architecture" ? architecture : view === "hierarchy" ? hierarchy : governance)({
         lib,
         tree,
         answers,
@@ -453,10 +601,12 @@ function MapInner({
         set,
         onAdd: setAdding,
         asIs,
+        checks,
+        onGovern: setGovern,
       }),
     // `set` is a fresh closure each render; the design itself is what matters.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [view, lib, tree, answers, spokes, edit, asIs],
+    [view, lib, tree, answers, spokes, edit, asIs, checks],
   );
   const byId = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
 
@@ -572,7 +722,12 @@ function MapInner({
     const y0 = Math.min(...graph.nodes.map((n) => n.abs.y));
     const zoom = Math.min(1.05, Math.max(0.35, (el.clientWidth - 48) / (x1 - x0)));
     // The tree opens level with its root; the architecture opens at the top.
-    const root = view === "hierarchy" ? byId.get("mg-root") : undefined;
+    const root =
+      view === "hierarchy"
+        ? byId.get("mg-root")
+        : view === "governance"
+          ? byId.get("tenant-root")
+          : undefined;
     const y = root ? el.clientHeight / 2 - (root.abs.y + root.abs.h / 2) * zoom : 52 - y0 * zoom;
     void rf.setViewport({ x: 24 - x0 * zoom, y, zoom }, { duration: 300 });
   };
@@ -644,13 +799,17 @@ function MapInner({
               [
                 ["architecture", "Architecture"],
                 ["hierarchy", "Management groups"],
+                ...(asIs ? [] : ([["governance", "Access & policy"]] as const)),
               ] as const
             ).map(([v, label]) => (
               <button
                 key={v}
                 role="tab"
                 aria-selected={view === v}
-                onClick={() => setView(v)}
+                onClick={() => {
+                  setView(v);
+                  onViewChange?.(v);
+                }}
                 className={cn(
                   "rounded px-2.5 py-1 font-medium",
                   view === v
@@ -690,7 +849,33 @@ function MapInner({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/20 px-3 py-1 text-[11px]">
-          {view === "hierarchy" ? (
+          {view === "governance" ? (
+            <span className="flex flex-wrap items-center gap-2 text-muted-foreground">
+              <span>
+                Microsoft best practices:{" "}
+                <b className="text-foreground">
+                  {summary.passed} of {summary.scored}
+                </b>{" "}
+                pass
+              </span>
+              {summary.fix > 0 && (
+                <span className="flex items-center gap-1 text-[#8a6100]">
+                  <CircleAlert className="size-3" /> {summary.fix} to fix
+                </span>
+              )}
+              {summary.confirm > 0 && (
+                <span className="flex items-center gap-1 text-[#0078d4]">
+                  <CircleHelp className="size-3" /> {summary.confirm} to confirm
+                </span>
+              )}
+              {onShowChecks && (
+                <button onClick={onShowChecks} className="font-medium text-primary hover:underline">
+                  See every check
+                </button>
+              )}
+              {edit && <span>· Use + access and + policy on any group.</span>}
+            </span>
+          ) : view === "hierarchy" ? (
             <span className="text-muted-foreground">
               Numbers are policies assigned at each group and inherited from above. Hover a group to
               add under it or remove it.
@@ -849,6 +1034,15 @@ function MapInner({
           </ReactFlow>
         </div>
       </div>
+      {set && (
+        <GovernDialog
+          govern={govern}
+          onClose={() => setGovern(null)}
+          tree={tree}
+          answers={answers}
+          set={set}
+        />
+      )}
       {adding && set && (
         <AddDialog
           adding={adding}

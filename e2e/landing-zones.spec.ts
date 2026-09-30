@@ -175,6 +175,54 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText(/unsaved change/)).toHaveCount(0);
   });
 
+  test("access & policy: who has what where, validated against Microsoft's guidance", async ({
+    page,
+  }) => {
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await step(page, 2, "Design").click();
+    await page.getByRole("tab", { name: "Access & policy" }).click();
+    const map = page.locator(".react-flow");
+    const checks = page.getByRole("region", { name: "Best-practice checks" });
+    await expect(checks).toContainText("Checked against Microsoft's guidance");
+    for (const t of ["Microsoft Entra ID", "Tenant root group"])
+      await expect(map.getByText(t, { exact: true })).toBeVisible();
+    await expect(map.getByText("Two emergency access (break-glass) accounts")).toBeVisible();
+
+    // Give the product team Owner: flagged as more than they need, with Microsoft's fix one click away.
+    const card = (title: string) =>
+      map.locator(".react-flow__node-gov").filter({ has: page.getByText(title, { exact: true }) });
+    await card("Landing zones").getByRole("button", { name: "+ access" }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByLabel("Team", { exact: true }).selectOption("appops");
+    await dialog.getByLabel("Role", { exact: true }).selectOption("Owner");
+    await expect(dialog).toContainText("is more than they need");
+    await expect(
+      dialog.getByRole("link", { name: /Best practices for Azure RBAC/ }),
+    ).toHaveAttribute("href", /learn\.microsoft\.com/);
+    await dialog.getByRole("button", { name: /Use Microsoft's recommendation/ }).click();
+    await expect(dialog).toContainText("Matches Microsoft's recommendation");
+    await dialog.getByRole("button", { name: "Assign", exact: true }).click();
+    await expect(card("Landing zones")).toContainText(
+      "Product operations team · Application-Owners",
+    );
+    await expect(page.getByText(/unsaved change/).first()).toBeVisible();
+
+    // Assign a policy where it belongs, and the check turns green.
+    await card("Harbor Municipal Utility").getByRole("button", { name: "+ policy" }).click();
+    await page.getByRole("switch", { name: "Assign Allowed locations here" }).click();
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(card("Harbor Municipal Utility")).toContainText("+ Allowed locations");
+    await expect(checks).toContainText("Resources can only be created in your regions");
+
+    // Everything the design can fix, fixed in one go; what only the tenant can prove stays to confirm.
+    await checks.getByRole("button", { name: /^Fix/ }).click();
+    await expect(checks.getByRole("button", { name: /^Fix/ })).toHaveCount(0);
+    await expect(checks.locator('[data-status="warn"], [data-status="fail"]')).toHaveCount(0);
+    await expect(checks.locator('[data-status="confirm"]').first()).toBeVisible();
+    await page.getByRole("button", { name: "Discard" }).click();
+    await expect(page.getByText(/unsaved change/)).toHaveCount(0);
+  });
+
   test("access: Microsoft's recommended roles apply as a design change", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
     await step(page, 2, "Design").click();
