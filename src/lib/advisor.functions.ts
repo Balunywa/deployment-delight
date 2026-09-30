@@ -83,3 +83,9 @@ export const askAdvisor = createServerFn({ method: "POST" })
     ]);
     return { reply };
   });
+
+/** Whether the design advisor can answer, so the UI can explain how to connect it instead of failing. */
+export const getAdvisorStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const { advisorConfigured } = await import("./azure.server");
+  return { configured: advisorConfigured() };
+});

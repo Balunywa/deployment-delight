@@ -14,6 +14,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Pill } from "@/components/Primitives";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -134,7 +145,12 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
   }, [latest?.status, latest, foundationId, queryClient]);
 
   if (readiness.isLoading)
-    return <p className="text-sm text-muted-foreground">Checking your Azure access…</p>;
+    return (
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Checking your Azure access: identity, roles,
+        subscriptions and billing…
+      </p>
+    );
   if (!r) return <p className="text-sm text-danger">Couldn't check Azure access.</p>;
 
   const blocking = r.checks.some((c) => c.level === "fail");
@@ -162,6 +178,8 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       `Enter the Microsoft Entra object ID for ${missingPrincipals.join(", ")}.`,
   ].filter(Boolean) as string[];
   const canPlan = blockers.length === 0;
+  // Plan is not read-only when it vends: it builds the hierarchy and creates subscriptions first.
+  const vending = r.targets.filter((t) => choices[t.key]?.mode === "new");
   const payload = (action: "plan" | "apply" | "destroy") => ({
     data: {
       foundationId,
@@ -330,12 +348,53 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
           )}
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Button
-            disabled={!canPlan || start.isPending}
-            onClick={() => start.mutate(payload("plan"))}
-          >
-            <Play className="size-3.5" /> Plan
-          </Button>
+          {vending.length ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button disabled={!canPlan || start.isPending}>
+                  <Play className="size-3.5" /> Create {vending.length} subscription
+                  {vending.length === 1 ? "" : "s"} & plan
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>This plan creates things in Azure first</AlertDialogTitle>
+                  <AlertDialogDescription asChild>
+                    <div className="space-y-2 text-sm text-muted-foreground">
+                      <p>Before Terraform runs, Plan:</p>
+                      <ul className="list-disc space-y-1 pl-5">
+                        <li>builds the designed management group hierarchy (no policy yet);</li>
+                        <li>
+                          creates {vending.length} subscription{vending.length === 1 ? "" : "s"} (
+                          {vending.map((t) => t.label).join(", ")}), billed to the scope you picked,
+                          directly in their management groups;
+                        </li>
+                        <li>registers the resource providers they need.</li>
+                      </ul>
+                      <p>
+                        Policy, access and everything else only change when you Apply. Destroy
+                        removes it all, and can cancel the subscriptions it created.
+                      </p>
+                    </div>
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => start.mutate(payload("plan"))}>
+                    Create and plan
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : (
+            <Button
+              disabled={!canPlan || start.isPending}
+              onClick={() => start.mutate(payload("plan"))}
+              title="Reads Azure and shows exactly what Apply would change"
+            >
+              <Play className="size-3.5" /> Plan
+            </Button>
+          )}
           <Button
             variant={canApply ? "default" : "outline"}
             disabled={!canApply || busy || start.isPending}

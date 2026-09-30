@@ -2,7 +2,7 @@
  * Side panels for the landing zone designer: Access (Azure RBAC with Microsoft's recommendation per team),
  * extra policies (official built-ins and compliance frameworks), and the AI design advisor.
  */
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Lightbulb, Send, Sparkles, Undo2, Wand2 } from "lucide-react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { askAdvisor } from "@/lib/advisor.functions";
+import { askAdvisor, getAdvisorStatus } from "@/lib/advisor.functions";
 import type { Answers, MgNode } from "@/lib/alz/engine";
 import {
   ALZ_ROLES,
@@ -407,6 +407,13 @@ export function AdvisorPanel({
   const [applied, setApplied] = useState<Record<number, Answers>>({});
   const end = useRef<HTMLDivElement>(null);
   const ask = useMutation({ mutationFn: useServerFn(askAdvisor) });
+  const statusFn = useServerFn(getAdvisorStatus);
+  const status = useQuery({
+    queryKey: ["advisor-status"],
+    queryFn: () => statusFn(),
+    staleTime: 5 * 60_000,
+  });
+  const connected = status.data?.configured !== false;
   useEffect(() => {
     if (messages.length) end.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages, ask.isPending]);
@@ -446,7 +453,30 @@ export function AdvisorPanel({
         </p>
       </div>
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
-        {!messages.length && (
+        {!connected && (
+          <div className="rounded-md border border-border bg-muted/40 p-3 text-[12px]">
+            <p className="font-semibold">The advisor isn't connected yet</p>
+            <p className="mt-1 text-muted-foreground">
+              It uses Azure OpenAI with the app's own identity, so no keys are stored. To turn it
+              on:
+            </p>
+            <ol className="mt-1.5 list-decimal space-y-0.5 pl-4 text-muted-foreground">
+              <li>
+                Set <code className="font-mono">AZURE_OPENAI_ENDPOINT</code> (and optionally{" "}
+                <code className="font-mono">AZURE_OPENAI_DEPLOYMENT</code>) on the web app.
+              </li>
+              <li>
+                Give the web app's managed identity <b>Cognitive Services OpenAI User</b> on that
+                resource.
+              </li>
+            </ol>
+            <p className="mt-1.5 text-muted-foreground">
+              The Deploy to Azure template does both when you turn on the advisor. Everything else
+              on this page works without it.
+            </p>
+          </div>
+        )}
+        {connected && !messages.length && (
           <div className="space-y-1.5">
             {starters.map((s) => (
               <button
@@ -533,10 +563,20 @@ export function AdvisorPanel({
             }
           }}
           rows={2}
-          placeholder="Ask about this design, a change, a customer, routing…"
+          disabled={!connected}
+          placeholder={
+            connected
+              ? "Ask about this design, a change, a customer, routing…"
+              : "Connect Azure OpenAI to ask the advisor"
+          }
           className="min-h-0 flex-1 resize-none rounded-md border border-input bg-background px-2.5 py-1.5 text-[12.5px]"
         />
-        <Button type="submit" size="sm" disabled={!input.trim() || ask.isPending} aria-label="Send">
+        <Button
+          type="submit"
+          size="sm"
+          disabled={!connected || !input.trim() || ask.isPending}
+          aria-label="Send"
+        >
           <Send className="size-3.5" />
         </Button>
       </form>

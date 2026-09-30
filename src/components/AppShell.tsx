@@ -201,8 +201,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         </button>
         {demo && !rail && (
           <div className="mx-3 mb-3 rounded-sm border border-nav-active px-2.5 py-2 text-[11px] leading-snug text-nav-muted">
-            <span className="font-medium text-nav-foreground">Demo engine.</span> Plans and
-            deployments are simulated — no Azure calls are made.
+            <span className="font-medium text-nav-foreground">Demo engine.</span> Customer rollouts
+            are simulated. Landing zone deploys and offering test deploys run for real in Azure.
           </div>
         )}
       </aside>

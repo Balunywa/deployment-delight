@@ -118,6 +118,32 @@ function FoundationDetail() {
           ? { text: "Not deployed yet", tone: "muted" as const }
           : { text: "Changes to deploy", tone: "warning" as const },
   };
+  // The one thing to do next, so the flow is obvious from anywhere on the page.
+  const next: { label: string; run: () => void } | null = !managed
+    ? null
+    : dirty
+      ? {
+          label: "Save your changes",
+          run: () => save.mutate({ data: { foundationId: f.id, answers } }),
+        }
+      : f.status !== "deployed" || pending > 0
+        ? view === "review"
+          ? {
+              label: "Continue to deploy",
+              run: () => void navigate({ search: { view: "deploy" } }),
+            }
+          : view === "deploy"
+            ? null
+            : {
+                label: f.status === "draft" ? "Review, then deploy" : "Review changes",
+                run: () => void navigate({ search: { view: "review" } }),
+              }
+        : f.library_ref !== LATEST_REF
+          ? {
+              label: `Upgrade to ALZ ${shortRef(LATEST_REF)}`,
+              run: () => void navigate({ search: { view: "version" } }),
+            }
+          : null;
   const tabs: [View, string][] = managed
     ? [
         ["policies", "Policies"],
@@ -181,11 +207,21 @@ function FoundationDetail() {
         </p>
         {managed && (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pb-3">
-            <StepBar
-              view={view}
-              onGo={(v) => void navigate({ search: { view: v } })}
-              status={stepStatus}
-            />
+            <div className="flex flex-wrap items-center gap-3">
+              <StepBar
+                view={view}
+                onGo={(v) => void navigate({ search: { view: v } })}
+                status={stepStatus}
+              />
+              {next ? (
+                <Button size="sm" disabled={save.isPending} onClick={next.run}>
+                  Next: {next.label} <ArrowRight className="size-3.5" />
+                </Button>
+              ) : (
+                f.status === "deployed" &&
+                !dirty && <span className="text-[12px] text-success">Up to date with Azure</span>
+              )}
+            </div>
             <div className="flex items-center gap-3 text-[12.5px]">
               {tabs.map(([id, label]) => (
                 <button
@@ -229,9 +265,6 @@ function FoundationDetail() {
             answers={current}
             setAnswers={managed ? setAnswers : undefined}
             dirty={dirty}
-            saving={save.isPending}
-            onSave={() => save.mutate({ data: { foundationId: f.id, answers } })}
-            onDiscard={() => setAnswers(saved)}
             placed={placed}
             readOnlyOwner={managed ? undefined : (f.customers?.name ?? "the customer")}
             name={f.name}

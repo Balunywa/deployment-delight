@@ -18,7 +18,6 @@ import {
   ShieldCheck,
   Lightbulb,
   Sparkles,
-  Undo2,
   X,
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -162,9 +161,6 @@ export function LandingZoneDesigner({
   answers,
   setAnswers,
   dirty,
-  onSave,
-  onDiscard,
-  saving,
   placed,
   readOnlyOwner,
   name = "",
@@ -175,9 +171,6 @@ export function LandingZoneDesigner({
   answers: Answers;
   setAnswers?: ((a: Answers) => void) | undefined;
   dirty: boolean;
-  onSave?: (() => void) | undefined;
-  onDiscard?: (() => void) | undefined;
-  saving?: boolean | undefined;
   placed: Placement[];
   /** Set for customer-owned landing zones: the design can be explored but not changed. */
   readOnlyOwner?: string | undefined;
@@ -433,9 +426,6 @@ export function LandingZoneDesigner({
                 set={set}
                 placed={placed}
                 dirty={dirty}
-                onSave={onSave}
-                onDiscard={onDiscard}
-                saving={saving}
                 changes={changeCount}
               />
             ) : (
@@ -543,9 +533,6 @@ function Palette({
   set,
   placed,
   dirty,
-  onSave,
-  onDiscard,
-  saving,
   changes,
 }: {
   lib: AlzLibrary;
@@ -553,9 +540,6 @@ function Palette({
   set: (p: Partial<Answers>) => void;
   placed: Placement[];
   dirty: boolean;
-  onSave?: (() => void) | undefined;
-  onDiscard?: (() => void) | undefined;
-  saving?: boolean | undefined;
   changes: number;
 }) {
   const hub = hasHub(answers);
@@ -860,14 +844,11 @@ function Palette({
             ? `${changes} change${changes === 1 ? "" : "s"} from Microsoft's ALZ ${shortRef(lib.ref)} policy reference`
             : `Microsoft's ALZ ${shortRef(lib.ref)} policy reference, unchanged`}
         </p>
-        <div className="flex gap-2">
-          <Button size="sm" variant="outline" disabled={!dirty} onClick={onDiscard}>
-            <Undo2 className="size-3.5" /> Discard
-          </Button>
-          <Button size="sm" className="flex-1" disabled={!dirty || saving} onClick={onSave}>
-            {saving ? "Saving…" : dirty ? "Save design" : "Saved"}
-          </Button>
-        </div>
+        <p className="text-[11.5px] text-muted-foreground">
+          {dirty
+            ? "Save or discard from the bar at the bottom — it shows what each change does in Azure."
+            : "Changes appear in the bar at the bottom, with what they do in Azure."}
+        </p>
       </div>
     </>
   );
