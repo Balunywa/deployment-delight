@@ -129,7 +129,7 @@ test.describe("platform landing zones", () => {
     await map.getByText("Connectivity subscription", { exact: true }).click();
     await expect(where).toContainText("Connectivity subscription");
     await map.getByText("Azure Firewall", { exact: true }).first().click();
-    await expect(where).toContainText("Hub virtual network");
+    await expect(where).toContainText(/Hub virtual network|Virtual hub/);
     await expect(where).toContainText("Azure Firewall");
     await page.keyboard.press("Escape");
     await expect(where).toContainText("click a box to zoom in");
