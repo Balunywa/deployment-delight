@@ -812,9 +812,10 @@ function Onboard() {
         <p className="text-xs text-muted-foreground">Customers / Onboard</p>
         <h1 className="text-[22px] font-semibold">Onboard a customer</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Pick a published offering, choose where each environment lands, and launch. Onboarding
-          adds one install file to your delivery repository — {tool.title} validates, plans and
-          deploys it ring by ring, the same way for every customer.
+          Pick a published offering, choose where each environment lands, and launch. The customer
+          gets its own repository, and onboarding adds a file per environment pinning the version —{" "}
+          {tool.title} plans and deploys it ring by ring with the same pinned template for every
+          customer.
         </p>
       </div>
 
@@ -1365,7 +1366,7 @@ function Onboard() {
               <>
                 <Card
                   title="Delivery tool"
-                  subtitle="Where the pipeline for this customer runs. Every customer uses the same workflow."
+                  subtitle="Where this customer's repository and pipeline live. Every customer calls the same pinned template."
                 >
                   <div className="grid gap-2 sm:grid-cols-2">
                     {(["github-actions", "azure-devops"] as const).map((t) => (

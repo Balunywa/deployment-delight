@@ -39,3 +39,6 @@ dist-ssr
 /test-results-*/
 /playwright-report/
 /blob-report/
+
+# Demo video output
+/demo/out/

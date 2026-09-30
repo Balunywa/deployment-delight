@@ -7,8 +7,8 @@ import pg from "pg";
 
 const url = new URL(process.env.DATABASE_URL);
 const name = decodeURIComponent(url.pathname.slice(1));
-if (!/e2e/.test(name))
-  throw new Error(`Refusing to reset "${name}": the e2e database name must contain "e2e".`);
+if (!/e2e|demo/.test(name))
+  throw new Error(`Refusing to reset "${name}": the database name must contain "e2e" or "demo".`);
 
 const admin = new pg.Client({
   host: url.searchParams.get("host") ?? url.hostname,

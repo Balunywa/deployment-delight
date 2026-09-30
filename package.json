@@ -14,7 +14,8 @@
     "db:migrate": "node --env-file-if-exists=.env scripts/db.mjs migrate",
     "db:seed": "node --env-file-if-exists=.env scripts/db.mjs seed",
     "test:e2e": "vite build && playwright test",
-    "test:e2e:remote": "playwright test --grep @readonly"
+    "test:e2e:remote": "playwright test --grep @readonly",
+    "demo:video": "vite build && bun demo/build.ts"
   },
   "overrides": {
     "rolldown": "1.2.1"
