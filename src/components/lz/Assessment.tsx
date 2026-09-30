@@ -8,7 +8,7 @@ import { ArrowRight, Check, CircleAlert, Radar, RefreshCw, Sparkles, X } from "l
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { ArchitectureDiagram } from "@/components/lz/ArchitectureDiagram";
+import { LandingZoneMap } from "@/components/lz/map/LandingZoneMap";
 import { AdvisorPanel } from "@/components/lz/Panels";
 import { Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import { designContext } from "@/lib/alz/context";
 import { type DemoVariant, demoSnapshot } from "@/lib/alz/demo-tenants";
 import { type AlzLibrary, type Answers, DEFAULT_ANSWERS, hierarchy } from "@/lib/alz/engine";
 import type { Placement } from "@/lib/alz/placement";
-import { spokesFor } from "@/lib/alz/scene";
+import { type Sel, spokesFor } from "@/lib/alz/scene";
 import { relative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -384,7 +384,18 @@ function AsIs({ a, lib }: { a: Assessment; lib: AlzLibrary }) {
     ["corp", "online", "local", "sandbox"].filter((g) => tree.some((t) => t.libraryId === g)),
     [],
   );
-  const [sel, setSel] = useState<Parameters<typeof ArchitectureDiagram>[0]["sel"]>(null);
+  const [sel, setSel] = useState<Sel | null>(null);
+  const found = useMemo(
+    () => ({
+      ...a.asIs,
+      present: new Set(
+        Object.entries(a.map)
+          .filter(([, v]) => v)
+          .map(([k]) => k),
+      ),
+    }),
+    [a],
+  );
   return (
     <section className="overflow-hidden rounded-md border border-border bg-card">
       <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -403,8 +414,8 @@ function AsIs({ a, lib }: { a: Assessment; lib: AlzLibrary }) {
         </Button>
       </header>
       {open && (
-        <div className="overflow-x-auto">
-          <ArchitectureDiagram
+        <div>
+          <LandingZoneMap
             lib={lib}
             tree={tree}
             answers={asIs}
@@ -413,14 +424,7 @@ function AsIs({ a, lib }: { a: Assessment; lib: AlzLibrary }) {
             onSelect={setSel}
             flow={null}
             step={0}
-            present={
-              new Set(
-                Object.entries(a.map)
-                  .filter(([, v]) => v)
-                  .map(([k]) => k),
-              )
-            }
-            asIs={a.asIs}
+            asIs={found}
           />
         </div>
       )}

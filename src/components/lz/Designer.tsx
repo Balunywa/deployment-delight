@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 
-import { ReferenceCanvas } from "./ReferenceCanvas";
+import { LandingZoneMap } from "./map/LandingZoneMap";
 import { AccessPanel, AdvisorPanel, PolicyAddsPanel } from "@/components/lz/Panels";
 import type { Assessment } from "@/lib/alz/assess";
 import { designContext } from "@/lib/alz/context";
@@ -276,48 +276,6 @@ export function LandingZoneDesigner({
     </div>
   );
 
-  // Jump straight to a part of the drawing; the canvas is tall.
-  const jump = (target: string) => {
-    const el =
-      document.querySelector(
-        target.startsWith("sub:") ? `[data-anchor="${target}"]` : `[data-section="${target}"]`,
-      ) ??
-      document.querySelector(
-        `[data-anchor="${target === "mg" ? "mg-box" : target === "landing" ? "sub:corp" : target}"]`,
-      );
-    el?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
-  const sections: [string, string][] = [
-    ["mg", "Management groups"],
-    ["sub:management", "Management"],
-    ...(answers.connectivity !== "none"
-      ? ([["sub:connectivity", "Connectivity"]] as [string, string][])
-      : []),
-    ["sub:security", "Security"],
-    ["landing", "Landing zones"],
-    ["sub:sandbox", "Sandbox"],
-  ];
-  const nav = (
-    <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-4 py-1.5 text-[11.5px]">
-      <span className="mr-1 text-muted-foreground">Jump to</span>
-      {sections.map(([id, label]) => (
-        <button
-          key={id}
-          onClick={(e) => {
-            e.stopPropagation();
-            jump(id);
-          }}
-          className="rounded-sm border border-border bg-card px-2 py-0.5 hover:border-primary hover:text-primary"
-        >
-          {label}
-        </button>
-      ))}
-      <span className="ml-auto text-muted-foreground">
-        Click any part of the drawing — its settings open on the right.
-      </span>
-    </div>
-  );
-
   const inspector = (
     <Inspector
       lens={panel === "traffic" ? "traffic" : "build"}
@@ -358,12 +316,8 @@ export function LandingZoneDesigner({
     >
       <section className={cn("flex min-w-0 flex-col", full && "h-screen")}>
         {header}
-        {nav}
-        <div
-          className={cn("overflow-x-auto", full && "min-h-0 flex-1 overflow-y-auto")}
-          onClick={() => setSel(null)}
-        >
-          <ReferenceCanvas
+        <div className={cn("min-h-0", full && "flex-1")}>
+          <LandingZoneMap
             lib={lib}
             tree={tree}
             answers={answers}
@@ -374,6 +328,7 @@ export function LandingZoneDesigner({
             flow={flow}
             step={step}
             baseline={baseline}
+            full={full}
           />
         </div>
       </section>

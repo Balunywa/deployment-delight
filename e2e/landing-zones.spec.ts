@@ -101,11 +101,57 @@ test.describe("platform landing zones", () => {
       .first()
       .click();
     await expect(page.getByText(/Step 2 of \d/).first()).toBeVisible();
+    // The path is drawn on the map, hop to hop.
+    await expect(page.locator('.react-flow__edge[data-id^="flow:"]').first()).toBeAttached();
     // A flow the design can't carry says what to add instead (e.g. no firewall in a live, edited design).
     const corp = page.getByRole("button", { name: /^A Corp workload calls the internet/ });
     if (/Add Azure Firewall/.test((await corp.textContent()) ?? "")) return;
     await corp.click();
     await expect(page.getByText(/Step 1 of \d/).first()).toBeVisible();
+  });
+
+  test("the map: two views, click a box to zoom in, breadcrumb, Esc back @readonly", async ({
+    page,
+  }) => {
+    await openZone(page, /GridWorks hosting tenant/);
+    await step(page, 2, "Design").click();
+    const map = page.locator(".react-flow");
+    const where = page.getByRole("navigation", { name: "Where you are" });
+    await expect(page.getByRole("tab", { name: "Architecture" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    for (const column of ["Outside Azure", "Connectivity & identity", "Platform services"])
+      await expect(map.getByText(column, { exact: true })).toBeVisible();
+    // Laid out by code: nothing can be dragged.
+    await expect(map.locator(".react-flow__node.draggable")).toHaveCount(0);
+
+    await map.getByText("Connectivity subscription", { exact: true }).click();
+    await expect(where).toContainText("Connectivity subscription");
+    await map.getByText("Azure Firewall", { exact: true }).first().click();
+    await expect(where).toContainText("Hub virtual network");
+    await expect(where).toContainText("Azure Firewall");
+    await page.keyboard.press("Escape");
+    await expect(where).toContainText("click a box to zoom in");
+
+    await page.getByRole("button", { name: "Landing zones", exact: true }).first().click();
+    await page.getByRole("button", { name: "Whole picture" }).click();
+
+    await page.getByRole("tab", { name: "Management groups" }).click();
+    await expect(map.getByText("Tenant root group")).toBeVisible();
+    await map.getByText("Corp", { exact: true }).click();
+    await expect(where).toContainText("Corp");
+  });
+
+  test("the map: tick a part out and back, and the change bar says so", async ({ page }) => {
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await step(page, 2, "Design").click();
+    const bastion = page.locator(".react-flow__node").filter({ hasText: "Azure Bastion" }).first();
+    await bastion.getByTitle("Leave out of the design").click();
+    await expect(page.getByText(/^1 unsaved change/).first()).toBeVisible();
+    await expect(bastion.locator(".cd-glow")).toHaveCount(1);
+    await page.getByRole("button", { name: "Discard" }).click();
+    await expect(page.getByText(/unsaved change/)).toHaveCount(0);
   });
 
   test("access: Microsoft's recommended roles apply as a design change", async ({ page }) => {
@@ -163,6 +209,11 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText("Customer-owned · read-only")).toBeVisible();
     await expect(page.getByText(/Aligned with the Azure landing zone standard/)).toBeVisible();
     await expect(page.getByText("What's missing compared with the standard")).toBeVisible();
+    // Today's tenant, drawn on the standard: found parts solid, missing ones dashed.
+    const asIs = page.locator(".react-flow");
+    await asIs.scrollIntoViewIfNeeded();
+    await expect(asIs.getByText("Connectivity subscription", { exact: true })).toBeVisible();
+    expect((await asIs.boundingBox())?.height ?? 0).toBeGreaterThan(400);
     await page.getByRole("button", { name: "Where your product lands", exact: true }).click();
     await loaded(page);
     await page.getByRole("button", { name: "Reference policies", exact: true }).click();
