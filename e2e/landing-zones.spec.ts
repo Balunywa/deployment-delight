@@ -37,9 +37,24 @@ test.describe("platform landing zones", () => {
     const drawing = page.getByRole("img", { name: /Network topology/ });
 
     // Everything at once, colour-coded like the legend.
-    await expect(drawing).toContainText("Hub VNet · secondary");
+    await expect(drawing).toContainText("Hub VNet · eastus");
     await expect(drawing).toContainText("MSEE · peering location 2");
     await expect(drawing).toContainText("HTTPS egress");
+    await expect(drawing.locator('img[src="/azure-icons/firewall.svg"]').first()).toBeVisible();
+
+    // The same drawing as a draw.io file, with draw.io's own Azure icons and animated flows.
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.getByRole("button", { name: "draw.io" }).click(),
+    ]);
+    const xml = await (
+      await download.createReadStream()
+    )
+      .toArray()
+      .then((c) => Buffer.concat(c).toString());
+    expect(xml).toMatch(/^<mxfile /);
+    expect(xml).toContain("img/lib/azure2/networking/Firewalls.svg");
+    expect(xml).toContain("flowAnimation=1");
 
     // The circuit fails: BGP over it is withdrawn and the VPN carries on-premises traffic.
     await page.getByRole("radio", { name: /ExpressRoute circuit fails/ }).click();
@@ -232,7 +247,7 @@ test.describe("platform landing zones", () => {
     await page.getByRole("button", { name: "Pause" }).click();
     for (let i = 0; i < 6; i++) if (await next.isEnabled()) await next.click();
     await expect(page.getByTestId("drop")).toContainText("asymmetric");
-    await expect(page.locator("svg title").filter({ hasText: /asymmetric/ })).toHaveCount(1);
+    await expect(page.getByTitle("Traffic stops here").first()).toBeVisible();
   });
 
   test("the map: two views, click a box to zoom in, breadcrumb, Esc back @readonly", async ({

@@ -1,639 +1,78 @@
 /*
- * End-to-end traffic, drawn like an Azure network logical architecture: the internet and the Online installs on
- * top, the Connectivity subscription with the primary and secondary hubs (global peering) in the middle, Corp
- * installs and platform services on either side, and ExpressRoute / VPN down to the data centers. Every traffic
- * type is drawn at once in its legend colour; pick one to step a packet through it hop by hop — effective
- * routes, NSG and firewall decisions, and the reply. Fail an ExpressRoute circuit, a zone or the primary region
- * to see what reroutes and what breaks.
+ * End-to-end traffic on a real canvas: the network this design deploys, drawn with the official Azure icons like an
+ * architecture diagram — the internet on top, Online installs under it, the Connectivity subscription with both
+ * hubs, every Corp spoke, platform services, and ExpressRoute / VPN down to the data centers. Every flow from every
+ * spoke moves at once (a packet "comet" per path, in its legend colour); click one to step a packet through it —
+ * the subnet's effective routes, the NSG and firewall decisions, the reply. Fail a circuit, a zone or the region
+ * to see what reroutes and what breaks. Pan, zoom and fit like the landing zone map; export to draw.io.
  */
+import "@xyflow/react/dist/style.css";
+
 import {
-  BrickWall,
-  Building2,
-  Cable,
-  ChevronLeft,
-  ChevronRight,
-  Cloud,
-  Globe,
-  Laptop,
-  Lock,
-  Monitor,
-  Pause,
-  Play,
-  RotateCcw,
-  Router,
-  Shield,
-  Signpost,
-  SquareTerminal,
-  Workflow,
-  type LucideIcon,
-} from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+  Background,
+  BackgroundVariant,
+  ConnectionMode,
+  Controls,
+  type Edge,
+  EdgeLabelRenderer,
+  type EdgeProps,
+  Handle,
+  MarkerType,
+  MiniMap,
+  type Node,
+  type NodeProps,
+  Panel,
+  Position,
+  ReactFlow,
+  ReactFlowProvider,
+  getSmoothStepPath,
+  useReactFlow,
+} from "@xyflow/react";
+import { ChevronLeft, ChevronRight, Download, Pause, Play, Plus, RotateCcw } from "lucide-react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import type { Answers } from "@/lib/alz/engine";
+import type { Answers, MgNode } from "@/lib/alz/engine";
 import {
   type Failure,
   type SimHop,
   type SimResult,
-  type Topology,
   type TrafficKind,
   simulate,
+  simulateAll,
   topology,
 } from "@/lib/alz/routing";
 import type { SceneExtra, Spoke } from "@/lib/alz/scene";
 import { cn } from "@/lib/utils";
 
-type Box = { x: number; y: number; w: number; h: number };
-type El = Box & {
-  id: string;
-  title: string;
-  detail?: string | undefined;
-  tag?: string | undefined;
-  icon?: LucideIcon | undefined;
-  tone?: string | undefined;
-  kind: "row" | "ext" | "band" | "cloud";
-  absent?: boolean | undefined;
-  down?: boolean | undefined;
-};
-type Frame = Box & {
-  id: string;
-  title: string;
-  sub?: string | undefined;
-  fill: string;
-  stroke: string;
-  dashed?: boolean | undefined;
-  chip?: { text: string; fill: string } | undefined;
-  down?: boolean | undefined;
-};
-type Link = {
-  d: string;
-  label?: string | undefined;
-  lx?: number;
-  ly?: number;
-  color: string;
-  dash?: string | undefined;
-  width?: number;
-  arrows?: boolean;
-  down?: boolean;
-};
-
-const W = 1200;
+import { type Adding, AddDialog } from "./HierarchyEditor";
+import { toDrawio } from "./traffic/drawio";
+import { type TEdge, type TNode, iconUrl, trafficLayout } from "./traffic/layout";
 
 /** The legend: one colour and line style per kind of traffic (after the classic hub-and-spoke HA/DR drawings). */
 const KIND_STYLE: Record<TrafficKind, { label: string; color: string; dash?: string }> = {
   egress: { label: "HTTPS egress", color: "#e81123", dash: "9 6" },
   ingress: { label: "HTTPS ingress", color: "#e3a008", dash: "9 6" },
-  internal: { label: "Internal flow", color: "#16a34a", dash: "12 5" },
-  "private-endpoint": { label: "Private endpoint", color: "#2f7fd8", dash: "12 5" },
+  internal: { label: "Internal flow", color: "#16a34a" },
+  "private-endpoint": { label: "Private endpoint", color: "#2f7fd8" },
   ipsec: { label: "IPsec traffic", color: "#8661c5", dash: "6 5" },
   management: { label: "Admin (Bastion)", color: "#0d9488", dash: "10 5" },
-  monitoring: { label: "Monitoring data", color: "#a855f7", dash: "4 5" },
+  monitoring: { label: "Monitoring data", color: "#a855f7", dash: "3 5" },
   failover: { label: "Failover", color: "#e3008c", dash: "10 4" },
 };
-
-function layout(t: Topology, failure: Failure) {
-  const els = new Map<string, El>();
-  const frames: Frame[] = [];
-  const links: Link[] = [];
-  const add = (e: El) => els.set(e.id, e);
-  const sub = (id: string) => t.subnets.find((s) => s.id === id);
-  const regionDown = failure === "region";
-  add({ id: "internet", x: 60, y: 6, w: W - 120, h: 60, title: "Internet", kind: "cloud" });
-
-  // Online installs (internet-facing) sit just under the internet.
-  let top = 96;
-  if (t.online) {
-    const v = t.vnets.find((x) => x.id === t.online)!;
-    const fx = 440;
-    const fw = 320;
-    const rows = t.subnets.filter((s) => s.vnet === t.online);
-    frames.push({
-      id: `frame:${t.online}`,
-      x: fx,
-      y: top,
-      w: fw,
-      h: 48 + rows.length * 58,
-      title: `${v.name} · ${v.cidr}`,
-      sub: "Online install · not peered, own public entry",
-      fill: "#f3faf5",
-      stroke: "#8cc9a0",
-      chip: { text: "Online subscription", fill: "#fde7c4" },
-      down: regionDown,
-    });
-    rows.forEach((s, i) =>
-      add({
-        id: s.id,
-        x: fx + 12,
-        y: top + 48 + i * 58,
-        w: fw - 24,
-        h: 50,
-        title: `${s.name} · ${s.cidr}`,
-        detail: `${s.what} · ${s.ip}${s.publicIp ? ` · public ${s.publicIp}` : ""}`,
-        icon: s.name === "snet-appgw" ? Shield : s.name.includes("private") ? Lock : Monitor,
-        tone:
-          s.name === "snet-appgw" ? "#e3a008" : s.name.includes("private") ? "#2f7fd8" : "#0078d4",
-        kind: "row",
-        down: regionDown,
-      }),
-    );
-    top += 48 + rows.length * 58 + 34;
-  } else top += 30;
-
-  // Connectivity subscription: the hubs.
-  const cx = 330;
-  const cw = 540;
-  const cy = top;
-  const hw = 244;
-  const hubRow = (
-    id: string,
-    x: number,
-    y: number,
-    title: string,
-    detail: string,
-    icon: LucideIcon,
-    tone: string,
-    present: boolean,
-    tag?: string,
-    down?: boolean,
-  ) =>
-    add({
-      id,
-      x,
-      y,
-      w: hw - 20,
-      h: 54,
-      title,
-      detail,
-      icon,
-      tone,
-      tag,
-      kind: "row",
-      absent: !present,
-      down,
-    });
-  const rowsFor = (hub: 1 | 2) => {
-    const p = hub === 1 ? "hub" : "hub2";
-    const base = hub === 1 ? "10.0.0" : "10.1.0";
-    if (t.mode === "hub")
-      return [
-        [
-          `${p}-fw`,
-          `Azure Firewall · ${base}.68`,
-          `AzureFirewallSubnet ${base}.64/26 · zone-redundant`,
-          BrickWall,
-          "#d13438",
-          !!sub(`${p}-fw`),
-          sub(`${p}-fw`) ? `${sub(`${p}-fw`)!.routeTable?.name}: 0.0.0.0/0 → Internet` : undefined,
-        ],
-        [
-          `${p}-bastion`,
-          "Azure Bastion",
-          `AzureBastionSubnet ${base}.0/26`,
-          SquareTerminal,
-          "#038387",
-          !!sub(`${p}-bastion`),
-          undefined,
-        ],
-        [
-          `${p}-gw`,
-          `${t.gateway?.er || (t.gateway?.erDown && hub) ? "ExpressRoute" : ""}${(t.gateway?.er || t.gateway?.erDown) && t.gateway?.vpn ? " + " : ""}${t.gateway?.vpn ? "VPN" : ""} gateway`.trim() ||
-            "Gateway",
-          `GatewaySubnet ${base}.192/27 · Int-0 / Int-1`,
-          Cable,
-          "#8661c5",
-          !!sub(`${p}-gw`),
-          hub === 1 && t.firewall && t.gateway
-            ? "rt-hub-gateway: each added spoke → firewall"
-            : undefined,
-        ],
-        [
-          `${p}-dns`,
-          `DNS Private Resolver · ${base}.228`,
-          `Inbound endpoint ${base}.224/28`,
-          Signpost,
-          "#0078d4",
-          !!sub(`${p}-dns`),
-          undefined,
-        ],
-      ] as const;
-    return [
-      [
-        hub === 1 ? "vhub-fw" : "vhub2-fw",
-        "Azure Firewall (secured hub)",
-        t.routingIntent ? "Routing intent: internet + private" : "No firewall: no routing intent",
-        BrickWall,
-        "#d13438",
-        !!t.firewall,
-        undefined,
-      ],
-      [
-        hub === 1 ? "hub-router" : "hub2-router",
-        "Hub router",
-        t.routingIntent ? "Default route table → firewall" : "Default route table: any-to-any",
-        Workflow,
-        "#0078d4",
-        true,
-        undefined,
-      ],
-      [
-        hub === 1 ? "vhub-gw" : "vhub2-gw",
-        "Hub gateways",
-        t.gateway
-          ? `${t.gateway.er || t.gateway.erDown ? "ExpressRoute" : ""}${(t.gateway.er || t.gateway.erDown) && t.gateway.vpn ? " + " : ""}${t.gateway.vpn ? "VPN" : ""} · zone-redundant`
-          : "No gateway",
-        Cable,
-        "#8661c5",
-        !!t.gateway,
-        undefined,
-      ],
-      ...(hub === 1 && sub("sidecar-bastion")
-        ? ([
-            [
-              "sidecar-bastion",
-              "Azure Bastion (sidecar VNet)",
-              "10.0.8.0/26 · connected to the hub",
-              SquareTerminal,
-              "#038387",
-              true,
-              undefined,
-            ],
-          ] as const)
-        : []),
-    ] as const;
-  };
-  const drawHub = (hub: 1 | 2, x: number) => {
-    const exists = hub === 1 ? t.mode !== "none" : !!t.regions.secondary && t.mode !== "none";
-    const region = hub === 1 ? t.regions.primary : (t.regions.secondary ?? "second region");
-    const rows = exists ? rowsFor(hub) : [];
-    const h = 44 + Math.max(rows.length, 4) * 62;
-    frames.push({
-      id: `frame:${hub === 1 ? "hub" : "hub2"}`,
-      x,
-      y: cy + 34,
-      w: hw,
-      h,
-      title: exists
-        ? `${t.mode === "vwan" ? "Virtual WAN hub" : "Hub VNet"} · ${hub === 1 ? "primary" : "secondary"}`
-        : "No hub in a second region",
-      sub: exists
-        ? `${region}${t.mode === "hub" ? ` · ${hub === 1 ? "10.0.0.0/22" : "10.1.0.0/22"}` : ""}`
-        : "A regional outage takes everything down",
-      fill: hub === 1 ? "#eef6e9" : "#f6e3e3",
-      stroke: hub === 1 ? "#a7c98f" : "#d9a6a6",
-      dashed: !exists,
-      down: hub === 1 && regionDown,
-    });
-    rows.forEach((r, i) =>
-      hubRow(
-        r[0],
-        x + 10,
-        cy + 34 + 44 + i * 62,
-        r[1],
-        r[2],
-        r[3],
-        r[4],
-        r[5],
-        r[6],
-        hub === 1 && regionDown,
-      ),
-    );
-    return cy + 34 + h;
-  };
-  const b1 = drawHub(1, cx + 14);
-  const b2 = drawHub(2, cx + cw - 14 - hw);
-  const hubBottom = Math.max(b1, b2);
-  frames.unshift({
-    id: "frame:connectivity",
-    x: cx,
-    y: cy,
-    w: cw,
-    h: hubBottom - cy + 14,
-    title: "",
-    fill: "#dfeccf",
-    stroke: "#b5cf9c",
-    chip: { text: "Connectivity subscription", fill: "#c9b8e8" },
-  });
-  if (t.regions.secondary && t.mode !== "none") {
-    const fy = (els.get(t.mode === "hub" ? "hub-fw" : "vhub-fw")?.y ?? cy + 80) + 27;
-    links.push({
-      d: `M${cx + 14 + hw},${fy} H${cx + cw - 14 - hw}`,
-      label: t.mode === "hub" ? "Global peering" : "Hub-to-hub",
-      lx: cx + cw / 2,
-      ly: fy - 8,
-      color: "#1b1b1b",
-      width: 1.6,
-      arrows: true,
-      down: regionDown,
-    });
-  }
-
-  // Corp installs (Prod) on the left, peered to the primary hub.
-  let ly = cy;
-  for (const id of [t.corpA, t.corpB].filter(Boolean) as string[]) {
-    const v = t.vnets.find((x) => x.id === id)!;
-    const rows = t.subnets.filter((s) => s.vnet === id);
-    const fh = 48 + rows.length * 58;
-    frames.push({
-      id: `frame:${id}`,
-      x: 20,
-      y: ly,
-      w: 290,
-      h: fh,
-      title: `${v.name} · ${v.cidr}`,
-      sub:
-        t.mode === "hub"
-          ? "Corp install · peered to the hub"
-          : t.mode === "vwan"
-            ? "Corp install · hub connection"
-            : "Corp install",
-      fill: "#fbefe3",
-      stroke: "#e2b98f",
-      chip: ly === cy ? { text: "Prod subscriptions", fill: "#f3c9a0" } : undefined,
-      down: regionDown,
-    });
-    rows.forEach((s, i) =>
-      add({
-        id: s.id,
-        x: 32,
-        y: ly + 48 + i * 58,
-        w: 266,
-        h: 50,
-        title: `${s.name} · ${s.cidr}`,
-        detail: `${s.what} · ${s.ip}`,
-        tag: s.routeTable
-          ? `${s.routeTable.name}: 0.0.0.0/0 → firewall`
-          : s.private
-            ? "private subnet · no route table"
-            : undefined,
-        icon: s.name.includes("private") ? Lock : Monitor,
-        tone: s.name.includes("private") ? "#2f7fd8" : "#0078d4",
-        kind: "row",
-        down: regionDown,
-      }),
-    );
-    // Peering (or hub connection) to the primary hub.
-    const hubEdge = cx + 14;
-    const my = ly + fh / 2;
-    if (t.mode !== "none")
-      links.push({
-        d: `M310,${my} H${hubEdge}`,
-        label: t.mode === "hub" ? "Peering" : "Connection",
-        lx: (310 + hubEdge) / 2,
-        ly: my - 6,
-        color: "#1b1b1b",
-        width: 1.4,
-        arrows: true,
-        down: regionDown,
-      });
-    ly += fh + 16;
-  }
-
-  // Platform services and the DR installs on the right.
-  const rx = 890;
-  const rw = W - 20 - rx;
-  add({
-    id: "azure-dns",
-    x: rx,
-    y: cy,
-    w: rw,
-    h: 64,
-    title: "Azure platform",
-    detail: "Azure DNS 168.63.129.16 · privatelink zones · Azure Monitor ingestion",
-    icon: Cloud,
-    tone: "#0078d4",
-    kind: "ext",
-  });
-  if (t.regions.secondary || failure === "region")
-    add({
-      id: "dr-installs",
-      x: rx,
-      y: cy + 84,
-      w: rw,
-      h: 64,
-      title: t.regions.secondary
-        ? `Installs in ${t.regions.secondary}`
-        : "Installs in a second region",
-      detail: "None deployed yet — nothing to fail over to",
-      icon: Monitor,
-      tone: "#e3008c",
-      kind: "ext",
-      absent: true,
-    });
-  frames.push({
-    id: "frame:support",
-    x: rx,
-    y: cy + 170,
-    w: rw,
-    h: 112,
-    title: "Management & security",
-    sub: "Log Analytics · Sentinel · Defender for Cloud · Network Watcher · firewall policy (Firewall Manager)",
-    fill: "#f3f0fa",
-    stroke: "#c5b3e6",
-    dashed: true,
-  });
-
-  // On-premises: Microsoft edge (MSEE) at the peering location, then the data centers.
-  const gw1 = els.get(t.mode === "vwan" ? "vhub-gw" : "hub-gw");
-  const gw2 = els.get(t.mode === "vwan" ? "vhub2-gw" : "hub2-gw");
-  const erEver = !!t.gateway && (t.gateway.er || !!t.gateway.erDown);
-  const by = hubBottom + 44;
-  const x1 = cx + 14;
-  const x2 = cx + cw - 14 - hw;
-  if (erEver) {
-    add({
-      id: "msee1",
-      x: x1 + 10,
-      y: by,
-      w: hw - 20,
-      h: 50,
-      title: "MSEE · peering location 1",
-      detail: "ExpressRoute circuit 1 (BFD)",
-      icon: Router,
-      tone: "#2f5bb7",
-      kind: "ext",
-      down: failure === "er",
-    });
-    add({
-      id: "msee2",
-      x: x2 + 10,
-      y: by,
-      w: hw - 20,
-      h: 50,
-      title: "MSEE · peering location 2",
-      detail: "ExpressRoute circuit 2",
-      icon: Router,
-      tone: "#2f5bb7",
-      kind: "ext",
-      absent: !t.regions.secondary,
-      down: failure === "er",
-    });
-  }
-  const dy = by + (erEver ? 96 : 40);
-  add({
-    id: "onprem",
-    x: x1 + 10,
-    y: dy,
-    w: hw - 20,
-    h: 58,
-    title: "DC-1 · on-premises",
-    detail: `${t.onPrem} (example)`,
-    icon: Building2,
-    tone: "#605e5c",
-    kind: "ext",
-    absent: !t.gateway,
-  });
-  add({
-    id: "onprem2",
-    x: x2 + 10,
-    y: dy,
-    w: hw - 20,
-    h: 58,
-    title: "DC-2 · on-premises",
-    detail: "192.168.20.0/24 (example)",
-    icon: Building2,
-    tone: "#605e5c",
-    kind: "ext",
-    absent: !t.gateway || !t.regions.secondary,
-  });
-  const center = (b: Box) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-  const erColor = "#2f5bb7";
-  if (erEver && gw1) {
-    const m1 = els.get("msee1")!;
-    const m2 = els.get("msee2")!;
-    links.push({
-      d: `M${center(m1).x},${m1.y} V${gw1.y + gw1.h}`,
-      label: "ER connection",
-      lx: center(m1).x + 44,
-      ly: (m1.y + gw1.y + gw1.h) / 2,
-      color: erColor,
-      width: 2,
-      down: failure === "er",
-    });
-    links.push({
-      d: `M${center(m1).x},${m1.y + m1.h} V${dy}`,
-      label: "1 Gbps",
-      lx: center(m1).x + 26,
-      ly: m1.y + m1.h + 22,
-      color: "#1b1b1b",
-      width: 1.4,
-      down: failure === "er",
-    });
-    if (t.regions.secondary && gw2) {
-      links.push({
-        d: `M${center(m2).x},${m2.y} V${gw2.y + gw2.h}`,
-        label: "ER connection",
-        lx: center(m2).x + 44,
-        ly: (m2.y + gw2.y + gw2.h) / 2,
-        color: erColor,
-        width: 2,
-        down: failure === "er",
-      });
-      links.push({
-        d: `M${center(m2).x},${m2.y + m2.h} V${dy}`,
-        label: "1 Gbps",
-        lx: center(m2).x + 26,
-        ly: m2.y + m2.h + 22,
-        color: "#1b1b1b",
-        width: 1.4,
-        down: failure === "er",
-      });
-      // Bow-tie: each circuit also connects to the other region's gateway.
-      links.push({
-        d: `M${center(m1).x + 30},${m1.y} L${center(gw2).x - 30},${gw2.y + gw2.h}`,
-        label: "BGP",
-        lx: (center(m1).x + center(gw2).x) / 2 - 20,
-        ly: (m1.y + gw2.y + gw2.h) / 2,
-        color: erColor,
-        width: 1.2,
-        down: failure === "er",
-      });
-      links.push({
-        d: `M${center(m2).x - 30},${m2.y} L${center(gw1).x + 30},${gw1.y + gw1.h}`,
-        label: "BGP",
-        lx: (center(m2).x + center(gw1).x) / 2 + 20,
-        ly: (m2.y + gw1.y + gw1.h) / 2,
-        color: erColor,
-        width: 1.2,
-        down: failure === "er",
-      });
-    }
-  }
-  const on1 = els.get("onprem")!;
-  const on2 = els.get("onprem2")!;
-  if (t.gateway?.vpn && gw1)
-    links.push({
-      d: `M${on1.x},${center(on1).y} H${on1.x - 26} V${center(gw1).y} H${gw1.x}`,
-      label: "VPN IPsec",
-      lx: on1.x - 26,
-      ly: (center(on1).y + center(gw1).y) / 2,
-      color: "#8661c5",
-      dash: "6 5",
-      width: 1.6,
-    });
-  if (t.gateway?.vpn && gw2 && t.regions.secondary)
-    links.push({
-      d: `M${on2.x + on2.w},${center(on2).y} H${on2.x + on2.w + 26} V${center(gw2).y} H${gw2.x + gw2.w}`,
-      label: "VPN IPsec",
-      lx: on2.x + on2.w + 26,
-      ly: (center(on2).y + center(gw2).y) / 2,
-      color: "#8661c5",
-      dash: "6 5",
-      width: 1.6,
-    });
-  if (t.gateway && t.regions.secondary)
-    links.push({
-      d: `M${on1.x + on1.w},${center(on1).y} H${on2.x}`,
-      label: "WAN",
-      lx: (on1.x + on1.w + on2.x) / 2,
-      ly: center(on1).y - 6,
-      color: "#605e5c",
-      width: 1.2,
-      arrows: true,
-    });
-  if (t.gateway?.vpn)
-    add({
-      id: "remote",
-      x: 20,
-      y: dy,
-      w: 250,
-      h: 58,
-      title: "Remote engineers",
-      detail: "Point-to-site VPN · not configured",
-      icon: Laptop,
-      tone: "#6d8bf7",
-      kind: "ext",
-    });
-  return { els, frames, links, h: dy + 58 + 150 };
-}
-
-const mid = (b: Box) => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
-
-/** An orthogonal path from one element to the next. */
-function segment(a: El, b: El): string | null {
-  if (a.id === b.id) return null;
-  if (a.kind === "cloud" || b.kind === "cloud") {
-    const other = a.kind === "cloud" ? b : a;
-    const cloudY = (a.kind === "cloud" ? a : b).y + (a.kind === "cloud" ? a : b).h - 8;
-    const x = mid(other).x;
-    return a.kind === "cloud" ? `M${x},${cloudY} V${other.y}` : `M${x},${other.y} V${cloudY}`;
-  }
-  const ac = mid(a);
-  const bc = mid(b);
-  if (b.x >= a.x + a.w || a.x >= b.x + b.w) {
-    const sx = bc.x > ac.x ? a.x + a.w : a.x;
-    const ex = bc.x > ac.x ? b.x : b.x + b.w;
-    const mx = (sx + ex) / 2;
-    return `M${sx},${ac.y} H${mx} V${bc.y} H${ex}`;
-  }
-  if (Math.abs(ac.x - bc.x) < 30) {
-    const sy = bc.y > ac.y ? a.y + a.h : a.y;
-    const ey = bc.y > ac.y ? b.y : b.y + b.h;
-    return `M${ac.x},${sy} V${ey}`;
-  }
-  const lane = Math.min(a.x, b.x) - 10;
-  return `M${a.x},${ac.y} H${lane} V${bc.y} H${b.x}`;
-}
-
+const WIRE: Record<
+  TEdge["kind"],
+  { color: string; width: number; dash?: string; arrows?: boolean }
+> = {
+  peering: { color: "#1b1b1b", width: 1.4, arrows: true },
+  global: { color: "#1b1b1b", width: 2, arrows: true },
+  er: { color: "#2f5bb7", width: 2.4 },
+  bgp: { color: "#2f5bb7", width: 1.2 },
+  ipsec: { color: "#8661c5", width: 1.6, dash: "6 5" },
+  wan: { color: "#605e5c", width: 1.2, arrows: true },
+  link: { color: "#1b1b1b", width: 1.2 },
+  p2s: { color: "#a19f9d", width: 1.2, dash: "4 4" },
+};
 const VERDICT: Record<SimResult["verdict"]["status"], { label: string; cls: string }> = {
   reaches: { label: "Reaches", cls: "bg-[#dff6dd] text-[#107c10]" },
   "needs-rules": { label: "Needs a firewall rule", cls: "bg-[#fff4ce] text-[#8a6100]" },
@@ -653,29 +92,351 @@ const FAILURES: [Failure, string, string][] = [
   ["zone", "An availability zone fails", "High availability inside the region"],
   ["region", "The primary region fails", "Disaster recovery to the second region"],
 ];
+const BACK = "#5c6bc0";
 
-export function TrafficSimulator({
+type Ctx = {
+  active: string | null;
+  drops: Set<string>;
+  hopNums: Map<string, number[]>;
+  color: string;
+  focus: boolean;
+  involved: Set<string>;
+};
+const TCtx = createContext<Ctx>({
+  active: null,
+  drops: new Set(),
+  hopNums: new Map(),
+  color: "#0078d4",
+  focus: false,
+  involved: new Set(),
+});
+
+const HS = {
+  opacity: 0,
+  width: 1,
+  height: 1,
+  minWidth: 0,
+  minHeight: 0,
+  border: 0,
+  pointerEvents: "none",
+} as const;
+function Handles() {
+  return (
+    <>
+      {(
+        [
+          ["t", Position.Top],
+          ["r", Position.Right],
+          ["b", Position.Bottom],
+          ["l", Position.Left],
+        ] as const
+      ).map(([id, p]) => (
+        <Handle key={id} id={id} type="source" position={p} isConnectable={false} style={HS} />
+      ))}
+    </>
+  );
+}
+
+function FrameNode({ data }: NodeProps<Node<TNode>>) {
+  return (
+    <div
+      className="relative h-full w-full rounded-lg border-[1.5px]"
+      style={{
+        background: data.fill,
+        borderColor: data.stroke,
+        borderStyle: data.dashed ? "dashed" : "solid",
+        opacity: data.down ? 0.5 : 1,
+      }}
+    >
+      <Handles />
+      {data.chip && (
+        <span
+          className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded border border-[#8a8886] px-3 py-0.5 text-[12.5px] font-bold whitespace-nowrap text-[#1b1b1b] shadow-sm"
+          style={{ background: data.chip.fill }}
+        >
+          {data.chip.text}
+        </span>
+      )}
+      {data.title && (
+        <div className="flex items-center gap-2 px-3 pt-3">
+          {data.icon && <img src={iconUrl(data.icon)} alt="" className="size-5 shrink-0" />}
+          <div className="min-w-0 leading-tight">
+            <p className="truncate text-[13px] font-bold text-[#1b1b1b]">{data.title}</p>
+            {data.detail && <p className="truncate text-[11px] text-[#605e5c]">{data.detail}</p>}
+          </div>
+        </div>
+      )}
+      {data.down && (
+        <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-[#a4262c]/5 text-[18px] font-extrabold tracking-[0.2em] text-[#a4262c]/60">
+          REGION DOWN
+        </span>
+      )}
+    </div>
+  );
+}
+
+function PartNode({ id, data }: NodeProps<Node<TNode>>) {
+  const c = useContext(TCtx);
+  const active = c.active === id;
+  const nums = c.hopNums.get(id);
+  const dim = c.focus && !c.involved.has(id);
+  return (
+    <div
+      className={cn(
+        "relative flex h-full w-full items-center gap-2.5 rounded-md border bg-white px-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-[opacity,box-shadow]",
+        data.absent ? "border-dashed border-[#a19f9d] bg-white/70" : "border-[#c8c6c4]",
+        data.failed && "border-[#a4262c]",
+        active && "ring-[3px] ring-offset-1",
+      )}
+      style={{
+        opacity: data.down ? 0.45 : dim ? 0.4 : data.absent ? 0.65 : 1,
+        ["--tw-ring-color" as string]: c.color,
+      }}
+      title={`${data.title}${data.detail ? ` — ${data.detail}` : ""}`}
+    >
+      <Handles />
+      {data.icon && (
+        <img
+          src={iconUrl(data.icon)}
+          alt=""
+          className={cn("size-8 shrink-0", data.absent && "opacity-40 grayscale")}
+        />
+      )}
+      <div className="min-w-0 flex-1 leading-tight">
+        <p
+          className={cn(
+            "truncate text-[12.5px] font-semibold text-[#1b1b1b]",
+            data.absent && "text-[#8a8886]",
+          )}
+        >
+          {data.title}
+        </p>
+        {data.detail && <p className="truncate text-[10.5px] text-[#605e5c]">{data.detail}</p>}
+        {data.tag && !data.absent && (
+          <p className="truncate font-mono text-[9.5px] text-[#0f6cbd]">{data.tag}</p>
+        )}
+      </div>
+      {nums && (
+        <span className="absolute -top-2.5 -left-2.5 flex gap-0.5">
+          {nums.map((n) => (
+            <span
+              key={n}
+              className="grid size-5 place-items-center rounded-full text-[10px] font-bold text-white shadow"
+              style={{ background: c.color }}
+            >
+              {n + 1}
+            </span>
+          ))}
+        </span>
+      )}
+      {(data.failed || c.drops.has(id)) && (
+        <span
+          className="absolute -top-2.5 -right-2.5 grid size-6 place-items-center rounded-full bg-[#a4262c] text-[12px] font-bold text-white shadow ring-2 ring-white"
+          title="Traffic stops here"
+        >
+          ✕
+        </span>
+      )}
+    </div>
+  );
+}
+
+function CloudNode({ data }: NodeProps<Node<TNode>>) {
+  const c = useContext(TCtx);
+  return (
+    <div className="relative h-full w-full">
+      <svg
+        viewBox="0 0 1000 74"
+        preserveAspectRatio="none"
+        className="absolute inset-0 h-full w-full"
+      >
+        <path
+          d="M40,58 C8,58 4,26 36,22 C40,6 90,2 120,14 C160,-2 240,2 262,14 C320,-4 420,0 450,12 C520,-4 610,0 640,12 C700,-4 800,0 830,14 C880,2 960,6 964,24 C996,28 994,58 960,58 Z"
+          fill="#ffffff"
+          stroke="#605e5c"
+          strokeWidth={1.6}
+          vectorEffect="non-scaling-stroke"
+        />
+      </svg>
+      <span className="absolute inset-x-0 top-[22px] text-center text-[24px] font-bold text-[#1b1b1b]">
+        Internet
+      </span>
+      {c.drops.has("internet") && (
+        <span className="absolute top-2 right-6 grid size-6 place-items-center rounded-full bg-[#a4262c] text-[12px] font-bold text-white">
+          ✕
+        </span>
+      )}
+      {Array.from({ length: 60 }, (_, k) => (
+        <Handle
+          key={k}
+          id={`b${k}`}
+          type="source"
+          position={Position.Bottom}
+          isConnectable={false}
+          style={{ ...HS, left: `${(k + 0.5) * (100 / 60)}%` }}
+        />
+      ))}
+      <Handles />
+    </div>
+  );
+}
+
+/** A traffic path: the line in its legend colour and a packet comet (head and tail) moving along it. */
+function CometEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
+  label,
+  markerEnd,
+}: EdgeProps) {
+  const d = data as {
+    color: string;
+    dash?: string;
+    lane: number;
+    current?: boolean;
+    faint?: boolean;
+    flowing?: boolean;
+    comet?: boolean;
+    begin?: number;
+    count?: number;
+  };
+  const [path, lx, ly] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    borderRadius: 16,
+    offset: 18 + d.lane * 8,
+  });
+  const pid = `tp-${id.replace(/[^a-z0-9]/gi, "_")}`;
+  const dur = d.current ? 1.2 : 2.4;
+  const begin = d.begin ?? 0;
+  return (
+    <>
+      <path d={path} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" />
+      {d.current && (
+        <path d={path} fill="none" stroke={d.color} strokeOpacity={0.18} strokeWidth={12} />
+      )}
+      <path
+        id={pid}
+        d={path}
+        fill="none"
+        stroke={d.faint ? "#a19f9d" : d.color}
+        strokeWidth={d.current ? 3.4 : d.faint ? 1.4 : 2.2}
+        strokeDasharray={d.faint ? "3 5" : d.dash}
+        className={d.flowing ? "ts-flow" : undefined}
+        opacity={d.faint ? 0.6 : 0.95}
+        markerEnd={d.faint ? undefined : markerEnd}
+      />
+      {d.comet && (
+        <>
+          <circle r={d.current ? 6.5 : 4.8} fill={d.color} stroke="white" strokeWidth={1.4}>
+            <animateMotion dur={`${dur}s`} begin={`${-begin}s`} repeatCount="indefinite">
+              <mpath href={`#${pid}`} />
+            </animateMotion>
+          </circle>
+          <circle r={d.current ? 4 : 3} fill={d.color} opacity={0.45}>
+            <animateMotion dur={`${dur}s`} begin={`${-begin - dur / 7}s`} repeatCount="indefinite">
+              <mpath href={`#${pid}`} />
+            </animateMotion>
+          </circle>
+        </>
+      )}
+      {label && (
+        <EdgeLabelRenderer>
+          <span
+            className={cn(
+              "nodrag nopan pointer-events-none absolute rounded border bg-white px-1.5 font-mono text-[10px] whitespace-nowrap shadow-sm",
+              d.current ? "font-semibold" : "",
+            )}
+            style={{
+              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
+              borderColor: d.color,
+              color: "#323130",
+            }}
+          >
+            {label}
+          </span>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const nodeTypes = { frame: FrameNode, part: PartNode, cloud: CloudNode };
+const edgeTypes = { comet: CometEdge };
+
+type Rect = { x: number; y: number; w: number; h: number };
+function sides(a: Rect, b: Rect): [string, string] {
+  const dx = b.x + b.w / 2 - (a.x + a.w / 2);
+  const dy = b.y + b.h / 2 - (a.y + a.h / 2);
+  const apart = b.x >= a.x + a.w || a.x >= b.x + b.w;
+  if (apart && Math.abs(dx) >= Math.abs(dy) * 0.35) return dx > 0 ? ["r", "l"] : ["l", "r"];
+  return dy > 0 ? ["b", "t"] : ["t", "b"];
+}
+
+export function TrafficSimulator(props: {
+  answers: Answers;
+  spokes: Spoke[];
+  extras: SceneExtra[];
+  tree?: MgNode[] | undefined;
+  initial?: string | undefined;
+  set?: ((p: Partial<Answers>) => void) | undefined;
+}) {
+  return (
+    <ReactFlowProvider>
+      <Inner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function Inner({
   answers,
   spokes,
   extras,
+  tree,
   initial,
   set,
 }: {
   answers: Answers;
   spokes: Spoke[];
   extras: SceneExtra[];
+  tree?: MgNode[] | undefined;
   initial?: string | undefined;
   set?: ((p: Partial<Answers>) => void) | undefined;
 }) {
+  const rf = useReactFlow();
   const [failure, setFailure] = useState<Failure>("none");
   const [allowRules, setAllowRules] = useState(true);
+  const [scenario, setScenario] = useState<string>(initial ?? "all");
+  const [spokeSel, setSpokeSel] = useState<string>("");
+  const [hidden, setHidden] = useState<Set<TrafficKind>>(new Set());
+  const [adding, setAdding] = useState<Adding>(null);
   const t = useMemo(
     () => topology(answers, { spokes, extras }, failure),
     [answers, spokes, extras, failure],
   );
-  const sims = useMemo(() => simulate(t, answers, allowRules), [t, answers, allowRules]);
-  const [id, setId] = useState<string>(initial ?? "all");
-  const sim = id === "all" ? undefined : sims.find((s) => s.id === id);
+  const all = useMemo(() => simulateAll(t, answers, allowRules), [t, answers, allowRules]);
+  const from =
+    spokeSel && (t.corp.includes(spokeSel) || t.onlines.includes(spokeSel)) ? spokeSel : "";
+  const scenarios = useMemo(() => {
+    const a = t.corp.includes(from) ? from : t.corp[0];
+    const i = a ? t.corp.indexOf(a) : 0;
+    const b = t.corp.length > 1 ? t.corp[(i + 1) % t.corp.length] : undefined;
+    return simulate(
+      { ...t, corpA: a, corpB: b, online: t.onlines.includes(from) ? from : t.onlines[0] },
+      answers,
+      allowRules,
+    );
+  }, [t, from, answers, allowRules]);
+  const sim = scenario === "all" ? undefined : scenarios.find((s) => s.id === scenario);
   const hops = useMemo(
     () => [
       ...(sim?.forward ?? []).map((h) => ({ ...h, dir: "fwd" as const })),
@@ -689,787 +450,750 @@ export function TrafficSimulator({
   useEffect(() => {
     setStep(0);
     setPlaying(true);
-  }, [sim?.id, allowRules, answers, failure]);
+  }, [sim?.id, from, allowRules, answers, failure]);
   useEffect(() => {
     if (!sim || !playing || !hops.length) return;
-    if (step >= hops.length - 1) {
-      setPlaying(false);
-      return;
-    }
-    const timer = setTimeout(() => setStep((s) => s + 1), 1700);
+    if (step >= hops.length - 1) return setPlaying(false);
+    const timer = setTimeout(() => setStep((s) => s + 1), 1800);
     return () => clearTimeout(timer);
   }, [sim, playing, step, hops.length]);
 
-  const g = useMemo(() => layout(t, failure), [t, failure]);
-  const el = (at: string) => g.els.get(at);
+  const L = useMemo(() => trafficLayout(t, failure), [t, failure]);
+  const byId = useMemo(() => new Map(L.nodes.map((n) => [n.id, n])), [L]);
   const erUp = !!t.gateway?.er;
-  // ExpressRoute traffic is drawn through the Microsoft edge at the peering location.
-  const via = (a: string, b: string) => {
-    if (!erUp) return null;
-    const pair = (x: string, y: string) => (a === x && y.includes(b)) || (b === x && y.includes(a));
-    if (pair("onprem", "hub-gw vhub-gw")) return "msee1";
-    if (pair("onprem2", "hub2-gw vhub2-gw")) return "msee2";
-    return null;
+  /** ExpressRoute is drawn through the Microsoft edge at the peering location. */
+  const legs = (a: string, b: string): [string, string][] => {
+    if (!erUp) return [[a, b]];
+    const via = (x: string, gws: string[]) =>
+      (a === x && gws.includes(b)) || (b === x && gws.includes(a))
+        ? x === "onprem"
+          ? "msee1"
+          : "msee2"
+        : null;
+    const v = via("onprem", ["hub-gw", "vhub-gw"]) ?? via("onprem2", ["hub2-gw", "vhub2-gw"]);
+    return v && byId.has(v)
+      ? [
+          [a, v],
+          [v, b],
+        ]
+      : [[a, b]];
   };
-  const pathBetween = (a: string, b: string) => {
-    const A = el(a);
-    const B = el(b);
-    if (!A || !B) return null;
-    const v = via(a, b);
-    const V = v ? el(v) : undefined;
-    if (V) {
-      const one = segment(A, V);
-      const two = segment(V, B);
-      return one && two ? `${one} ${two.replace(/^M/, "L")}` : (one ?? two);
-    }
-    return segment(A, B);
-  };
-  const segsOf = (hs: (SimHop & { dir: "fwd" | "back" })[]) =>
-    hs.map((h, i) => (!i || hs[i - 1]!.dir !== h.dir ? null : pathBetween(hs[i - 1]!.at, h.at)));
-  const segs = segsOf(hops);
-  const cur = sim ? hops[step] : undefined;
-  const curEl = cur ? el(cur.at) : undefined;
-  const style = sim ? KIND_STYLE[sim.kind] : undefined;
-  const fwdColor = style?.color ?? "#0078d4";
-  const backColor = "#5c6bc0";
-  const drop = hops.find((h) => h.drop);
-  const drawn = sims.filter((s) => s.available && s.forward.length);
-  const pick = (next: string) => {
-    setId(next);
+  const handlesFor = (a: string, b: string): [string, string] => {
+    const A = byId.get(a)!;
+    const B = byId.get(b)!;
+    if (b === "internet")
+      return ["t", `b${Math.max(0, Math.min(59, Math.floor(((A.x + A.w / 2 - B.x) / B.w) * 60)))}`];
+    if (a === "internet")
+      return [`b${Math.max(0, Math.min(59, Math.floor(((B.x + B.w / 2 - A.x) / A.w) * 60)))}`, "t"];
+    return sides(A, B) as [string, string];
   };
 
+  /* Nodes */
+  const drops = new Set(hops.filter((h, i) => h.drop && i <= step).map((h) => h.at));
+  const hopNums = new Map<string, number[]>();
+  hops.forEach((h, i) => hopNums.set(h.at, [...(hopNums.get(h.at) ?? []), i]));
+  const color = sim ? KIND_STYLE[sim.kind].color : "#0078d4";
+  const ctx: Ctx = {
+    active: sim ? (hops[step]?.at ?? null) : null,
+    drops: sim
+      ? drops
+      : new Set(
+          all.flatMap((f) =>
+            hidden.has(f.kind) ? [] : f.forward.filter((h) => h.drop).map((h) => h.at),
+          ),
+        ),
+    hopNums: sim ? hopNums : new Map(),
+    color: hops[step]?.dir === "back" ? BACK : color,
+    focus: !!sim,
+    involved: new Set(hops.map((h) => h.at)),
+  };
+  const nodes: Node[] = useMemo(
+    () =>
+      L.nodes.map((n) => ({
+        id: n.id,
+        type: n.kind,
+        position: { x: n.x, y: n.y },
+        data: n,
+        width: n.w,
+        height: n.h,
+        style: { width: n.w, height: n.h },
+        draggable: false,
+        selectable: false,
+        connectable: false,
+        zIndex: n.kind === "frame" ? (n.id === "frame:connectivity" ? 0 : 1) : 3,
+      })),
+    [L],
+  );
+
+  /* Edges: the fixed wiring, then the traffic */
+  const edges: Edge[] = [];
+  const lanes = new Map<string, number>();
+  const lane = (a: string, b: string) => {
+    const k = [a, b].sort().join("|");
+    const n = lanes.get(k) ?? 0;
+    lanes.set(k, n + 1);
+    return n;
+  };
+  for (const e of L.edges) {
+    if (!byId.has(e.source) || !byId.has(e.target)) continue;
+    const w = WIRE[e.kind];
+    const [s, tg] = handlesFor(e.source, e.target);
+    edges.push({
+      id: `w:${e.id}`,
+      source: e.source,
+      target: e.target,
+      sourceHandle: s,
+      targetHandle: tg,
+      type: "smoothstep",
+      // While stepping through one path, its own hop labels are the ones to read.
+      label: sim ? undefined : e.label,
+      labelStyle: { fontSize: 10.5, fontWeight: 600, fill: e.down ? "#a4262c" : w.color },
+      labelBgStyle: { fill: "#ffffff" },
+      labelBgPadding: [3, 1] as [number, number],
+      style: {
+        stroke: e.down ? "#a4262c" : w.color,
+        strokeWidth: w.width,
+        strokeDasharray: e.down ? "3 4" : w.dash,
+        opacity: e.down ? 0.4 : sim ? 0.35 : 0.8,
+      },
+      ...(w.arrows
+        ? {
+            markerEnd: { type: MarkerType.ArrowClosed, color: w.color, width: 14, height: 14 },
+            markerStart: { type: MarkerType.ArrowClosed, color: w.color, width: 14, height: 14 },
+          }
+        : {}),
+      zIndex: 2,
+    });
+  }
+  const flowEdge = (
+    key: string,
+    a: string,
+    b: string,
+    data: Record<string, unknown>,
+    label?: string,
+  ) => {
+    for (const [x, y] of legs(a, b)) {
+      if (!byId.has(x) || !byId.has(y) || x === y) continue;
+      const [s, tg] = handlesFor(x, y);
+      edges.push({
+        id: `${key}:${x}>${y}`,
+        source: x,
+        target: y,
+        sourceHandle: s,
+        targetHandle: tg,
+        type: "comet",
+        label,
+        data: { ...data, lane: lane(x, y) },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color: data["color"] as string,
+          width: 14,
+          height: 14,
+        },
+        zIndex: data["current"] ? 12 : 8,
+      });
+    }
+  };
+  if (!sim) {
+    // Every flow from every spoke; identical legs of the same kind are drawn once.
+    const seen = new Set<string>();
+    all.forEach((f, k) => {
+      if (!f.available || hidden.has(f.kind)) return;
+      const st = KIND_STYLE[f.kind];
+      f.forward.forEach((h, i) => {
+        const prev = f.forward[i - 1];
+        if (!prev || prev.at === h.at) return;
+        const key = `${f.kind}:${prev.at}>${h.at}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        flowEdge(`all:${f.id}:${i}`, prev.at, h.at, {
+          color: st.color,
+          dash: st.dash,
+          flowing: true,
+          comet: true,
+          begin: (k * 0.37) % 2.4,
+          flowId: f.id,
+        });
+      });
+    });
+  } else {
+    hops.forEach((h, i) => {
+      const prev = hops[i - 1];
+      if (!prev || prev.at === h.at || prev.dir !== h.dir) return;
+      const done = i <= step;
+      const c = h.dir === "back" ? BACK : color;
+      flowEdge(
+        `sim:${i}`,
+        prev.at,
+        h.at,
+        {
+          color: c,
+          dash: h.dir === "back" ? "7 5" : undefined,
+          faint: !done,
+          current: i === step,
+          comet: i === step,
+          flowing: done && h.dir === "back",
+        },
+        done ? prev.via : undefined,
+      );
+    });
+  }
+
+  /* Navigation */
+  const focusFlow = (ids: string[]) =>
+    void rf.fitView({
+      nodes: ids.filter((x) => byId.has(x)).map((x) => ({ id: x })),
+      padding: 0.25,
+      duration: 500,
+      maxZoom: 1.1,
+    });
+  useEffect(() => {
+    if (sim) setTimeout(() => focusFlow([...new Set(hops.map((h) => h.at))]), 60);
+    else setTimeout(() => void rf.fitView({ padding: 0.04, duration: 400 }), 60);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sim?.id, from, L]);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement | null)?.closest("input, textarea, select, [role=dialog]"))
+        return;
+      if (e.key === "Escape") setScenario("all");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const exportDrawio = () => {
+    const flows = all
+      .filter((f) => f.available && !hidden.has(f.kind))
+      .flatMap((f) =>
+        f.forward.slice(1).flatMap((h, i) => {
+          const a = f.forward[i]!.at;
+          if (a === h.at) return [];
+          return legs(a, h.at).map(([x, y], j) => ({
+            id: `${f.id}-${i}-${j}`,
+            source: x,
+            target: y,
+            color: KIND_STYLE[f.kind].color,
+            dashed: !!KIND_STYLE[f.kind].dash,
+            label: j === 0 ? f.forward[i]!.via : undefined,
+          }));
+        }),
+      );
+    const uniq = [...new Map(flows.map((f) => [`${f.color}|${f.source}|${f.target}`, f])).values()];
+    const xml = toDrawio("Traffic flows", L.nodes, L.edges, uniq);
+    const url = URL.createObjectURL(new Blob([xml], { type: "application/xml" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `traffic-${answers.intermediateRootId || "landing-zone"}.drawio`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const spokeName = (id: string) => t.vnets.find((v) => v.id === id)?.name ?? id;
+  const shownFlows = all.filter((f) => f.available && !hidden.has(f.kind));
+  const cur = sim ? hops[step] : undefined;
+  const drop = hops.find((h) => h.drop);
+
   return (
-    <div className="grid gap-4 2xl:grid-cols-[230px_minmax(0,1fr)_340px] xl:grid-cols-[220px_minmax(0,1fr)]">
-      {/* Scenarios, what-ifs */}
-      <aside className="space-y-1.5" aria-label="Traffic scenarios">
-        <button
-          onClick={() => pick("all")}
-          className={cn(
-            "w-full rounded-md border px-3 py-2 text-left text-[12.5px] font-medium",
-            id === "all"
-              ? "border-primary bg-primary/5"
-              : "border-border bg-card hover:border-primary/50",
-          )}
-        >
-          All traffic at once
-          <span className="block text-[11px] font-normal text-muted-foreground">
-            Every path, colour-coded
-          </span>
-        </button>
-        {sims.map((s) => (
+    <TCtx.Provider value={ctx}>
+      <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[240px_minmax(0,1fr)_340px]">
+        {/* Scenarios and what-ifs */}
+        <aside className="space-y-1.5" aria-label="Traffic scenarios">
           <button
-            key={s.id}
-            onClick={() => pick(s.id)}
+            onClick={() => setScenario("all")}
             className={cn(
-              "w-full rounded-md border px-3 py-2 text-left transition-colors",
-              s.id === id
+              "w-full rounded-md border px-3 py-2 text-left text-[12.5px] font-medium",
+              scenario === "all"
                 ? "border-primary bg-primary/5"
                 : "border-border bg-card hover:border-primary/50",
             )}
           >
-            <span className="flex items-center gap-1.5">
-              <span
-                className="h-0 w-4 shrink-0 border-t-[3px]"
-                style={{
-                  borderColor: KIND_STYLE[s.kind].color,
-                  borderStyle: KIND_STYLE[s.kind].dash ? "dashed" : "solid",
-                }}
-              />
-              <span className="text-[12.5px] font-medium">{s.title}</span>
-            </span>
-            <span
-              className={cn(
-                "mt-1 inline-block rounded px-1.5 text-[10px] font-semibold",
-                VERDICT[s.verdict.status].cls,
-              )}
-            >
-              {s.available ? VERDICT[s.verdict.status].label : "Not in this design"}
+            All traffic at once
+            <span className="block text-[11px] font-normal text-muted-foreground">
+              {shownFlows.length} paths across {t.corp.length + t.onlines.length} spokes
             </span>
           </button>
-        ))}
-        <div className="mt-3 rounded-md border border-border bg-card p-2.5">
-          <p className="mb-1.5 text-[11.5px] font-medium">What if…</p>
-          <div className="space-y-1" role="radiogroup" aria-label="Failure to simulate">
-            {FAILURES.map(([f, label, hint]) => {
-              const disabled =
-                (f === "er" && !(t.gateway?.er || t.gateway?.erDown)) ||
-                (f !== "none" && t.mode === "none" && f !== "region");
-              return (
-                <button
-                  key={f}
-                  role="radio"
-                  aria-checked={failure === f}
-                  disabled={disabled}
-                  onClick={() => setFailure(f)}
-                  className={cn(
-                    "w-full rounded px-2 py-1 text-left text-[11.5px] disabled:opacity-40",
-                    failure === f ? "bg-[#fde7e9] font-medium text-[#a4262c]" : "hover:bg-muted",
-                  )}
-                  title={disabled ? "Not in this design" : hint}
-                >
-                  {label}
-                  <span className="block text-[10.5px] font-normal text-muted-foreground">
-                    {disabled && f === "er" ? "No ExpressRoute in this design" : hint}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        {t.firewall && (
-          <div className="rounded-md border border-border bg-card p-2.5">
-            <p className="mb-1.5 text-[11.5px] font-medium">Firewall rules</p>
-            <div
-              className="flex rounded-md border border-border bg-muted/40 p-0.5 text-[11.5px]"
-              role="radiogroup"
-              aria-label="Firewall rules"
-            >
-              {(
-                [
-                  [true, "Assume allowed"],
-                  [false, "As deployed"],
-                ] as const
-              ).map(([v, label]) => (
-                <button
-                  key={label}
-                  role="radio"
-                  aria-checked={allowRules === v}
-                  onClick={() => setAllowRules(v)}
-                  className={cn(
-                    "flex-1 rounded px-2 py-1",
-                    allowRules === v ? "bg-card font-medium shadow-sm" : "text-muted-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-1.5 text-[11px] text-muted-foreground">
-              The policy this design deploys starts empty — Azure Firewall denies whatever no rule
-              allows.
-            </p>
-          </div>
-        )}
-      </aside>
-
-      {/* The drawing */}
-      <section className="min-w-0 rounded-md border border-border bg-card">
-        <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2.5">
-          <div className="min-w-0 flex-1">
-            <p className="text-[13px] font-semibold">
-              {sim ? sim.title : "Every traffic path in this design"}
-            </p>
-            <p className="font-mono text-[11.5px] text-muted-foreground">
-              {sim
-                ? sim.question
-                : failure !== "none"
-                  ? `Simulating: ${FAILURES.find((f) => f[0] === failure)![1].toLowerCase()}`
-                  : "Pick a path to step a packet through it."}
-            </p>
-          </div>
-          {sim && (
-            <span
-              className={cn(
-                "rounded px-2 py-0.5 text-[11.5px] font-semibold",
-                VERDICT[sim.verdict.status].cls,
-              )}
-              data-verdict={sim.verdict.status}
-            >
-              {sim.available ? VERDICT[sim.verdict.status].label : "Not in this design"}
-            </span>
+          {(t.corp.length > 1 || t.onlines.length > 1) && (
+            <label className="block rounded-md border border-border bg-card px-3 py-2 text-[11.5px]">
+              <span className="font-medium">Follow traffic from</span>
+              <select
+                aria-label="Follow traffic from"
+                value={from || t.corp[0] || ""}
+                onChange={(e) => setSpokeSel(e.target.value)}
+                className="mt-1 h-7 w-full rounded border border-input bg-background px-1.5"
+              >
+                {t.corp.map((id) => (
+                  <option key={id} value={id}>
+                    {spokeName(id)} (Corp)
+                  </option>
+                ))}
+                {t.onlines.map((id) => (
+                  <option key={id} value={id}>
+                    {spokeName(id)} (Online)
+                  </option>
+                ))}
+              </select>
+            </label>
           )}
-        </header>
-        {sim && (
-          <div className="flex items-center gap-1.5 border-b border-border px-4 py-1.5 text-[11.5px]">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7"
-              aria-label="Previous hop"
-              onClick={() => {
-                setPlaying(false);
-                setStep((s) => Math.max(0, s - 1));
-              }}
-            >
-              <ChevronLeft className="size-3.5" />
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7"
-              onClick={() => {
-                if (step >= hops.length - 1) setStep(0);
-                setPlaying((p) => !p);
-              }}
-            >
-              {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
-              {playing ? "Pause" : "Play"}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7"
-              aria-label="Next hop"
-              onClick={() => {
-                setPlaying(false);
-                setStep((s) => Math.min(hops.length - 1, s + 1));
-              }}
-            >
-              <ChevronRight className="size-3.5" />
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-7"
-              aria-label="Restart"
-              onClick={() => {
-                setStep(0);
-                setPlaying(true);
-              }}
-            >
-              <RotateCcw className="size-3.5" />
-            </Button>
-            <span className="ml-1 text-muted-foreground">
-              Hop {Math.min(step + 1, hops.length)} of {hops.length}
-              {cur?.dir === "back" ? " · reply" : sim.back.length ? " · request" : ""}
-            </span>
-          </div>
-        )}
-        <div className="overflow-x-auto p-2">
-          <svg
-            viewBox={`0 0 ${W} ${g.h}`}
-            className="h-auto w-full min-w-[860px]"
-            role="img"
-            aria-label="Network topology with the traffic paths"
-          >
-            <defs>
-              <marker
-                id="ts-arrow"
-                viewBox="0 0 10 10"
-                refX="9"
-                refY="5"
-                markerWidth="6"
-                markerHeight="6"
-                orient="auto-start-reverse"
-              >
-                <path d="M0,0 L10,5 L0,10 z" fill="context-stroke" />
-              </marker>
-            </defs>
-            {/* Internet */}
-            <g>
-              <ellipse
-                cx={W / 2}
-                cy={34}
-                rx={W / 2 - 60}
-                ry={28}
-                fill="#ffffff"
-                stroke="#605e5c"
-                strokeWidth={1.3}
-              />
-              <text
-                x={W / 2}
-                y={42}
-                textAnchor="middle"
-                fontSize={22}
-                fontWeight={700}
-                fill="#1b1b1b"
-              >
-                Internet
-              </text>
-            </g>
-            {/* Subscriptions and networks */}
-            {g.frames.map((f) => (
-              <g key={f.id} opacity={f.down ? 0.45 : 1}>
-                <rect
-                  x={f.x}
-                  y={f.y}
-                  width={f.w}
-                  height={f.h}
-                  rx={6}
-                  fill={f.fill}
-                  stroke={f.stroke}
-                  strokeWidth={1.4}
-                  strokeDasharray={f.dashed ? "6 4" : undefined}
-                />
-                {f.chip && (
-                  <g>
-                    <rect
-                      x={f.x + f.w / 2 - 95}
-                      y={f.y - 14}
-                      width={190}
-                      height={24}
-                      rx={3}
-                      fill={f.chip.fill}
-                      stroke="#8a8886"
-                      strokeWidth={0.8}
-                    />
-                    <text
-                      x={f.x + f.w / 2}
-                      y={f.y + 3}
-                      textAnchor="middle"
-                      fontSize={12.5}
-                      fontWeight={700}
-                      fill="#1b1b1b"
-                    >
-                      {f.chip.text}
-                    </text>
-                  </g>
-                )}
-                {f.title && (
-                  <text
-                    x={f.x + 12}
-                    y={f.y + (f.chip ? 26 : 20)}
-                    fontSize={13}
-                    fontWeight={700}
-                    fill="#1b1b1b"
-                  >
-                    {f.title}
-                  </text>
-                )}
-                {f.sub && (
-                  <foreignObject
-                    x={f.x + 12}
-                    y={f.y + (f.chip ? 29 : 23)}
-                    width={f.w - 24}
-                    height={f.id === "frame:support" ? 80 : 16}
-                  >
-                    <p
-                      className={cn(
-                        "text-[11px] text-[#605e5c]",
-                        f.id === "frame:support" ? "leading-snug" : "truncate",
-                      )}
-                    >
-                      {f.sub}
-                    </p>
-                  </foreignObject>
-                )}
-                {f.down && (
-                  <g pointerEvents="none">
-                    <rect
-                      x={f.x}
-                      y={f.y}
-                      width={f.w}
-                      height={f.h}
-                      rx={6}
-                      fill="#a4262c"
-                      opacity={0.07}
-                    />
-                    <text
-                      x={f.x + f.w / 2}
-                      y={f.y + f.h / 2 + 6}
-                      textAnchor="middle"
-                      fontSize={17}
-                      fontWeight={800}
-                      fill="#a4262c"
-                      opacity={0.55}
-                      letterSpacing={2}
-                    >
-                      REGION DOWN
-                    </text>
-                  </g>
-                )}
-              </g>
-            ))}
-            {/* Fixed connections: peering, ExpressRoute, VPN */}
-            {g.links.map((l, i) => (
-              <g key={i} opacity={l.down ? 0.35 : 0.8}>
-                <path
-                  d={l.d}
-                  fill="none"
-                  stroke={l.down ? "#a4262c" : l.color}
-                  strokeWidth={l.width ?? 1.4}
-                  strokeDasharray={l.down ? "3 4" : l.dash}
-                  markerEnd={l.arrows ? "url(#ts-arrow)" : undefined}
-                  markerStart={l.arrows ? "url(#ts-arrow)" : undefined}
-                />
-                {l.label && (
-                  <text
-                    x={l.lx}
-                    y={l.ly}
-                    textAnchor="middle"
-                    fontSize={10.5}
-                    fontWeight={600}
-                    fill={l.down ? "#a4262c" : l.color}
-                    stroke="white"
-                    strokeWidth={3}
-                    paintOrder="stroke"
-                  >
-                    {l.label}
-                  </text>
-                )}
-              </g>
-            ))}
-            {/* Parts */}
-            {[...g.els.values()]
-              .filter((e) => e.kind !== "cloud")
-              .map((e) => {
-                const active = curEl?.id === e.id;
-                const Icon = e.icon ?? (e.id === "internet" ? Globe : Monitor);
-                return (
-                  <g key={e.id} opacity={e.absent ? 0.55 : e.down ? 0.45 : 1}>
-                    <rect
-                      x={e.x}
-                      y={e.y}
-                      width={e.w}
-                      height={e.h}
-                      rx={5}
-                      fill={e.kind === "ext" ? "#f7f7f7" : "#ffffff"}
-                      stroke={
-                        active
-                          ? cur?.dir === "back"
-                            ? backColor
-                            : fwdColor
-                          : e.absent
-                            ? "#a19f9d"
-                            : "#c8c6c4"
-                      }
-                      strokeWidth={active ? 3 : 1}
-                      strokeDasharray={e.absent ? "5 4" : undefined}
-                    />
-                    <foreignObject x={e.x} y={e.y} width={e.w} height={e.h} pointerEvents="none">
-                      <div className="flex h-full items-start gap-2 overflow-hidden px-2 py-1.5 text-[#1b1b1b]">
-                        <span
-                          className="mt-0.5 grid size-7 shrink-0 place-items-center rounded"
-                          style={{ background: `${e.tone ?? "#0078d4"}1a` }}
-                        >
-                          <Icon
-                            className="size-4"
-                            style={{ color: e.absent ? "#a19f9d" : (e.tone ?? "#0078d4") }}
-                          />
-                        </span>
-                        <div className="min-w-0 leading-tight">
-                          <p
-                            className={cn(
-                              "truncate text-[12.5px] font-semibold",
-                              e.absent && "text-[#8a8886]",
-                            )}
-                          >
-                            {e.absent && e.id.includes("gw")
-                              ? "No gateway"
-                              : e.absent && e.id.includes("fw")
-                                ? "No firewall"
-                                : e.title}
-                          </p>
-                          {e.detail && (
-                            <p className="truncate text-[11px] text-[#605e5c]">{e.detail}</p>
-                          )}
-                          {e.tag && !e.absent && (
-                            <p className="truncate font-mono text-[10px] text-[#0f6cbd]">{e.tag}</p>
-                          )}
-                        </div>
-                      </div>
-                    </foreignObject>
-                    {e.down && e.id.startsWith("msee") && (
-                      <g transform={`translate(${e.x + e.w - 12},${e.y + 12})`}>
-                        <circle r={9} fill="#a4262c" />
-                        <text
-                          textAnchor="middle"
-                          dy={4}
-                          fontSize={11}
-                          fontWeight={700}
-                          fill="white"
-                        >
-                          ✕
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-            {/* All traffic at once */}
-            {!sim &&
-              drawn.map((s, k) => {
-                const st = KIND_STYLE[s.kind];
-                const hs = s.forward.map((h) => ({ ...h, dir: "fwd" as const }));
-                const ds = segsOf(hs);
-                const off = ((k % 5) - 2) * 4;
-                const stop = hs.find((h) => h.drop);
-                const stopEl = stop ? el(stop.at) : undefined;
-                return (
-                  <g
-                    key={s.id}
-                    transform={`translate(${off},${off})`}
-                    onClick={() => pick(s.id)}
-                    className="cursor-pointer"
-                  >
-                    <title>{`${s.title}: ${VERDICT[s.verdict.status].label}`}</title>
-                    {ds.map((d, i) =>
-                      d ? (
-                        <g key={i}>
-                          <path d={d} fill="none" stroke="transparent" strokeWidth={10} />
-                          <path
-                            d={d}
-                            fill="none"
-                            stroke={st.color}
-                            strokeWidth={2.4}
-                            strokeDasharray={st.dash}
-                            className="ts-flow"
-                            markerEnd="url(#ts-arrow)"
-                          />
-                        </g>
-                      ) : null,
-                    )}
-                    {stopEl && (
-                      <g
-                        transform={`translate(${stopEl.x + stopEl.w - 12 - (k % 3) * 20},${stopEl.y - 2})`}
-                      >
-                        <circle r={8} fill={st.color} stroke="white" strokeWidth={1.5} />
-                        <text
-                          textAnchor="middle"
-                          dy={3.5}
-                          fontSize={10}
-                          fontWeight={700}
-                          fill="white"
-                        >
-                          ✕
-                        </text>
-                      </g>
-                    )}
-                  </g>
-                );
-              })}
-            {/* One path, hop by hop */}
-            {sim &&
-              segs.map((d, i) =>
-                d && i <= step ? (
-                  <path
-                    key={`s${i}`}
-                    d={d}
-                    fill="none"
-                    stroke={hops[i]!.dir === "back" ? backColor : fwdColor}
-                    strokeWidth={i === step ? 3.6 : 2.6}
-                    strokeDasharray={hops[i]!.dir === "back" ? "7 5" : undefined}
-                    markerEnd="url(#ts-arrow)"
-                  />
-                ) : d ? (
-                  <path
-                    key={`s${i}`}
-                    d={d}
-                    fill="none"
-                    stroke="#a19f9d"
-                    strokeWidth={1.5}
-                    strokeDasharray="3 5"
-                  />
-                ) : null,
+          {scenarios.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => setScenario(s.id)}
+              className={cn(
+                "w-full rounded-md border px-3 py-2 text-left transition-colors",
+                s.id === scenario
+                  ? "border-primary bg-primary/5"
+                  : "border-border bg-card hover:border-primary/50",
               )}
-            {sim &&
-              hops.map((h, i) => {
-                const e = el(h.at);
-                if (!h.drop || !e || i > step) return null;
-                return (
-                  <g key={`x${i}`} transform={`translate(${e.x + e.w - 14},${e.y + 14})`}>
-                    <circle r={11} fill="#a4262c" stroke="white" strokeWidth={2} />
-                    <text textAnchor="middle" dy={4.5} fontSize={13} fontWeight={700} fill="white">
-                      ✕
-                    </text>
-                    <title>{h.drop}</title>
-                  </g>
-                );
-              })}
-            {sim && segs[step] && (
-              <circle
-                key={`p-${sim.id}-${step}`}
-                r={8}
-                fill={cur?.dir === "back" ? backColor : fwdColor}
-                stroke="white"
-                strokeWidth={2.5}
-              >
-                <animateMotion dur="1.1s" fill="freeze" path={segs[step]!} />
-              </circle>
-            )}
-            {sim && !segs[step] && curEl && (
-              <circle
-                cx={curEl.x + 14}
-                cy={curEl.y + curEl.h / 2}
-                r={8}
-                fill={cur?.dir === "back" ? backColor : fwdColor}
-                stroke="white"
-                strokeWidth={2.5}
-              />
-            )}
-            {/* Legend */}
-            <g transform={`translate(20,${g.h - 138})`}>
-              <rect width={560} height={128} rx={6} fill="white" stroke="#c8c6c4" />
-              <text x={12} y={20} fontSize={12} fontWeight={700} fill="#1b1b1b">
-                Legend
-              </text>
-              {(Object.keys(KIND_STYLE) as TrafficKind[]).map((k, i) => {
-                const st = KIND_STYLE[k];
-                const x = 12 + (i % 3) * 182;
-                const y = 38 + Math.floor(i / 3) * 22;
-                return (
-                  <g key={k}>
-                    <line
-                      x1={x}
-                      y1={y}
-                      x2={x + 36}
-                      y2={y}
-                      stroke={st.color}
-                      strokeWidth={3}
-                      strokeDasharray={st.dash}
-                    />
-                    <text x={x + 44} y={y + 4} fontSize={11.5} fill="#1b1b1b">
-                      {st.label}
-                    </text>
-                  </g>
-                );
-              })}
-              <line x1={376} y1={82} x2={412} y2={82} stroke="#1b1b1b" strokeWidth={1.6} />
-              <text x={420} y={86} fontSize={11.5} fill="#1b1b1b">
-                Peering
-              </text>
-              <line x1={12} y1={104} x2={48} y2={104} stroke="#2f5bb7" strokeWidth={2} />
-              <text x={56} y={108} fontSize={11.5} fill="#1b1b1b">
-                ExpressRoute
-              </text>
-              <line
-                x1={194}
-                y1={104}
-                x2={230}
-                y2={104}
-                stroke="#5c6bc0"
-                strokeWidth={2.4}
-                strokeDasharray="7 5"
-              />
-              <text x={238} y={108} fontSize={11.5} fill="#1b1b1b">
-                Reply
-              </text>
-              <circle cx={388} cy={104} r={7} fill="#a4262c" />
-              <text x={388} y={108} textAnchor="middle" fontSize={9} fontWeight={700} fill="white">
-                ✕
-              </text>
-              <text x={402} y={108} fontSize={11.5} fill="#1b1b1b">
-                Stops here
-              </text>
-            </g>
-          </svg>
-        </div>
-        <p className="border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
-          Addresses: hubs as Microsoft's hub-and-spoke module allocates them (first /22 of
-          10.0.0.0/16 and 10.1.0.0/16); spokes from this design, or the offering's range
-          (10.60.0.0/19, a /22 per install) for customer installs. On-premises and internet
-          addresses are examples.
-        </p>
-      </section>
-
-      {/* This hop, or the overview */}
-      <aside className="space-y-3 xl:col-span-2 2xl:col-span-1" aria-label="This hop">
-        {sim ? (
-          <>
-            <div
-              className={cn("rounded-md px-3 py-2 text-[12px]", VERDICT[sim.verdict.status].cls)}
             >
-              <b>{sim.available ? VERDICT[sim.verdict.status].label : "Not in this design"}.</b>{" "}
-              {sim.available ? sim.verdict.text : sim.reason}
-            </div>
-            {cur && (
-              <HopCard
-                hop={cur}
-                dir={cur.dir}
-                color={cur.dir === "back" ? backColor : fwdColor}
-                allRoutes={allRoutes}
-                setAllRoutes={setAllRoutes}
-                set={set}
-              />
-            )}
-            {drop && step < hops.indexOf(drop) && (
-              <p className="text-[11px] text-muted-foreground">
-                Keep stepping: it's dropped at hop {hops.indexOf(drop) + 1}.
-              </p>
-            )}
-            {sim.notes.map((n) => (
-              <p
-                key={n}
-                className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11.5px] text-muted-foreground"
+              <span className="flex items-center gap-1.5">
+                <span
+                  className="h-0 w-4 shrink-0 border-t-[3px]"
+                  style={{
+                    borderColor: KIND_STYLE[s.kind].color,
+                    borderStyle: KIND_STYLE[s.kind].dash ? "dashed" : "solid",
+                  }}
+                />
+                <span className="text-[12.5px] font-medium">{s.title}</span>
+              </span>
+              <span
+                className={cn(
+                  "mt-1 inline-block rounded px-1.5 text-[10px] font-semibold",
+                  VERDICT[s.verdict.status].cls,
+                )}
               >
-                {n}
-              </p>
-            ))}
-          </>
-        ) : (
-          <section className="rounded-md border border-border bg-card" aria-label="Summary">
-            <header className="border-b border-border px-3 py-2">
-              <p className="text-[13px] font-semibold">What this network does today</p>
-              <p className="text-[11.5px] text-muted-foreground">
-                Click a path on the drawing, or one on the left, to step through it.
-              </p>
-            </header>
-            <ul className="divide-y divide-border">
-              {sims.map((s) => (
-                <li key={s.id}>
+                {s.available ? VERDICT[s.verdict.status].label : "Not in this design"}
+              </span>
+            </button>
+          ))}
+          <div className="mt-3 rounded-md border border-border bg-card p-2.5">
+            <p className="mb-1.5 text-[11.5px] font-medium">What if…</p>
+            <div className="space-y-1" role="radiogroup" aria-label="Failure to simulate">
+              {FAILURES.map(([f, label, hint]) => {
+                const disabled = f === "er" && !(t.gateway?.er || t.gateway?.erDown);
+                return (
                   <button
-                    onClick={() => pick(s.id)}
-                    className="w-full px-3 py-2 text-left hover:bg-muted/40"
+                    key={f}
+                    role="radio"
+                    aria-checked={failure === f}
+                    disabled={disabled}
+                    onClick={() => setFailure(f)}
+                    className={cn(
+                      "w-full rounded px-2 py-1 text-left text-[11.5px] disabled:opacity-40",
+                      failure === f ? "bg-[#fde7e9] font-medium text-[#a4262c]" : "hover:bg-muted",
+                    )}
                   >
-                    <span className="flex items-center gap-2 text-[12px] font-medium">
-                      <span
-                        className="h-0 w-4 shrink-0 border-t-[3px]"
-                        style={{
-                          borderColor: KIND_STYLE[s.kind].color,
-                          borderStyle: KIND_STYLE[s.kind].dash ? "dashed" : "solid",
-                        }}
-                      />
-                      {s.title}
-                    </span>
-                    <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
-                      <b
-                        className={cn(
-                          "mr-1 rounded px-1 text-[10px]",
-                          VERDICT[s.verdict.status].cls,
-                        )}
-                      >
-                        {VERDICT[s.verdict.status].label}
-                      </b>
-                      {s.available ? s.verdict.text : s.reason}
+                    {label}
+                    <span className="block text-[10.5px] font-normal text-muted-foreground">
+                      {disabled ? "No ExpressRoute in this design" : hint}
                     </span>
                   </button>
-                </li>
+                );
+              })}
+            </div>
+          </div>
+          {t.firewall && (
+            <div className="rounded-md border border-border bg-card p-2.5">
+              <p className="mb-1.5 text-[11.5px] font-medium">Firewall rules</p>
+              <div
+                className="flex rounded-md border border-border bg-muted/40 p-0.5 text-[11.5px]"
+                role="radiogroup"
+                aria-label="Firewall rules"
+              >
+                {(
+                  [
+                    [true, "Assume allowed"],
+                    [false, "As deployed"],
+                  ] as const
+                ).map(([v, label]) => (
+                  <button
+                    key={label}
+                    role="radio"
+                    aria-checked={allowRules === v}
+                    onClick={() => setAllowRules(v)}
+                    className={cn(
+                      "flex-1 rounded px-2 py-1",
+                      allowRules === v ? "bg-card font-medium shadow-sm" : "text-muted-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                The policy this design deploys starts empty — Azure Firewall denies whatever no rule
+                allows.
+              </p>
+            </div>
+          )}
+        </aside>
+
+        {/* The canvas */}
+        <section className="min-w-0 overflow-hidden rounded-md border border-border bg-card">
+          <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-semibold">
+                {sim ? sim.title : "Every traffic path in this design"}
+              </p>
+              <p className="truncate font-mono text-[11.5px] text-muted-foreground">
+                {sim
+                  ? sim.question
+                  : failure !== "none"
+                    ? `Simulating: ${FAILURES.find((f) => f[0] === failure)![1].toLowerCase()} · click a path to follow it`
+                    : "Click a path to follow a packet through it · Esc to come back"}
+              </p>
+            </div>
+            {sim && (
+              <span
+                className={cn(
+                  "rounded px-2 py-0.5 text-[11.5px] font-semibold",
+                  VERDICT[sim.verdict.status].cls,
+                )}
+                data-verdict={sim.verdict.status}
+              >
+                {sim.available ? VERDICT[sim.verdict.status].label : "Not in this design"}
+              </span>
+            )}
+            {set && tree && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={() => setAdding({ kind: "subscription", parent: "corp" })}
+              >
+                <Plus className="size-3.5" /> Add a spoke
+              </Button>
+            )}
+            <Button size="sm" variant="outline" className="h-7" onClick={exportDrawio}>
+              <Download className="size-3.5" /> draw.io
+            </Button>
+          </header>
+          {sim && (
+            <div className="flex items-center gap-1.5 border-b border-border px-4 py-1.5 text-[11.5px]">
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                aria-label="Previous hop"
+                onClick={() => {
+                  setPlaying(false);
+                  setStep((s) => Math.max(0, s - 1));
+                }}
+              >
+                <ChevronLeft className="size-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                onClick={() => {
+                  if (step >= hops.length - 1) setStep(0);
+                  setPlaying((p) => !p);
+                }}
+              >
+                {playing ? <Pause className="size-3.5" /> : <Play className="size-3.5" />}
+                {playing ? "Pause" : "Play"}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7"
+                aria-label="Next hop"
+                onClick={() => {
+                  setPlaying(false);
+                  setStep((s) => Math.min(hops.length - 1, s + 1));
+                }}
+              >
+                <ChevronRight className="size-3.5" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7"
+                aria-label="Restart"
+                onClick={() => {
+                  setStep(0);
+                  setPlaying(true);
+                }}
+              >
+                <RotateCcw className="size-3.5" />
+              </Button>
+              <span className="ml-1 text-muted-foreground">
+                Hop {Math.min(step + 1, hops.length)} of {hops.length}
+                {cur?.dir === "back" ? " · reply" : sim.back.length ? " · request" : ""}
+              </span>
+              <button
+                className="ml-auto text-primary hover:underline"
+                onClick={() => setScenario("all")}
+              >
+                ← All traffic
+              </button>
+            </div>
+          )}
+          <div
+            className="relative h-[max(680px,calc(100vh-230px))]"
+            aria-label="Network topology with the traffic paths"
+            role="img"
+          >
+            <ReactFlow
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              fitView
+              fitViewOptions={{ padding: 0.04 }}
+              minZoom={0.15}
+              maxZoom={2}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              connectionMode={ConnectionMode.Loose}
+              panOnScroll
+              zoomOnDoubleClick={false}
+              onEdgeClick={(_, e) => {
+                const id = (e.data as { flowId?: string } | undefined)?.flowId;
+                if (!id) return;
+                const f = all.find((x) => x.id === id);
+                if (!f) return;
+                setSpokeSel(f.spoke);
+                setScenario(f.scenario);
+              }}
+              className="bg-white"
+            >
+              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e1dfdd" />
+              <Controls showInteractive={false} position="top-left" />
+              <MiniMap
+                position="bottom-right"
+                pannable
+                zoomable
+                ariaLabel="Overview"
+                className="!h-[90px] !w-[150px] rounded border border-border"
+                maskColor="rgba(240,240,240,0.7)"
+                nodeColor={(n) =>
+                  (n.data as TNode).kind === "frame"
+                    ? ((n.data as TNode).fill ?? "#eee")
+                    : "#c8c6c4"
+                }
+              />
+              <Panel position="bottom-left" className="!m-2">
+                <div
+                  className="rounded-md border border-border bg-white/95 p-2 text-[11px] shadow-sm"
+                  aria-label="Legend"
+                >
+                  <p className="mb-1 font-semibold">Legend · click to show or hide</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                    {(Object.keys(KIND_STYLE) as TrafficKind[]).map((k) => {
+                      const st = KIND_STYLE[k];
+                      const off = hidden.has(k);
+                      return (
+                        <button
+                          key={k}
+                          aria-pressed={!off}
+                          onClick={() =>
+                            setHidden((h) => {
+                              const n = new Set(h);
+                              if (n.has(k)) n.delete(k);
+                              else n.add(k);
+                              return n;
+                            })
+                          }
+                          className={cn(
+                            "flex items-center gap-1.5 rounded px-1 text-left hover:bg-muted",
+                            off && "opacity-35",
+                          )}
+                        >
+                          <svg width="28" height="6" aria-hidden>
+                            <line
+                              x1="0"
+                              y1="3"
+                              x2="28"
+                              y2="3"
+                              stroke={st.color}
+                              strokeWidth="3"
+                              strokeDasharray={st.dash}
+                            />
+                          </svg>
+                          {st.label}
+                        </button>
+                      );
+                    })}
+                    <span className="flex items-center gap-1.5 px-1">
+                      <svg width="28" height="6" aria-hidden>
+                        <line x1="0" y1="3" x2="28" y2="3" stroke="#1b1b1b" strokeWidth="1.6" />
+                      </svg>
+                      Peering
+                    </span>
+                    <span className="flex items-center gap-1.5 px-1">
+                      <svg width="28" height="6" aria-hidden>
+                        <line x1="0" y1="3" x2="28" y2="3" stroke="#2f5bb7" strokeWidth="2.4" />
+                      </svg>
+                      ExpressRoute
+                    </span>
+                    <span className="flex items-center gap-1.5 px-1">
+                      <svg width="28" height="6" aria-hidden>
+                        <line
+                          x1="0"
+                          y1="3"
+                          x2="28"
+                          y2="3"
+                          stroke={BACK}
+                          strokeWidth="2.4"
+                          strokeDasharray="7 5"
+                        />
+                      </svg>
+                      Reply
+                    </span>
+                    <span className="flex items-center gap-1.5 px-1">
+                      <span className="grid size-3.5 place-items-center rounded-full bg-[#a4262c] text-[8px] font-bold text-white">
+                        ✕
+                      </span>
+                      Stops here
+                    </span>
+                  </div>
+                </div>
+              </Panel>
+            </ReactFlow>
+          </div>
+          <p className="border-t border-border px-4 py-1.5 text-[11px] text-muted-foreground">
+            Icons: Microsoft's Azure architecture icons. Addresses: hubs as Microsoft's
+            hub-and-spoke module allocates them (10.0.0.0/22, 10.1.0.0/22); spokes from this design,
+            or the offering's range (10.60.0.0/19, a /22 per install). On-premises and internet
+            addresses are examples.
+          </p>
+        </section>
+
+        {/* This hop, or the overview */}
+        <aside className="space-y-3 xl:col-span-2 2xl:col-span-1" aria-label="This hop">
+          {sim ? (
+            <>
+              <div
+                className={cn("rounded-md px-3 py-2 text-[12px]", VERDICT[sim.verdict.status].cls)}
+              >
+                <b>{sim.available ? VERDICT[sim.verdict.status].label : "Not in this design"}.</b>{" "}
+                {sim.available ? sim.verdict.text : sim.reason}
+              </div>
+              {cur && (
+                <HopCard
+                  hop={cur}
+                  dir={cur.dir}
+                  color={cur.dir === "back" ? BACK : color}
+                  allRoutes={allRoutes}
+                  setAllRoutes={setAllRoutes}
+                  set={set}
+                />
+              )}
+              {drop && step < hops.indexOf(drop) && (
+                <p className="text-[11px] text-muted-foreground">
+                  Keep stepping: it's dropped at hop {hops.indexOf(drop) + 1}.
+                </p>
+              )}
+              {sim.notes.map((n) => (
+                <p
+                  key={n}
+                  className="rounded-md border border-border bg-muted/30 px-2.5 py-1.5 text-[11.5px] text-muted-foreground"
+                >
+                  {n}
+                </p>
               ))}
-            </ul>
-          </section>
-        )}
-        <details className="rounded-md border border-border bg-card px-3 py-2 text-[11.5px] text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-foreground">
-            High availability vs disaster recovery
-          </summary>
-          <p className="mt-1.5">
-            High availability keeps a region running through a component failure: the firewall spans
-            availability zones, gateways use zone-redundant SKUs (VPN active-active), and a
-            site-to-site VPN backs up ExpressRoute. Disaster recovery is a separate, complete copy
-            in a second region — its own hub, a second ExpressRoute circuit at a different peering
-            location, and the workloads themselves — that you fail over to.
-          </p>
-          <a
-            className="mt-1.5 inline-block text-primary hover:underline"
-            href="https://learn.microsoft.com/en-us/azure/expressroute/designing-for-disaster-recovery-with-expressroute-privatepeering"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Designing for disaster recovery with ExpressRoute
-          </a>
-        </details>
-        <details className="rounded-md border border-border bg-card px-3 py-2 text-[11.5px] text-muted-foreground">
-          <summary className="cursor-pointer font-medium text-foreground">
-            How Azure picks a route
-          </summary>
-          <p className="mt-1.5">
-            Longest prefix wins. For the same prefix, a route table entry (UDR) beats a BGP route,
-            which beats Azure's system routes. A 0.0.0.0/0 UDR also removes the system routes that
-            drop private ranges (10/8, 172.16/12, 192.168/16) — that's why spoke-to-spoke follows it
-            to the firewall. Route Server isn't needed: Azure Firewall is steered by route tables or
-            routing intent.
-          </p>
-          <a
-            className="mt-1.5 inline-block text-primary hover:underline"
-            href="https://learn.microsoft.com/en-us/azure/virtual-network/virtual-networks-udr-overview"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Virtual network traffic routing (Microsoft Learn)
-          </a>
-        </details>
-      </aside>
-    </div>
+            </>
+          ) : (
+            <section className="rounded-md border border-border bg-card" aria-label="Summary">
+              <header className="border-b border-border px-3 py-2">
+                <p className="text-[13px] font-semibold">What this network does today</p>
+                <p className="text-[11.5px] text-muted-foreground">
+                  From{" "}
+                  {t.corp[0]
+                    ? spokeName(from && t.corp.includes(from) ? from : t.corp[0])
+                    : "the first spoke"}
+                  . Click one to follow a packet.
+                </p>
+              </header>
+              <ul className="divide-y divide-border">
+                {scenarios.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      onClick={() => setScenario(s.id)}
+                      className="w-full px-3 py-2 text-left hover:bg-muted/40"
+                    >
+                      <span className="flex items-center gap-2 text-[12px] font-medium">
+                        <span
+                          className="h-0 w-4 shrink-0 border-t-[3px]"
+                          style={{
+                            borderColor: KIND_STYLE[s.kind].color,
+                            borderStyle: KIND_STYLE[s.kind].dash ? "dashed" : "solid",
+                          }}
+                        />
+                        {s.title}
+                      </span>
+                      <span className="mt-0.5 block text-[11.5px] text-muted-foreground">
+                        <b
+                          className={cn(
+                            "mr-1 rounded px-1 text-[10px]",
+                            VERDICT[s.verdict.status].cls,
+                          )}
+                        >
+                          {VERDICT[s.verdict.status].label}
+                        </b>
+                        {s.available ? s.verdict.text : s.reason}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+          <details className="rounded-md border border-border bg-card px-3 py-2 text-[11.5px] text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">
+              High availability vs disaster recovery
+            </summary>
+            <p className="mt-1.5">
+              High availability keeps a region running through a component failure: the firewall
+              spans availability zones, gateways use zone-redundant SKUs (VPN active-active), and a
+              site-to-site VPN backs up ExpressRoute. Disaster recovery is a separate, complete copy
+              in a second region — its own hub, a second ExpressRoute circuit at a different peering
+              location, and the workloads themselves — that you fail over to.
+            </p>
+            <a
+              className="mt-1.5 inline-block text-primary hover:underline"
+              href="https://learn.microsoft.com/en-us/azure/expressroute/designing-for-disaster-recovery-with-expressroute-privatepeering"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Designing for disaster recovery with ExpressRoute
+            </a>
+          </details>
+          <details className="rounded-md border border-border bg-card px-3 py-2 text-[11.5px] text-muted-foreground">
+            <summary className="cursor-pointer font-medium text-foreground">
+              How Azure picks a route
+            </summary>
+            <p className="mt-1.5">
+              Longest prefix wins. For the same prefix, a route table entry (UDR) beats a BGP route,
+              which beats Azure's system routes. A 0.0.0.0/0 UDR also removes the system routes that
+              drop private ranges (10/8, 172.16/12, 192.168/16) — that's why spoke-to-spoke follows
+              it to the firewall. Route Server isn't needed: Azure Firewall is steered by route
+              tables or routing intent.
+            </p>
+            <a
+              className="mt-1.5 inline-block text-primary hover:underline"
+              href="https://learn.microsoft.com/en-us/azure/virtual-network/virtual-networks-udr-overview"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Virtual network traffic routing (Microsoft Learn)
+            </a>
+          </details>
+        </aside>
+      </div>
+      {adding && set && tree && (
+        <AddDialog
+          adding={adding}
+          onClose={() => setAdding(null)}
+          tree={tree}
+          answers={answers}
+          set={set}
+        />
+      )}
+    </TCtx.Provider>
   );
 }
 

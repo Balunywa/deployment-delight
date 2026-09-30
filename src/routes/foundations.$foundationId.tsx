@@ -340,6 +340,7 @@ function FoundationDetail() {
                 placed,
               )}
               extras={sceneExtras(answers, lib, tree)}
+              tree={tree}
               initial={search.flow}
               set={setAnswers ? (p) => setAnswers({ ...answers, ...p }) : undefined}
             />

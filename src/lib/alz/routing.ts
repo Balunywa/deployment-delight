@@ -89,6 +89,9 @@ export type Topology = {
   corpA?: string | undefined;
   corpB?: string | undefined;
   online?: string | undefined;
+  /** Every Corp and Online spoke drawn. */
+  corp: string[];
+  onlines: string[];
   /** Customer installs whose ranges have a GatewaySubnet route to the firewall. */
   gatewayRouted: Set<string>;
   regions: { primary: string; secondary?: string | undefined };
@@ -345,13 +348,17 @@ export function topology(
   const extras = (scene.extras ?? []).filter((e) => e.group === "corp" && e.peered);
   const installs = scene.spokes.filter((s) => !s.ghost);
   const nextInstallRange = () => `10.60.${installIndex++ * 4}.0/22`;
+  // Every spoke the design has (a sensible cap keeps the drawing readable): added subscriptions first — their
+  // routes are generated — then customer installs; at least two so spoke-to-spoke has somewhere to go.
+  const MAX_CORP = 8;
+  const MAX_ONLINE = 3;
   const corpIds: string[] = [];
-  for (const e of extras.slice(0, 2))
+  for (const e of extras.slice(0, MAX_CORP))
     corpIds.push(addSpoke(`x-${e.id}`, e.name, e.cidr, "corp", true, true));
   for (const s of installs.filter((x) => x.group === "corp")) {
-    if (corpIds.length >= 2) break;
+    if (corpIds.length >= MAX_CORP) break;
     const nm = s.placement ? `${s.placement.customerName} ${s.placement.environment}` : "install";
-    corpIds.push(addSpoke(`s-${s.id}`, nm, nextInstallRange(), "corp", true, false));
+    corpIds.push(addSpoke(`corp-${s.id}`, nm, nextInstallRange(), "corp", true, false));
   }
   const corpGhost = scene.spokes.some((s) => s.group === "corp");
   while (corpGhost && corpIds.length < 2)
@@ -365,19 +372,19 @@ export function topology(
         false,
       ),
     );
-  const onlineInstall = installs.find((s) => s.group === "online");
-  const online = onlineInstall
-    ? addSpoke(
-        `s-${onlineInstall.id}`,
-        onlineInstall.placement
-          ? `${onlineInstall.placement.customerName} ${onlineInstall.placement.environment}`
-          : "Online install",
+  const onlineIds: string[] = [];
+  for (const o of installs.filter((s) => s.group === "online").slice(0, MAX_ONLINE))
+    onlineIds.push(
+      addSpoke(
+        `online-${o.id}`,
+        o.placement ? `${o.placement.customerName} ${o.placement.environment}` : "Online install",
         nextInstallRange(),
         "online",
         false,
         false,
-      )
-    : undefined;
+      ),
+    );
+  const online = onlineIds[0];
   if (wan && on(answers.bastion)) {
     vnets.push({
       id: "sidecar",
@@ -416,6 +423,8 @@ export function topology(
     corpA: corpIds[0],
     corpB: corpIds[1],
     online,
+    corp: corpIds,
+    onlines: onlineIds,
     gatewayRouted,
     regions: {
       primary: answers.primaryRegion,
@@ -1585,4 +1594,37 @@ export function simulate(t: Topology, answers: Answers, allowRules: boolean): Si
     failover: "failover",
   };
   return out.map((r) => ({ ...r, kind: KIND[r.id] ?? "internal" }));
+}
+
+/** A scenario from one spoke, for drawing every spoke's traffic at once. */
+export type SpokeFlow = SimResult & { scenario: string; spoke: string };
+
+/** Every scenario from every spoke: each Corp spoke's egress, on-premises, private endpoint, admin and monitoring
+ * paths, spoke-to-spoke to its neighbour, and ingress to each Online install. */
+export function simulateAll(t: Topology, answers: Answers, allowRules: boolean): SpokeFlow[] {
+  const out: SpokeFlow[] = [];
+  const once = new Set(["p2s", "failover"]);
+  const seen = new Set<string>();
+  const n = t.corp.length;
+  const runs = n
+    ? t.corp.map((a, i) => ({ a, b: n > 1 ? t.corp[(i + 1) % n] : undefined }))
+    : [{ a: undefined, b: undefined }];
+  runs.forEach(({ a, b }, i) => {
+    const sims = simulate({ ...t, corpA: a, corpB: b, online: t.onlines[i] }, answers, allowRules);
+    for (const r of sims) {
+      if (once.has(r.id) && seen.has(r.id)) continue;
+      if (r.id === "ingress" && !t.onlines[i]) continue;
+      seen.add(r.id);
+      const spoke = r.id === "ingress" ? t.onlines[i]! : (a ?? "");
+      out.push({ ...r, scenario: r.id, spoke, id: `${r.id}@${spoke}` });
+    }
+  });
+  // Online installs beyond the Corp count still get their ingress path.
+  for (let i = runs.length; i < t.onlines.length; i++) {
+    const r = simulate({ ...t, online: t.onlines[i] }, answers, allowRules).find(
+      (x) => x.id === "ingress",
+    );
+    if (r) out.push({ ...r, scenario: r.id, spoke: t.onlines[i]!, id: `${r.id}@${t.onlines[i]}` });
+  }
+  return out;
 }
