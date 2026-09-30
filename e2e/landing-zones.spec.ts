@@ -154,6 +154,27 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText(/unsaved change/)).toHaveCount(0);
   });
 
+  test("the map: a workload landing zone shows up in its group once chosen", async ({ page }) => {
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await step(page, 2, "Design").click();
+    const map = page.locator(".react-flow");
+    await expect(map.getByText("AKS landing zone")).toHaveCount(0);
+    await map.getByText("Corp landing zones", { exact: true }).click();
+    await page
+      .getByRole("switch", { name: /Use the Azure Kubernetes Service \(AKS\) landing zone/ })
+      .click();
+    const aks = map.locator(".react-flow__node").filter({ hasText: "AKS landing zone" });
+    await expect(aks).toBeVisible();
+    await expect(aks).toContainText("Private AKS cluster");
+    await page.getByRole("tab", { name: "Management groups" }).click();
+    const corpGroup = map
+      .locator(".react-flow__node-mg")
+      .filter({ has: page.getByText("Corp", { exact: true }) });
+    await expect(corpGroup).toContainText("AKS");
+    await page.getByRole("button", { name: "Discard" }).click();
+    await expect(page.getByText(/unsaved change/)).toHaveCount(0);
+  });
+
   test("access: Microsoft's recommended roles apply as a design change", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
     await step(page, 2, "Design").click();

@@ -9,6 +9,7 @@
 import {
   Boxes,
   Globe,
+  Layers,
   LayoutDashboard,
   Network,
   UserCog,
@@ -32,6 +33,7 @@ import {
   spokeOf,
 } from "@/lib/alz/engine";
 import type { Sel, Spoke } from "@/lib/alz/scene";
+import { workloadById } from "@/lib/alz/workloads";
 import { AZURE_REGIONS } from "@/lib/regions";
 
 import { ICON, TONE, removeGroup, toggleGroup } from "./parts";
@@ -534,6 +536,38 @@ export function architecture({
             : undefined,
         },
       });
+    // Workload landing zones (AKS, AVD, ...) chosen for this group: what each accelerator deploys into its installs.
+    for (const w of a.workloads.filter((x) => x.group === group)) {
+      const def = workloadById(w.id);
+      if (!def) continue;
+      items.push({
+        id: `workload:${group}:${w.id}`,
+        wide: true,
+        data: {
+          kind: "item",
+          label: `${def.short} landing zone`,
+          detail: def.deploys.join(", "),
+          icon: Layers,
+          color: "#5c2e91",
+          on: true,
+          variant: "res",
+          sel: { kind: "mg", id: group },
+          actions: set
+            ? [
+                {
+                  label: "Remove",
+                  title: `Stop using the ${def.short} landing zone accelerator here`,
+                  danger: true,
+                  onClick: () =>
+                    set({
+                      workloads: a.workloads.filter((x) => !(x.group === group && x.id === w.id)),
+                    }),
+                },
+              ]
+            : undefined,
+        },
+      });
+    }
     if (edit)
       items.push(
         addItem(`add:${group}`, "Add a subscription", () =>
@@ -832,6 +866,10 @@ export function hierarchy({ lib, tree, answers: a, spokes, set, onAdd, asIs }: B
       out.push({ label: "Sandbox subscriptions", on: true, pending: true });
     const extra = a.extraSubscriptions.filter((x) => x.group === id).length;
     if (extra) out.push({ label: `+${extra} added`, on: true });
+    for (const w of a.workloads.filter((x) => x.group === id)) {
+      const def = workloadById(w.id);
+      if (def) out.push({ label: def.short, on: true });
+    }
     return out;
   };
   const removable = (id: string) =>

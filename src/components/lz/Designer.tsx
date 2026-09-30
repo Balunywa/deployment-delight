@@ -1511,6 +1511,7 @@ function GroupEditor({
                     </div>
                     <Switch
                       checked={isOn}
+                      aria-label={`Use the ${w.name} landing zone here`}
                       onCheckedChange={(v) =>
                         set({
                           workloads: v

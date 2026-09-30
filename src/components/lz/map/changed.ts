@@ -44,6 +44,12 @@ export function changedIds(baseline: Answers | undefined, answers: Answers): Set
       `extra:${x.id}`,
       `mg:${x.group}`,
     );
+  for (const w of answers.workloads)
+    mark(
+      !b.workloads.some((x) => x.group === w.group && x.id === w.id),
+      `workload:${w.group}:${w.id}`,
+      `mg:${w.group}`,
+    );
   for (const t of TOOLS) if (t.answer) mark(b[t.answer] !== answers[t.answer], `tool:${t.id}`);
   return changed;
 }
