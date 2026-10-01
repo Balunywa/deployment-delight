@@ -22,8 +22,11 @@ import { ServiceIcon } from "@/components/architecture/ServiceIcon";
 import { MaturityBadge, OwnerAvatar } from "@/components/catalog/Badges";
 import {
   Benefits,
-  DeployWithConfidence,
+  Deploy,
+  Hero,
   HowItWorks,
+  Overview,
+  Scenario,
   SectionNav,
   type StoryModel,
 } from "@/components/catalog/SolutionStory";
@@ -42,7 +45,7 @@ import { fromManifest, sourceFromManifest } from "@/lib/architecture";
 import { SERVICE_BY_ID } from "@/lib/catalog";
 import { relative, shortDate } from "@/lib/format";
 import { modelOf } from "@/lib/product-catalog";
-import { benefits } from "@/lib/solution-story";
+import { benefits, storyOf } from "@/lib/solution-story";
 import { currentUserQuery, solutionQuery } from "@/lib/queries";
 import {
   IAC_LABEL,
@@ -161,7 +164,8 @@ function SolutionPage() {
       published: !!published,
       arch: fromManifest(o, manifest),
     }));
-  const story = benefits({
+  const curated = storyOf(p.story);
+  const generatedBenefits = benefits({
     product: p,
     services,
     models: latest.map(({ o }) => ({
@@ -180,63 +184,108 @@ function SolutionPage() {
         <ArrowLeft className="size-3.5" /> Solution catalog
       </Link>
 
-      <header
-        id="overview"
-        className="flex scroll-mt-20 flex-wrap items-start justify-between gap-4"
-      >
-        <div className="min-w-0 max-w-3xl">
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-[24px] leading-tight font-bold">{p.name}</h1>
-            <MaturityBadge maturity={maturity} />
-          </div>
-          <p className="mt-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
-            {p.category ?? "Other"}
-            {p.audience && ` · For ${p.audience}`}
-          </p>
-          <p className="mt-2 text-sm">{p.description}</p>
-          {p.outcome && (
-            <p className="mt-1.5 text-sm">
-              <b className="font-semibold text-primary">Outcome</b> {p.outcome}
-            </p>
-          )}
-          {p.tags.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {p.tags.map((t) => (
-                <span key={t} className="rounded-full bg-muted px-2 py-0.5 text-[11px]">
-                  #{t}
+      <Hero
+        eyebrow={p.category ?? "Solution"}
+        title={p.name}
+        badge={<MaturityBadge maturity={maturity} className="bg-white/90" />}
+        summary={p.description}
+        meta={
+          <>
+            {owners[0] && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="grid size-5 place-items-center rounded-full bg-white/20 text-[10px] font-bold">
+                  {owners[0].name.slice(0, 1)}
                 </span>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {contact && (
-            <Button asChild variant="outline">
-              <a href={`mailto:${contact.email}?subject=${encodeURIComponent(p.name)}`}>
-                <Mail className="size-4" /> Contact owner
+                by <b className="font-semibold text-white">{owners[0].name}</b>
+              </span>
+            )}
+            {source && (
+              <a
+                href={source.repository}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 hover:text-white"
+              >
+                <GitCommit className="size-3.5" />
+                {source.repository.replace(/^https:\/\/github\.com\//, "")}
+                {source.revision ? ` @ ${source.revision.slice(0, 7)}` : ""}
               </a>
+            )}
+            {source?.license?.identifier && <span>{source.license.identifier} license</span>}
+            {p.tags.slice(0, 4).map((t) => (
+              <span key={t} className="rounded-full bg-white/10 px-2 py-0.5 text-[11px]">
+                #{t}
+              </span>
+            ))}
+          </>
+        }
+        actions={
+          <>
+            {deployable ? (
+              <Button asChild className="bg-white text-[#0b2a6b] shadow-sm hover:bg-white/90">
+                <Link to="/onboard" search={{ product: p.id, offering: deployable.o.id }}>
+                  <Rocket className="size-4" /> Deploy to a customer
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                disabled
+                className="bg-white/20 text-white"
+                title="Publish an offering that passes review first"
+              >
+                <Rocket className="size-4" /> Not deployable yet
+              </Button>
+            )}
+            <Button
+              asChild
+              className="border border-white/30 bg-white/5 text-white hover:bg-white/15"
+            >
+              <a href="#how-it-works">How it works</a>
             </Button>
-          )}
-          {deployable ? (
-            <Button asChild>
-              <Link to="/onboard" search={{ product: p.id, offering: deployable.o.id }}>
-                <Rocket className="size-4" /> Deploy to a customer
-              </Link>
-            </Button>
-          ) : (
-            <Button disabled title="Publish an offering that passes review first">
-              <Rocket className="size-4" /> Not deployable yet
-            </Button>
-          )}
-        </div>
-      </header>
+            {contact && (
+              <Button
+                asChild
+                className="border border-white/30 bg-white/5 text-white hover:bg-white/15"
+              >
+                <a href={`mailto:${contact.email}?subject=${encodeURIComponent(p.name)}`}>
+                  <Mail className="size-4" /> Contact owner
+                </a>
+              </Button>
+            )}
+          </>
+        }
+        facts={[
+          {
+            label: "Latest version",
+            value: models.find((m) => m.published)?.version
+              ? `v${models.find((m) => m.published)!.version}`
+              : "Draft",
+          },
+          { label: "Delivery models", value: models.map((m) => m.name).join(" · ") || "—" },
+          { label: "Azure services", value: services.filter((id) => !PLUMBING.has(id)).length },
+          {
+            label: "Deploys with",
+            value: curated?.deploy?.command?.startsWith("azd")
+              ? `azd · ${IAC_LABEL[source?.iac ?? ""] ?? "IaC"}`
+              : (IAC_LABEL[source?.iac ?? ""] ?? "—"),
+          },
+          { label: "Running at customers", value: offerings.reduce((n, o) => n + o.installs, 0) },
+        ]}
+      />
 
-      <SectionNav />
+      <SectionNav hide={curated?.scenario ? [] : ["scenario"]} />
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
-        <div className="min-w-0 space-y-5">
-          <Benefits items={story} />
-          <HowItWorks models={models} productName={p.name} />
+      <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-10">
+          <Overview
+            paragraphs={curated?.overview?.length ? curated.overview : [p.description ?? ""]}
+            outcome={p.outcome}
+            audience={p.audience}
+            source={curated?.overview?.length ? curated.source : null}
+          />
+          <Benefits items={curated?.benefits?.length ? curated.benefits : generatedBenefits} />
+          <HowItWorks models={models} productName={p.name} story={curated} />
+          {curated?.scenario && <Scenario scenario={curated.scenario} />}
           <Section
             id="models"
             title="Delivery models"
@@ -338,9 +387,10 @@ function SolutionPage() {
             </Section>
           )}
 
-          <DeployWithConfidence
+          <Deploy
             productId={p.id}
             models={models}
+            story={curated}
             source={
               source
                 ? { repository: source.repository, iac: IAC_LABEL[source.iac] ?? source.iac }
@@ -713,9 +763,12 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section id={id} className="scroll-mt-20 rounded-md border bg-card p-4">
-      <h2 className="text-sm font-semibold">{title}</h2>
-      {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
+    <section
+      id={id}
+      className="scroll-mt-28 rounded-xl border bg-card p-5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+    >
+      <h2 className="text-[15px] font-semibold tracking-tight">{title}</h2>
+      {sub && <p className="mt-0.5 text-[12px] text-muted-foreground">{sub}</p>}
       <div className="mt-3">{children}</div>
     </section>
   );

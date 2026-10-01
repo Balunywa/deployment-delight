@@ -41,14 +41,21 @@ Either way, it's the same product setup, the same deployment process and the sam
      unresolved distribution rights are recorded as publication blockers; the submitter can attest the
      right to distribute. Source IaC is kept as evidence; deployment uses the same normalised,
      architecture-reviewed model as every other offering.
-   - **Bundled catalog.** Real Microsoft energy (oil and gas) solutions with deployable code. These are
-     OSDU and Azure Data Manager for Energy platforms, admin tooling, data loading and a generative-AI demo.
+   - **Bundled catalog.** Real Microsoft solutions with deployable code for energy and oil and gas. It
+     includes Microsoft Foundry and Fabric accelerators (multi-agent automation, real-time intelligence,
+     content processing, knowledge mining, chat with your data, unified data foundation), each adapted for
+     oil and gas and saying so. It also has OSDU and Azure Data Manager for Energy platforms, admin tooling,
+     data loading and a generative-AI demo.
      Each is imported from its repository at a pinned commit, exactly as **Submit a solution** does.
-     `bun scripts/gen-energy-catalog.ts` re-inspects them. Names, descriptions and caveats are curated in the
-     script and verified against each repository. It writes `db/seed/0005_product_catalog.sql` and the inserts in
-     `db/migrations/0009_energy_catalog.sql`. Customers start with no installs.
-   - **Solution pages** follow a solutions-library layout: benefits, "how it works" (the reviewed architecture
-     with numbered steps per delivery model), caveats to read before deploying, and how to deploy.
+     `bun scripts/gen-energy-catalog.ts` re-inspects them. Names, descriptions and caveats are curated in
+     `scripts/energy-catalog.entries.ts` and verified against each repository. That includes each solution's
+     **story**: overview, benefits, numbered steps and official diagrams pinned to the imported commit. It writes
+     `db/seed/0005_product_catalog.sql` and upserts into a migration you name (latest:
+     `0010_catalog_stories.sql`). Customers start with no installs.
+   - **Solution pages** follow a solutions-library layout. A hero comes first, then the overview and benefits.
+     "How it works" shows the project's own diagram with numbered steps, and the interactive architecture of each
+     delivery model numbered to match. Then come the business scenario, caveats to read before deploying, and how
+     to deploy, including the project's own command. Catalog cards open the solution page.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.

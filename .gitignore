@@ -42,3 +42,4 @@ dist-ssr
 
 # Demo video output
 /demo/out/
+scripts/.catalog-cache/

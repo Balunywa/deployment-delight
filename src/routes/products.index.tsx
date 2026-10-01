@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { Clock, Mail, PackagePlus, Rocket, Search, X } from "lucide-react";
+import { ArrowRight, Clock, Mail, PackagePlus, Rocket, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
@@ -497,13 +497,14 @@ function SolutionCard({ s, mine }: { s: Solution; mine: boolean }) {
   const contact = s.owners.find((o) => o.email);
   const shown = s.services.slice(0, 6);
   return (
-    <article className="flex flex-col rounded-md border bg-card p-4 transition-shadow hover:shadow-md">
+    <article className="group relative flex flex-col rounded-xl border bg-card p-4 transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_14px_32px_-18px_rgba(30,64,175,0.45)]">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <Link
             to="/products/$productId"
             params={{ productId: s.id }}
-            className="text-[15px] leading-tight font-bold hover:underline"
+            // The whole card opens the solution page; its buttons sit above this link.
+            className="text-[15px] leading-tight font-bold group-hover:text-primary after:absolute after:inset-0 after:rounded-xl after:content-['']"
           >
             {s.name}
           </Link>
@@ -559,7 +560,7 @@ function SolutionCard({ s, mine }: { s: Solution; mine: boolean }) {
         ))}
       </div>
 
-      <div className="mt-auto flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+      <div className="relative z-10 mt-auto flex flex-wrap items-center justify-between gap-2 border-t pt-3">
         <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
           {s.ownerDue ? (
             <span className="flex items-center gap-1 text-warning">
@@ -595,7 +596,7 @@ function SolutionCard({ s, mine }: { s: Solution; mine: boolean }) {
             </Button>
           )}
           {s.deployable ? (
-            <Button asChild size="sm" className="h-7 text-xs">
+            <Button asChild size="sm" variant="outline" className="h-7 text-xs">
               <Link to="/onboard" search={{ product: s.id }}>
                 <Rocket className="size-3.5" /> Deploy
               </Link>
@@ -607,6 +608,11 @@ function SolutionCard({ s, mine }: { s: Solution; mine: boolean }) {
               </Link>
             </Button>
           )}
+          <Button asChild size="sm" className="h-7 text-xs">
+            <Link to="/products/$productId" params={{ productId: s.id }}>
+              View solution <ArrowRight className="size-3.5" />
+            </Link>
+          </Button>
         </div>
       </div>
     </article>

@@ -677,6 +677,21 @@ export const SERVICES: ServiceDef[] = [
     monthly: 1250,
     blurb: "Secure device and edge gateway connectivity for field assets.",
   },
+  // analytics platform
+  {
+    id: "fabric",
+    name: "Microsoft Fabric capacity",
+    short: "Microsoft Fabric",
+    category: "AI + analytics",
+    zone: "data",
+    resourceType: "Microsoft.Fabric/capacities",
+    avm: "avm/res/fabric/capacity",
+    version: "0.1.0",
+    wave: 1,
+    options: [{ key: "sku", label: "Capacity", choices: ["F2", "F4", "F8", "F64"], default: "F2" }],
+    monthly: 263,
+    blurb: "OneLake, Eventhouse, lakehouses, notebooks and Power BI on one capacity.",
+  },
   // energy data platform
   {
     id: "adme",
@@ -819,6 +834,20 @@ export const SERVICES: ServiceDef[] = [
     options: [{ key: "tier", label: "Tier", choices: ["Premium", "Standard"], default: "Premium" }],
     monthly: 680,
     blurb: "Commands and workflow messaging.",
+  },
+  {
+    id: "event-grid",
+    name: "Azure Event Grid",
+    short: "Event Grid",
+    category: "Messaging",
+    zone: "integration",
+    resourceType: "Microsoft.EventGrid/systemTopics",
+    avm: "avm/res/event-grid/system-topic",
+    version: "0.6.0",
+    wave: 2,
+    options: [],
+    monthly: 5,
+    blurb: "Reacts to events such as a new file in Storage, and triggers the work.",
   },
   {
     id: "apim",

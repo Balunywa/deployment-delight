@@ -23,6 +23,8 @@ export type CatalogInspection = {
     name: string;
     description: string;
     revision: string;
+    /** When the pinned commit was made. */
+    committedAt: string | null;
     ref: string;
     path: string;
     license: string | null;
@@ -54,7 +56,7 @@ type GitHubTree = {
   truncated: boolean;
   tree: { path: string; type: "blob" | "tree"; size?: number; url: string }[];
 };
-type GitHubCommit = { sha: string };
+type GitHubCommit = { sha: string; commit?: { committer?: { date?: string } } };
 type GitHubBlob = { encoding: string; content: string; size: number };
 
 const importInput = z.object({
@@ -216,6 +218,9 @@ const ARM_ALIASES: Record<string, string> = {
   "microsoft.network/publicipaddresses": "network-spoke",
   "microsoft.network/dnszones": "network-spoke",
   "microsoft.databricks/accessconnectors": "databricks",
+  "microsoft.insights/workbooks": "monitoring",
+  "microsoft.eventgrid/topics": "event-grid",
+  "microsoft.eventgrid/namespaces": "event-grid",
 };
 
 const IGNORED_ARM_TYPES = [
@@ -230,6 +235,7 @@ const IGNORED_ARM_TYPES = [
   "microsoft.authorization/locks",
   "microsoft.network/availabledelegations",
   "microsoft.resources/templatespecs",
+  "microsoft.resources/tags",
   // Not resource types: "Microsoft.Template/..." appears in deployment links and metadata.
   "microsoft.template/",
 ];
@@ -257,6 +263,11 @@ function analyzeArchitecture(sources: { path: string; content: string }[]) {
     }
     for (const [terraformType, serviceId] of Object.entries(TERRAFORM_SERVICES))
       if (source.content.includes(terraformType)) add(serviceId, source.path);
+    // Azure Verified Modules name the resource by module path (br/public:avm/res/fabric/capacity:0.1.0)
+    // rather than by resource type.
+    for (const service of SERVICE_BY_ID.values())
+      if (service.avm.startsWith("avm/res/") && source.content.includes(`${service.avm}:`))
+        add(service.id, source.path);
   }
   const mappedArmTypes = [...SERVICE_BY_ID.values()].map((service) =>
     service.resourceType.toLowerCase(),
@@ -496,6 +507,7 @@ export async function inspectUncached(repositoryUrl: string): Promise<CatalogIns
       name: repo.name,
       description: repo.description ?? "",
       revision: commit.sha,
+      committedAt: commit.commit?.committer?.date ?? null,
       ref,
       path: parsed.path,
       license,

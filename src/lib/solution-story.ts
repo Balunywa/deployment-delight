@@ -27,6 +27,7 @@ const ROLE: Record<string, string> = {
   "iot-hub": "IoT Hub connects field devices and edge gateways, each with its own identity",
   "event-hubs": "Event Hubs ingests telemetry from meters and devices",
   "service-bus": "Service Bus carries commands and workflow messages between services",
+  "event-grid": "Event Grid reacts to events, such as a new file in Storage, and triggers the work",
   postgres: "PostgreSQL holds the relational data",
   sql: "SQL Database holds the relational data, with Microsoft Entra-only authentication",
   cosmos: "Cosmos DB stores documents",
@@ -41,6 +42,8 @@ const ROLE: Record<string, string> = {
   "adme-connection":
     "it works against the customer's existing Azure Data Manager for Energy instance through its OSDU APIs",
   databricks: "Databricks prepares and transforms the data with Spark",
+  fabric:
+    "Microsoft Fabric holds and analyses the data on OneLake: Eventhouse, lakehouses, notebooks and Power BI",
   "app-configuration": "App Configuration holds the settings the services read at runtime",
   "container-registry": "Container Registry keeps its images private to the install",
   "container-instances": "Container Instances runs the one-off setup and data-load jobs",
@@ -73,7 +76,7 @@ const COMPUTE = [
   "container-instances",
   "container-registry",
 ];
-const MESSAGING = ["iot-hub", "event-hubs", "service-bus"];
+const MESSAGING = ["iot-hub", "event-hubs", "service-bus", "event-grid"];
 const DATA = [
   "adme",
   "adme-connection",
@@ -87,6 +90,7 @@ const DATA = [
   "ai-search",
   "data-explorer",
   "databricks",
+  "fabric",
   "app-configuration",
 ];
 
@@ -227,3 +231,24 @@ export function benefits(opts: {
 export function whatYouNeed(arch: Architecture) {
   return inputsFor(arch.selected, arch.topology).filter((i) => i.source === "customer");
 }
+
+/**
+ * A solution's own story, curated from its repository (README, docs and official diagrams) when it has one.
+ * Anything it leaves out is generated from the architecture as above.
+ */
+export type CuratedStory = {
+  /** Paragraphs for the overview. */
+  overview?: string[];
+  benefits?: { title: string; body: string }[];
+  /** "How it works", in the order a request or task flows through the solution. */
+  steps?: StoryStep[];
+  /** The project's own diagrams, pinned to the imported commit. */
+  diagrams?: { title: string; url: string; caption?: string }[];
+  scenario?: { title: string; body: string; points: string[] };
+  deploy?: { command?: string; guide?: string; minutes?: string; prerequisites?: string[] };
+  /** Where the text comes from, shown for transparency. */
+  source: string;
+};
+
+export const storyOf = (v: unknown): CuratedStory | null =>
+  v && typeof v === "object" && "source" in (v as object) ? (v as CuratedStory) : null;

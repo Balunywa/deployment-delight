@@ -70,6 +70,8 @@ const ICON: Record<string, LucideIcon> = {
   "data-explorer": ChartLine,
   "iot-hub": RadioTower,
   adme: Drill,
+  fabric: Layers,
+  "event-grid": Zap,
   "adme-connection": PlugZap,
   databricks: Blocks,
   "app-configuration": SlidersHorizontal,

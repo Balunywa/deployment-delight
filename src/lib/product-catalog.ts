@@ -32,6 +32,17 @@ export const BUSINESS_LINES: BusinessLine[] = [
     name: "Power & Renewables",
     tagline: "Grow reliable power and lower-carbon energy systems at industrial scale.",
   },
+  {
+    id: "operations-ai",
+    name: "Operations & AI",
+    tagline:
+      "Agents and copilots for engineering, HSE and back-office work across the value chain.",
+  },
+  {
+    id: "data-rti",
+    name: "Data & Real-Time Intelligence",
+    tagline: "Data foundations, live telemetry and analytics on Microsoft Fabric.",
+  },
 ];
 
 export const LINE_BY_NAME = new Map(BUSINESS_LINES.map((l) => [l.name, l]));

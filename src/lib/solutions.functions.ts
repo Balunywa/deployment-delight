@@ -133,6 +133,8 @@ export type SolutionDetail = {
     owner_confirmed_at: string | null;
     validated_at: string | null;
     created_at: string;
+    /** Curated from the repository (README, docs, diagrams); see solution-story.ts. */
+    story?: Json | null;
   };
   offerings: {
     id: string;

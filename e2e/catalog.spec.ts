@@ -59,28 +59,40 @@ test.describe.serial("solution catalog", () => {
     await expect(page.getByText("E2E Tester · CSA")).toBeVisible();
   });
 
-  test("a solution explains itself: benefits, how it works on the architecture, how to deploy @readonly", async ({
+  test("a solution explains itself: overview, benefits, how it works, how to deploy @readonly", async ({
     page,
   }) => {
-    await open(page, "/products/33333333-3333-4333-8333-100000000001");
+    // Anywhere on a card opens the solution page, not just its title.
+    await open(page, "/products");
+    const card = page.locator("article").filter({ hasText: "OSDU Developer Platform" }).first();
+    await card.scrollIntoViewIfNeeded();
+    const box = (await card.locator("p").nth(1).boundingBox())!;
+    await page.mouse.click(box.x + 10, box.y + 4);
+    await page.waitForURL(/\/products\/[0-9a-f-]{36}$/);
     await loaded(page);
-    await expect(page.locator("#benefits article")).toHaveCount(3);
-    const how = page.locator("#how-it-works");
-    // Steps are numbered on the diagram and follow the selected delivery model's real architecture.
-    await expect(how.locator("ol > li").first()).toContainText("1");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "OSDU Developer Platform" }),
+    ).toBeVisible();
+
+    await expect(page.locator("#overview")).toBeVisible();
+    await expect(page.locator("article").filter({ hasText: "GitOps from day one" })).toBeVisible();
+
+    // How it works: the project's own diagram with numbered steps, then the interactive architecture.
+    const how = page.locator("section").filter({ has: page.locator("#how-it-works") });
+    await expect(how.getByRole("img", { name: "Architecture" })).toBeVisible();
+    await expect(how.locator("ol > li").first()).toContainText("Deploy from Git");
+    await how.getByRole("tab", { name: /Interactive architecture/ }).click();
     await expect(how.locator('[data-node="aks"]')).toBeVisible();
-    // Every delivery model gets its own steps, starting where its traffic enters, with numbers on the diagram.
-    const tabs = how.getByRole("tab");
-    for (let i = 0; i < (await tabs.count()); i++) {
-      await tabs.nth(i).click();
-      await expect(how.locator("ol > li").first()).toContainText(
-        /Users sign in|Traffic arrives through the customer's hub|Its own network in the customer's Azure/,
-      );
-      await expect(how.locator("span.rounded-full.bg-primary").first()).toBeVisible();
+    // Every delivery model draws its own architecture, numbered to match the steps.
+    for (const model of ["Customer Hosted", "Hosted"]) {
+      await how.getByRole("tab", { name: model, exact: true }).click();
+      await expect(how.locator('[data-node="aks"] span.rounded-full.bg-primary')).toBeVisible();
     }
-    const deploy = page.locator("#deploy");
+
+    const deploy = page.locator("section").filter({ has: page.locator("#deploy") });
     await expect(deploy.getByRole("link", { name: /^Deploy .+ v\d/ }).first()).toBeVisible();
-    await expect(deploy.getByText("What the customer provides")).toBeVisible();
+    await expect(deploy.getByText("azd up")).toBeVisible();
+    await expect(deploy.getByText("The customer provides")).toBeVisible();
   });
 
   test("submit a solution from GitHub through the wizard", async ({ page }) => {
@@ -129,7 +141,8 @@ test.describe.serial("solution catalog", () => {
     await loaded(page);
     await expect(page.getByRole("heading", { level: 1, name: NAME })).toBeVisible();
     await expect(page.getByText("Community").first()).toBeVisible();
-    await expect(page.getByText("For Field engineers")).toBeVisible();
+    await expect(page.getByText("Built for")).toBeVisible();
+    await expect(page.getByText("Field engineers", { exact: true })).toBeVisible();
     await expect(page.getByText("#nodejs")).toBeVisible();
     // Its own delivery unit, with a vending request filed on submission.
     await expect(page.getByText("Delivered from")).toBeVisible();
