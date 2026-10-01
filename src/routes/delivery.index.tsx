@@ -75,8 +75,8 @@ function DeliveryUnits() {
             with contents and pull-request write on{" "}
             <span className="font-mono">{org}/cd-vending</span>),{" "}
             <span className="font-mono">CD_GITHUB_ORG</span> and{" "}
-            <span className="font-mono">CD_VENDING_REPO</span> to open vending pull requests. Nothing
-            outside the console is changed until then.
+            <span className="font-mono">CD_VENDING_REPO</span> to open vending pull requests.
+            Nothing outside the console is changed until then.
           </p>
         </div>
       )}
