@@ -78,7 +78,7 @@ test.describe.serial("customer onboarding", () => {
     await open(page, "/onboard");
     await page.getByLabel("Name", { exact: true }).fill(LINKED);
     await page
-      .getByRole("button", { name: /Customer's tenant · their existing landing zone/ })
+      .getByRole("button", { name: /Customer's tenant · (their existing|new) landing zone/ })
       .first()
       .click();
     const launch = await continueTo(page, /Open pull request & send install link/);

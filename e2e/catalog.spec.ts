@@ -18,11 +18,11 @@ test.describe.serial("solution catalog", () => {
     await open(page, "/products");
     const cards = page.locator("article");
     const total = await cards.count();
-    expect(total).toBeGreaterThanOrEqual(16);
+    expect(total).toBeGreaterThanOrEqual(6);
 
-    await page.getByPlaceholder(/Search by name/).fill("pipeline");
+    await page.getByPlaceholder(/Search by name/).fill("Admin UI");
     await expect(cards).not.toHaveCount(total);
-    await expect(cards.first()).toContainText(/pipeline/i);
+    await expect(cards.first()).toContainText(/Admin UI/i);
     await page.getByRole("button", { name: "Clear all" }).click();
     await expect(cards).toHaveCount(total);
 
@@ -43,8 +43,9 @@ test.describe.serial("solution catalog", () => {
 
     await page.getByRole("button", { name: /^My solutions/ }).click();
     await expect(page.getByText("You don't own any solutions yet")).toBeVisible();
+    // The draft that can't publish yet (its default models are retired) waits for review.
     await page.getByRole("button", { name: /^Review queue/ }).click();
-    await expect(page.getByText("Nothing waiting for review")).toBeVisible();
+    await expect(page.getByText("Well Data Chat with Azure OpenAI")).toBeVisible();
     await page.getByRole("button", { name: /^All solutions/ }).click();
 
     await page.getByRole("combobox").filter({ hasText: "Most deployed" }).click();
@@ -61,7 +62,7 @@ test.describe.serial("solution catalog", () => {
   test("a solution explains itself: benefits, how it works on the architecture, how to deploy @readonly", async ({
     page,
   }) => {
-    await open(page, "/products/22222222-2222-2222-2222-222222222221");
+    await open(page, "/products/33333333-3333-4333-8333-100000000001");
     await loaded(page);
     await expect(page.locator("#benefits article")).toHaveCount(3);
     const how = page.locator("#how-it-works");
@@ -149,8 +150,8 @@ test.describe.serial("solution catalog", () => {
   }) => {
     await open(page, "/products?tab=mine");
     await expect(page.locator("article")).toHaveCount(1);
-    // Others see it in their review queue; its owner doesn't.
-    await expect(page.getByRole("button", { name: /^Review queue\s*0/ })).toBeVisible();
+    // Others see it in their review queue; its owner doesn't (the queue holds only the bundled draft).
+    await expect(page.getByRole("button", { name: /^Review queue\s*1\b/ })).toBeVisible();
     await expect(page.locator("article")).toContainText(NAME);
     await expect(page.locator("article")).toContainText("Yours");
     // Not deployable until an offering is published.
@@ -230,7 +231,7 @@ test.describe.serial("solution catalog", () => {
 
   test("a reviewer features someone else's solution, and takes it back", async ({ page }) => {
     await open(page, "/products");
-    await page.getByPlaceholder(/Search by name/).fill("Pipeline integrity agent");
+    await page.getByPlaceholder(/Search by name/).fill("OSDU Developer Platform");
     await page.locator("article a").first().click();
     await loaded(page);
     await page.getByRole("button", { name: "Feature this solution" }).click();
@@ -242,7 +243,7 @@ test.describe.serial("solution catalog", () => {
 
   test("anyone can adopt an orphaned solution", async ({ page }) => {
     const [row] = await sql<{ id: string }>(
-      "update public.products set owners = '[]'::jsonb where name = 'Retirement and restoration planner' returning id",
+      "update public.products set owners = '[]'::jsonb where name = 'OSDU TNO Data Loader' returning id",
     );
     await open(page, `/products/${row!.id}`);
     await expect(page.getByText(/No owner on record/)).toBeVisible();

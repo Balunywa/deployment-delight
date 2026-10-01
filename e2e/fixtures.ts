@@ -86,3 +86,57 @@ export async function open(page: Page, path: string) {
 export function allowErrors(problems: Problems, ...patterns: RegExp[]) {
   problems.allow.push(...patterns);
 }
+
+/** OSDU Developer Platform · Customer Hosted, at its real v0.46.0 and v0.47.0 releases (db/seed/0005). */
+export const OSDU = {
+  product: "33333333-3333-4333-8333-100000000001",
+  offering: "33333333-3333-4333-8333-200000000010",
+  previous: "33333333-3333-4333-8333-300000000100",
+  latest: "33333333-3333-4333-8333-300000000101",
+};
+
+/**
+ * The bundled catalog is real and customers start with no installs. Operations tests need some: three customers
+ * running the previous release (so a rollout to the latest is real), a production upgrade awaiting approval,
+ * and an open drift finding. Idempotent.
+ */
+export async function seedInstalledBase() {
+  await sql(
+    `insert into public.environments (customer_id, offering_id, desired_offering_version_id, actual_offering_version_id,
+       name, environment_type, region, status, compliance_score, monthly_cost_estimate, configuration_json)
+     select c.id, $1, $2, $2, 'PROD', 'production', 'eastus2', 'healthy', 100, 9800,
+       '{"network":{"mode":"dedicated-spoke","privateEndpoints":true,"publicAccess":false}}'::jsonb
+     from public.customers c
+     where c.customer_code in ('north-grid', 'metro-energy', 'coastal-power')
+       and not exists (select 1 from public.environments e where e.customer_id = c.id and e.offering_id = $1)`,
+    [OSDU.offering, OSDU.previous],
+  );
+  await sql(
+    `with env as (
+       select e.id from public.environments e join public.customers c on c.id = e.customer_id
+       where c.customer_code = 'north-grid' and e.offering_id = $1
+         and not exists (select 1 from public.deployments d where d.environment_id = e.id and d.status = 'AWAITING_APPROVAL')
+     ), dep as (
+       insert into public.deployments (environment_id, deployment_type, desired_version, previous_version, status, mode,
+         requested_by, requested_at, plan_json, preflight_json)
+       select env.id, 'upgrade', '0.47.0', '0.46.0', 'AWAITING_APPROVAL', 'demo', 'E2E Tester', now() - interval '1 hour',
+         '{"create":[],"useExisting":["Virtual Network"],"policyAssignments":12,"roleAssignments":4,"warnings":0,"blockers":0}'::jsonb,
+         '{"pass":17,"warning":0,"blocking":0}'::jsonb
+       from env returning id
+     )
+     insert into public.approvals (deployment_id, approval_type, requested_from, status, requested_at)
+     select dep.id, 'production_deployment', 'Security Approver', 'pending', now() - interval '1 hour' from dep`,
+    [OSDU.offering],
+  );
+  await sql(
+    `insert into public.drift_findings (environment_id, resource_id, category, expected_json, actual_json, severity,
+       recommended_remediation, detected_at)
+     select e.id, '/subscriptions/sub-coastal-power/resourceGroups/rg-osdu-prod/providers/Microsoft.Storage/storageAccounts/stosduprod',
+       'network', '{"publicNetworkAccess":"Disabled"}'::jsonb, '{"publicNetworkAccess":"Enabled"}'::jsonb, 'high',
+       'Re-apply the storage account settings from the pinned release to disable public network access.', now() - interval '2 days'
+     from public.environments e join public.customers c on c.id = e.customer_id
+     where c.customer_code = 'coastal-power' and e.offering_id = $1
+       and not exists (select 1 from public.drift_findings d where d.environment_id = e.id and d.status = 'open')`,
+    [OSDU.offering],
+  );
+}

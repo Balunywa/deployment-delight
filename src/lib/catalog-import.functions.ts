@@ -6,7 +6,7 @@ import { SERVICE_BY_ID, normalise, withDefaults, type Topology } from "./catalog
 import { ownerSchema, withSubmitter } from "./solutions";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
-const MAX_SOURCE_FILES = 16;
+const MAX_SOURCE_FILES = 40;
 const MAX_SOURCE_BYTES = 1_500_000;
 
 export type ImportCheck = {
@@ -130,6 +130,8 @@ const sourceFileScore = (path: string) => {
   if (/(^|\/)(main|azuredeploy|maintemplate)\.(bicep|json|tf)$/.test(p)) return 100;
   if (/\.(bicep|tf)$/.test(p)) return 80;
   if (/deploy[^/]*\.ps1$/.test(p)) return 70;
+  // Setup scripts often create the core resource (e.g. an az CLI call), so they're architecture evidence too.
+  if (/\.(sh|ps1)$/.test(p)) return 40;
   if (/dockerfile$|compose.*\.ya?ml$/.test(p)) return 60;
   if (/(^|\/)readme\.md$/.test(p)) return 50;
   if (/package\.json$|requirements.*\.txt$|pyproject\.toml$/.test(p)) return 30;
@@ -137,7 +139,14 @@ const sourceFileScore = (path: string) => {
   return 0;
 };
 
-async function readSourceFiles(files: GitHubTree["tree"]) {
+/**
+ * Reads the most architecture-relevant files at the pinned commit. Contents come from raw.githubusercontent.com,
+ * which isn't subject to the REST API's rate limit, so a large repository can be inspected in depth.
+ */
+async function readSourceFiles(
+  files: GitHubTree["tree"],
+  at: { owner: string; repo: string; sha: string },
+) {
   const candidates = files
     .filter((f) => f.type === "blob" && (f.size ?? 0) <= MAX_SOURCE_BYTES)
     .map((f) => ({ ...f, score: sourceFileScore(f.path) }))
@@ -146,6 +155,11 @@ async function readSourceFiles(files: GitHubTree["tree"]) {
     .slice(0, MAX_SOURCE_FILES);
   const loaded = await Promise.all(
     candidates.map(async (file) => {
+      const raw = await fetch(
+        `https://raw.githubusercontent.com/${at.owner}/${at.repo}/${at.sha}/${file.path.split("/").map(encodeURIComponent).join("/")}`,
+        { signal: AbortSignal.timeout(20_000) },
+      ).catch(() => null);
+      if (raw?.ok) return { path: file.path, content: await raw.text() };
       const blob = await github<GitHubBlob>(new URL(file.url).pathname);
       if (blob.encoding !== "base64")
         throw new Error(`Unsupported GitHub blob encoding: ${blob.encoding}`);
@@ -192,6 +206,16 @@ const ARM_ALIASES: Record<string, string> = {
   "microsoft.insights/scheduledqueryrules": "monitoring",
   "microsoft.insights/datacollectionrules": "monitoring",
   "microsoft.portal/dashboards": "monitoring",
+  "microsoft.app/environments": "container-apps",
+  "microsoft.kubernetesconfiguration/extensions": "aks",
+  "microsoft.kubernetesconfiguration/fluxconfigurations": "aks",
+  "microsoft.network/privatednszones": "private-endpoints",
+  "microsoft.network/privatednszones/virtualnetworklinks": "private-endpoints",
+  "microsoft.network/networksecuritygroups": "network-spoke",
+  "microsoft.network/natgateways": "network-spoke",
+  "microsoft.network/publicipaddresses": "network-spoke",
+  "microsoft.network/dnszones": "network-spoke",
+  "microsoft.databricks/accessconnectors": "databricks",
 };
 
 const IGNORED_ARM_TYPES = [
@@ -203,6 +227,11 @@ const IGNORED_ARM_TYPES = [
   "microsoft.network/virtualnetworks",
   "microsoft.network/privateendpoints",
   "microsoft.insights/diagnosticsettings",
+  "microsoft.authorization/locks",
+  "microsoft.network/availabledelegations",
+  "microsoft.resources/templatespecs",
+  // Not resource types: "Microsoft.Template/..." appears in deployment links and metadata.
+  "microsoft.template/",
 ];
 
 function analyzeArchitecture(sources: { path: string; content: string }[]) {
@@ -216,7 +245,7 @@ function analyzeArchitecture(sources: { path: string; content: string }[]) {
   };
   for (const source of sources) {
     for (const match of source.content.matchAll(/Microsoft\.[A-Za-z0-9.]+\/[A-Za-z0-9./-]+/g)) {
-      const type = match[0]!.replace(/\/+$/, "").split("@")[0]!;
+      const type = match[0]!.split("@")[0]!.replace(/[./-]+$/, "");
       armTypes.add(type);
       const lower = type.toLowerCase();
       const exact = [...SERVICE_BY_ID.values()].find((service) => {
@@ -267,7 +296,7 @@ function inspect(repositoryUrl: string): Promise<CatalogInspection> {
   return value;
 }
 
-async function inspectUncached(repositoryUrl: string): Promise<CatalogInspection> {
+export async function inspectUncached(repositoryUrl: string): Promise<CatalogInspection> {
   const parsed = parseRepositoryUrl(repositoryUrl);
   const repo = await github<GitHubRepo>(`/repos/${parsed.owner}/${parsed.repo}`);
   const ref = parsed.ref ?? repo.default_branch;
@@ -283,7 +312,11 @@ async function inspectUncached(repositoryUrl: string): Promise<CatalogInspection
   const scoped = tree.tree.filter((file) => !prefix || file.path.startsWith(prefix));
   if (!scoped.length)
     throw new Error(`No files were found under ${parsed.path || "the repository"}.`);
-  const sources = await readSourceFiles(scoped);
+  const sources = await readSourceFiles(scoped, {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    sha: commit.sha,
+  });
   const paths = scoped.map((file) => file.path);
   const lowerPaths = paths.map((path) => path.toLowerCase());
   const bicep = paths.filter((path) => path.toLowerCase().endsWith(".bicep"));
@@ -327,10 +360,26 @@ async function inspectUncached(repositoryUrl: string): Promise<CatalogInspection
   const sourceText = sources.map((source) => source.content).join("\n");
   const license =
     repo.license?.spdx_id && repo.license.spdx_id !== "NOASSERTION" ? repo.license.spdx_id : null;
-  const mutableArtifact =
-    /releases\/download\/(?:latest|app-latest)\b|raw\.githubusercontent\.com\/[^\s"']+\/main\//i.test(
-      sourceText,
-    );
+  // Only what runs when it deploys: validation, test, docs and CI helpers don't ship to a customer.
+  const deployText = sources
+    .filter(
+      (source) =>
+        !/(^|\/)(tests?|docs?|\.github)\/|(^|\/)[^/]*(validate|lint|test)[^/]*\.(sh|ps1|py)$/i.test(
+          source.path,
+        ),
+    )
+    .map((source) => source.content)
+    .join("\n");
+  const mutableRefs = [
+    ...deployText.matchAll(
+      /releases\/download\/(?:latest|app-latest)\b[^\s"']*|raw\.githubusercontent\.com\/[^\s"']+?\/(?:refs\/heads\/)?main\/[^\s"']*/gi,
+    ),
+  ].map((m) => m[0]);
+  // The catalog pins this repository's commit; its own main-branch links are a pinning gap to fix, not an
+  // untrusted artifact. Anything from elsewhere stays blocking.
+  const own = new RegExp(`raw\\.githubusercontent\\.com/${parsed.owner}/${parsed.repo}/`, "i");
+  const selfRefs = mutableRefs.filter((r) => own.test(r));
+  const mutableArtifact = mutableRefs.length > selfRefs.length;
   const checks: ImportCheck[] = [
     {
       id: "source",
@@ -396,14 +445,21 @@ async function inspectUncached(repositoryUrl: string): Promise<CatalogInspection
           id: "immutability",
           level: "blocking",
           title: "A mutable deployment artifact is referenced",
-          detail: "Replace latest/main artifact references with immutable versions and digests.",
+          detail: `${mutableRefs.find((r) => !own.test(r))?.slice(0, 160)}. Replace latest/main artifact references with immutable versions and digests.`,
         }
-      : {
-          id: "immutability",
-          level: "pass",
-          title: "No mutable deployment artifact reference detected",
-          detail: `The catalog source is pinned to ${commit.sha.slice(0, 12)}.`,
-        },
+      : selfRefs.length
+        ? {
+            id: "immutability",
+            level: "warning",
+            title: `Fetches ${selfRefs.length === 1 ? "a file" : `${selfRefs.length} files`} from its own main branch at deploy time`,
+            detail: `${[...new Set(selfRefs)].slice(0, 2).join(", ")}. Pin ${selfRefs.length === 1 ? "it" : "them"} to ${commit.sha.slice(0, 12)} before production use.`,
+          }
+        : {
+            id: "immutability",
+            level: "pass",
+            title: "No mutable deployment artifact reference detected",
+            detail: `The catalog source is pinned to ${commit.sha.slice(0, 12)}.`,
+          },
     pipeline === "external"
       ? {
           id: "automation",

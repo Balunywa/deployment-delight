@@ -83,7 +83,7 @@ import {
   unsupportedIn,
   verdict,
 } from "@/lib/onboarding";
-import { BUSINESS_LINES, PRODUCT_BY_NAME, modelOf } from "@/lib/product-catalog";
+import { BUSINESS_LINES, modelOf } from "@/lib/product-catalog";
 import { customersQuery, foundationsQuery, offeringsQuery, organizationQuery } from "@/lib/queries";
 import {
   type Answers,
@@ -280,7 +280,6 @@ function Onboard() {
       ],
     },
   ].filter((group) => group.products.length);
-  const productMeta = PRODUCT_BY_NAME.get(pick?.offering.products?.name ?? "");
   const arch = pick?.arch;
   const offeredEnvs = useMemo(
     () =>
@@ -947,8 +946,8 @@ function Onboard() {
                       <b className="font-medium text-foreground">
                         {pick.offering.products.category}
                       </b>
-                      {productMeta
-                        ? ` · for ${productMeta.audience.toLowerCase()} · ${productMeta.pitch}`
+                      {pick.offering.products.description
+                        ? ` · ${pick.offering.products.description}`
                         : ""}
                     </p>
                   )}

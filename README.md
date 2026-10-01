@@ -41,10 +41,14 @@ Either way, it's the same product setup, the same deployment process and the sam
      unresolved distribution rights are recorded as publication blockers; the submitter can attest the
      right to distribute. Source IaC is kept as evidence; deployment uses the same normalised,
      architecture-reviewed model as every other offering.
-   - **Sample content.** The bundled demo catalog lives in `src/lib/product-catalog.ts` and is owned by
-     "Cloud Delivery samples", not a person. `bun scripts/gen-product-seed.ts` regenerates
-     `db/seed/0005_product_catalog.sql` and `bun scripts/gen-solution-seed.ts` regenerates
-     `db/seed/0007_solution_catalog.sql` from it.
+   - **Bundled catalog.** Real Microsoft energy (oil and gas) solutions with deployable code. These are
+     OSDU and Azure Data Manager for Energy platforms, admin tooling, data loading and a generative-AI demo.
+     Each is imported from its repository at a pinned commit, exactly as **Submit a solution** does.
+     `bun scripts/gen-energy-catalog.ts` re-inspects them. Names, descriptions and caveats are curated in the
+     script and verified against each repository. It writes `db/seed/0005_product_catalog.sql` and the inserts in
+     `db/migrations/0009_energy_catalog.sql`. Customers start with no installs.
+   - **Solution pages** follow a solutions-library layout: benefits, "how it works" (the reviewed architecture
+     with numbered steps per delivery model), caveats to read before deploying, and how to deploy.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.

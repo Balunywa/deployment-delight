@@ -37,6 +37,13 @@ const ROLE: Record<string, string> = {
   "ai-search": "AI Search retrieves from manuals, procedures and records to ground answers",
   "data-explorer": "Data Explorer analyses time-series sensor and operational telemetry",
   "key-vault": "Key Vault holds the secrets, certificates and encryption keys",
+  adme: "Azure Data Manager for Energy, Microsoft's managed OSDU platform, holds the subsurface and well data behind the standard OSDU APIs",
+  "adme-connection":
+    "it works against the customer's existing Azure Data Manager for Energy instance through its OSDU APIs",
+  databricks: "Databricks prepares and transforms the data with Spark",
+  "app-configuration": "App Configuration holds the settings the services read at runtime",
+  "container-registry": "Container Registry keeps its images private to the install",
+  "container-instances": "Container Instances runs the one-off setup and data-load jobs",
   monitoring: "Azure Monitor collects diagnostics and raises alerts",
   "app-insights": "Application Insights traces requests end to end",
   defender: "Defender for Cloud protects the workloads",
@@ -57,9 +64,19 @@ const list = (items: string[]) =>
 const short = (id: string) => SERVICE_BY_ID.get(id)?.short ?? id;
 
 const INGRESS = ["front-door", "app-gateway", "apim", "web-vmss"];
-const COMPUTE = ["aks", "container-apps", "app-service", "functions", "app-vmss"];
+const COMPUTE = [
+  "aks",
+  "container-apps",
+  "app-service",
+  "functions",
+  "app-vmss",
+  "container-instances",
+  "container-registry",
+];
 const MESSAGING = ["iot-hub", "event-hubs", "service-bus"];
 const DATA = [
+  "adme",
+  "adme-connection",
   "postgres",
   "sql",
   "cosmos",
@@ -69,6 +86,8 @@ const DATA = [
   "ai-foundry",
   "ai-search",
   "data-explorer",
+  "databricks",
+  "app-configuration",
 ];
 
 /** Numbered steps following a request through one delivery model's architecture. */
@@ -119,13 +138,19 @@ export function howItWorks(arch: Architecture, productName: string): StoryStep[]
     });
   if (data.length) {
     const pe = ids.has("private-endpoints") || arch.topology.privateEndpoints;
+    const privateData = data.filter((id) => SERVICE_BY_ID.get(id)?.privateLink);
+    const onlyExisting = data.every((id) => id === "adme-connection");
     steps.push({
-      title: "Data stays private",
-      body: `${sentence(data)}${pe ? ` Each is reachable only through a private endpoint${landing === "existing-customer-hub" ? ", with records in the customer's private DNS" : ""}.` : ""}`,
+      title: onlyExisting ? "Works with their energy data platform" : "Data stays private",
+      body: `${sentence(data)}${
+        pe && privateData.length
+          ? ` ${privateData.length === 1 ? `${short(privateData[0]!)} is` : `${list(privateData.map(short))} are`} reachable only through private endpoints${landing === "existing-customer-hub" ? ", with records in the customer's private DNS" : ""}.`
+          : ""
+      }`,
       services: [
         ...data,
-        ...(pe && ids.has("private-endpoints") ? ["private-endpoints"] : []),
-        ...(pe && landing === "existing-customer-hub" ? ["dns"] : []),
+        ...(pe && privateData.length && ids.has("private-endpoints") ? ["private-endpoints"] : []),
+        ...(pe && privateData.length && landing === "existing-customer-hub" ? ["dns"] : []),
       ],
     });
   }

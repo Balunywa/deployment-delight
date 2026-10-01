@@ -2,14 +2,17 @@
  * Delivery units, end to end: the list and its filters, a unit's spec (environments, identities, state) and
  * repository content, and filing a vending request.
  */
-import { expect, loaded, open, test } from "./fixtures";
+import { expect, loaded, open, seedInstalledBase, test } from "./fixtures";
 
 test.describe.serial("delivery units", () => {
+  // Customer units get environments from the customer's installs.
+  test.beforeAll(seedInstalledBase);
+
   test("filters by kind and searches by repository", async ({ page }) => {
     await open(page, "/delivery");
     const rows = page.locator("tbody tr").filter({ has: page.locator('a[href^="/delivery/"]') });
     const all = await rows.count();
-    expect(all).toBeGreaterThan(40);
+    expect(all).toBeGreaterThan(30);
     for (const [tab, prefix] of [
       ["Landing zones", "gridworks/lz-"],
       ["Solutions", "gridworks/sol-"],
@@ -33,6 +36,7 @@ test.describe.serial("delivery units", () => {
   }) => {
     await open(page, "/delivery");
     await page.getByRole("button", { name: /^Customers\s*\d+/ }).click();
+    await page.getByPlaceholder("Filter by name or repository").fill("cust-north-grid");
     await page.locator('a[href^="/delivery/"]').first().click();
     await loaded(page);
     await expect(page.getByRole("heading", { level: 1, name: /gridworks\/cust-/ })).toBeVisible();

@@ -102,9 +102,10 @@ function Releases() {
 
   const offering =
     offerings.find((o) => o.id === search.offering) ??
-    offerings
-      .filter((o) => o.offering_type === "enterprise_private")
-      .sort((a, b) => (b.environments ?? []).length - (a.environments ?? []).length)[0] ??
+    // Open on the offering with the most installs: that's where a release matters.
+    [...offerings].sort(
+      (a, b) => (b.environments ?? []).length - (a.environments ?? []).length,
+    )[0] ??
     offerings[0];
 
   const versions = useMemo(
@@ -519,7 +520,16 @@ function Adoption({
     }))
     .filter((x) => x.n);
   const total = installs.length;
-  if (!total) return null;
+  if (!total)
+    return (
+      <section className="rounded-md border border-border bg-card p-4">
+        <h2 className="text-[13px] font-semibold">Where the installed base is</h2>
+        <p className="mt-1 text-xs text-muted-foreground">
+          No customer runs this offering yet. Onboard a customer onto a published version and its
+          installs show here, by version, ready to roll forward.
+        </p>
+      </section>
+    );
   return (
     <section className="rounded-md border border-border bg-card p-4">
       <div className="flex items-baseline justify-between">

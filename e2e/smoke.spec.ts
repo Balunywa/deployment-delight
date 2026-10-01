@@ -21,7 +21,7 @@ test.describe("every page loads @readonly", () => {
     await open(page, "/products");
     await heading(page, "Find it, deploy it, or share yours");
     await expect(page.locator("article").first()).toBeVisible();
-    expect(await page.locator("article").count()).toBeGreaterThanOrEqual(16);
+    expect(await page.locator("article").count()).toBeGreaterThanOrEqual(6);
   });
 
   test("solution detail", async ({ page }) => {
@@ -98,8 +98,12 @@ test.describe("every page loads @readonly", () => {
   test("deployments and a run", async ({ page }) => {
     await open(page, "/deployments");
     await heading(page, "Deployments");
-    await page.locator('a[href^="/deployments/"]').first().click();
-    await loaded(page);
+    // Customers start with no installs; open a run when there is one.
+    const run = page.locator('a[href^="/deployments/"]').first();
+    if (await run.count()) {
+      await run.click();
+      await loaded(page);
+    }
   });
 
   test("compliance, costs, audit, settings", async ({ page }) => {

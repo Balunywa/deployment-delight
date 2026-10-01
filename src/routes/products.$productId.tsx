@@ -144,6 +144,14 @@ function SolutionPage() {
     importChecks.filter((c) => c.level === "blocking"),
   );
   const deployable = latest.find((x) => x.published);
+  // Caveats found on import or recorded by reviewers: worth reading before deploying, not blocking.
+  const caveats = [
+    ...new Map(
+      latest
+        .flatMap(({ importChecks }) => importChecks.filter((c) => c.level === "warning"))
+        .map((c) => [c.title, c]),
+    ).values(),
+  ];
   const models: StoryModel[] = latest
     .filter(({ manifest }) => Array.isArray(manifest["modules"]))
     .map(({ o, published, newest, manifest }) => ({
@@ -300,6 +308,26 @@ function SolutionPage() {
                 {blockers.map((c, i) => (
                   <li key={`${c.id}${i}`} className="flex gap-2 text-xs">
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-danger" />
+                    <span>
+                      <b className="font-medium">{c.title}</b>
+                      <span className="block text-muted-foreground">{c.detail}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {caveats.length > 0 && (
+            <Section
+              id="before-you-deploy"
+              title="Before you deploy"
+              sub="Found when the source was inspected, or stated by its maintainers."
+            >
+              <ul className="space-y-2">
+                {caveats.map((c) => (
+                  <li key={c.title} className="flex gap-2 text-xs">
+                    <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
                     <span>
                       <b className="font-medium">{c.title}</b>
                       <span className="block text-muted-foreground">{c.detail}</span>

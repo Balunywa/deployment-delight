@@ -2,16 +2,19 @@
  * Operating the installed base, end to end: releases and rollouts, a pipeline run through approval, customer
  * actions (preflight, drift, deploy, connection), a new landing zone with its delivery unit, and branding.
  */
-import { expect, loaded, open, sql, test } from "./fixtures";
+import { OSDU, expect, loaded, open, seedInstalledBase, sql, test } from "./fixtures";
 
 async function one<T>(text: string): Promise<T | undefined> {
   return (await sql<T>(text))[0];
 }
 
 test.describe.serial("operations", () => {
+  test.beforeAll(seedInstalledBase);
+
   test("releases: plan a rollout and start its first ring", async ({ page }) => {
-    await open(page, "/upgrades");
-    const rollOut = page.getByRole("button", { name: /^Roll out v/ });
+    // OSDU Developer Platform: three customers on v0.46.0, so rolling out v0.47.0 is a real upgrade.
+    await open(page, `/upgrades?offering=${OSDU.offering}`);
+    const rollOut = page.getByRole("button", { name: "Roll out v0.47.0" });
     await expect(rollOut).toBeVisible();
     await rollOut.click();
     await page.getByRole("button", { name: "Create rollout" }).click();
@@ -25,7 +28,7 @@ test.describe.serial("operations", () => {
     const run = await one<{ id: string }>(
       "select id from public.deployments where status = 'AWAITING_APPROVAL' order by requested_at desc limit 1",
     );
-    expect(run, "the seed has a run awaiting approval").toBeTruthy();
+    expect(run, "seedInstalledBase adds a run awaiting approval").toBeTruthy();
     await open(page, `/deployments/${run!.id}`);
     await page.getByRole("button", { name: "Approve & queue" }).click();
     const runIt = page.getByRole("button", { name: "Run pipeline" });
@@ -43,7 +46,7 @@ test.describe.serial("operations", () => {
       `select e.customer_id as id from public.drift_findings d join public.environments e on e.id = d.environment_id
        where d.status = 'open' limit 1`,
     );
-    expect(c, "the seed has an open drift finding").toBeTruthy();
+    expect(c, "seedInstalledBase adds an open drift finding").toBeTruthy();
     await open(page, `/customers/${c!.id}`);
     await page.getByRole("button", { name: "Check landing zone" }).first().click();
     await page.getByRole("button", { name: "Detect drift" }).first().click();

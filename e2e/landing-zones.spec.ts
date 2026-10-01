@@ -208,16 +208,12 @@ test.describe("platform landing zones", () => {
     await step(page, 2, "Design").click();
     await page.getByRole("button", { name: "Traffic", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Traffic flows" })).toBeVisible();
+    // Flows follow what's actually placed: with no Online installs yet, the ingress flow says so.
     await expect(page.getByText("Users reach an Online install")).toBeVisible();
-    await expect(page.getByText(/Step 1 of \d/).first()).toBeVisible();
-    await page
-      .getByRole("button", { name: /Application Gateway WAF v2/ })
-      .first()
-      .click();
-    await expect(page.getByText(/Step 2 of \d/).first()).toBeVisible();
-    // The path is drawn on the map, hop to hop, with what routes each hop.
+    await page.getByText("A Corp workload calls the internet").click();
+    await expect(page.getByText(/Step \d of \d/).first()).toBeVisible();
+    // The path is drawn on the map, hop to hop.
     await expect(page.locator('.react-flow__edge[data-id^="flow:"]').first()).toBeAttached();
-    await expect(page.locator(".react-flow").getByText("HTTPS 443 · public IP")).toBeVisible();
     // Every flow ends in a verdict, like a reachability analysis.
     await page.getByText("A Corp workload calls the internet").click();
     await expect(page.locator("[data-outcome]").first()).toBeVisible();
