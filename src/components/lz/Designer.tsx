@@ -437,21 +437,6 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-/** A setting that's expensive to change after deploying: say so up front, like no native setup tool does. */
-function Locked({ label, why }: { label: string; why: string }) {
-  return (
-    <span className="inline-flex items-center gap-1" title={why}>
-      {label}
-      <span
-        className="cursor-help rounded bg-muted px-1 text-[9.5px] font-semibold text-muted-foreground"
-        aria-label={`Hard to change later: ${why}`}
-      >
-        🔒 hard to change later
-      </span>
-    </span>
-  );
-}
-
 function Row({
   label,
   hint,
@@ -544,10 +529,7 @@ function Palette({
         <Section title="Tenant">
           <div className="grid grid-cols-2 gap-2">
             <label className="text-[11px] text-muted-foreground">
-              <Locked
-                label="Prefix"
-                why="Every management group's ID starts with it. Changing it after deploying recreates the hierarchy and moves every subscription."
-              />
+              Prefix
               <Input
                 className="mt-0.5 h-7 font-mono text-xs"
                 value={answers.intermediateRootId}
@@ -555,10 +537,7 @@ function Palette({
               />
             </label>
             <label className="text-[11px] text-muted-foreground">
-              <Locked
-                label="Region"
-                why="The hub, firewall and gateways live here. Moving them later means rebuilding connectivity — plan a maintenance window."
-              />
+              Region
               <select
                 className="mt-0.5 h-7 w-full rounded-md border border-input bg-background px-1.5 font-mono text-xs"
                 value={answers.primaryRegion}
@@ -669,12 +648,6 @@ function Palette({
         </Section>
 
         <Section title="Network">
-          <p className="-mt-1 mb-1.5 text-[11px] text-muted-foreground">
-            <Locked
-              label="Topology"
-              why="Switching between hub and spoke and Virtual WAN rebuilds connectivity and re-connects every spoke. Choose before customers land."
-            />
-          </p>
           <Seg
             value={answers.connectivity}
             onChange={(v) => set({ connectivity: v })}

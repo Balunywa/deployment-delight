@@ -1,7 +1,6 @@
 import { ArrowRight, CircleMinus, CirclePlus, PenLine, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { estimateCost, money } from "@/lib/alz/cost";
 import type { AlzLibrary, Answers } from "@/lib/alz/engine";
 import { type DesignChange, describeChanges, impactOf } from "@/lib/alz/changes";
 import { cn } from "@/lib/utils";
@@ -129,8 +128,6 @@ export function ChangeBar({
     impact.assignments.before !== impact.assignments.after &&
       `policy assignments ${impact.assignments.before} → ${impact.assignments.after}`,
   ].filter(Boolean);
-  // What the change does to the monthly bill (list prices; the Overview uses live ones).
-  const costDelta = estimateCost(answers).total - estimateCost(saved).total;
   return (
     <div className="sticky bottom-0 z-30 mt-3 rounded-md border border-warning/40 bg-card shadow-lg">
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5">
@@ -140,18 +137,6 @@ export function ChangeBar({
             {bits.length > 0 && (
               <span className="ml-2 font-normal text-muted-foreground">
                 In Azure: {bits.join(" · ")}
-              </span>
-            )}
-            {costDelta !== 0 && (
-              <span
-                className={cn(
-                  "ml-2 rounded px-1.5 py-px text-[11.5px] font-semibold",
-                  costDelta > 0 ? "bg-[#fff4ce] text-[#8a6100]" : "bg-[#dff6dd] text-[#107c10]",
-                )}
-                title="Change in the platform's monthly pay-as-you-go cost"
-              >
-                {costDelta > 0 ? "+" : "−"}
-                {money(Math.abs(costDelta))}/month
               </span>
             )}
           </p>
@@ -236,7 +221,7 @@ export function ReviewView({
       </div>
     ) : null;
   return (
-    <div className="space-y-4">
+    <div className="max-w-4xl space-y-4">
       {dirty && (
         <div className="flex items-center justify-between gap-3 rounded-md border border-warning/40 bg-warning/5 px-4 py-2.5 text-[13px]">
           You have unsaved changes on the canvas. Review covers the saved design.

@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
@@ -21,10 +21,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { deployMinutes, estimateCost, FALLBACK_PRICES, money } from "@/lib/alz/cost";
-import { type Answers, DEFAULT_ANSWERS } from "@/lib/alz/engine";
 import { SCENARIOS } from "@/lib/alz/scenarios";
-import { getPlatformPrices } from "@/lib/prices.functions";
 import { createFoundation } from "@/lib/factory.functions";
 import { AZURE_REGIONS } from "@/lib/regions";
 import { cn } from "@/lib/utils";
@@ -56,21 +53,6 @@ export function NewLandingZone({
   const customer = customers.find((c) => c.id === customerId);
   const p = prefix ?? (customer ? slug(customer.name) : "");
   const s = SCENARIOS.find((x) => x.id === scenario)!;
-  const getPrices = useServerFn(getPlatformPrices);
-  const prices = useQuery({
-    queryKey: ["prices", region],
-    queryFn: () => getPrices({ data: { region } }),
-    staleTime: 6 * 60 * 60 * 1000,
-    enabled: open,
-  });
-  const answersOf = (x: (typeof SCENARIOS)[number]): Answers => ({
-    ...DEFAULT_ANSWERS,
-    ...x.answers,
-    primaryRegion: region,
-    secondaryRegion: x.multiRegion ? secondary : "",
-  });
-  const costOf = (x: (typeof SCENARIOS)[number]) =>
-    estimateCost(answersOf(x), prices.data ?? FALLBACK_PRICES).total;
   const create = useMutation({
     mutationFn: useServerFn(createFoundation),
     onSuccess: (r: { foundationId: string }) => {
@@ -127,10 +109,6 @@ export function NewLandingZone({
           </div>
           <div>
             <Label className="text-xs">Scenario</Label>
-            <p className="text-[11px] text-muted-foreground">
-              A starting point, not a one-shot: change anything on the design canvas, before or
-              after deploying. Costs are this region's pay-as-you-go prices for the platform alone.
-            </p>
             <div className="mt-1 grid gap-1.5 sm:grid-cols-2">
               {SCENARIOS.map((x) => (
                 <button
@@ -145,28 +123,8 @@ export function NewLandingZone({
                     !x.supported && "cursor-not-allowed opacity-50",
                   )}
                 >
-                  <p className="flex items-start justify-between gap-2 text-[12.5px] font-medium">
-                    {x.name}
-                    {x.id === "single-hub-azfw" && (
-                      <span className="shrink-0 rounded bg-[#e5f1fb] px-1.5 text-[10px] font-semibold text-[#0f6cbd]">
-                        Most common
-                      </span>
-                    )}
-                    {x.id === "smb-single-hub" && (
-                      <span className="shrink-0 rounded bg-[#dff6dd] px-1.5 text-[10px] font-semibold text-[#107c10]">
-                        Lowest cost
-                      </span>
-                    )}
-                  </p>
+                  <p className="text-[12.5px] font-medium">{x.name}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">{x.body}</p>
-                  {x.supported && (
-                    <p className="mt-1.5 flex gap-3 text-[11px] font-medium text-foreground/80">
-                      <span>{money(costOf(x))}/mo</span>
-                      <span className="text-muted-foreground">
-                        about {deployMinutes(answersOf(x))} min to deploy
-                      </span>
-                    </p>
-                  )}
                 </button>
               ))}
             </div>
