@@ -402,7 +402,9 @@ export function resolveUnit(input: UnitInput, p: Platform = DEFAULT_PLATFORM): U
 
   if (input.kind === "landing-zone") {
     const home = input.isv ? "isv" : "customer";
-    const scope = mgScope(input.managementGroupId);
+    // Terraform creates the intermediate root itself, so the identities hold their roles at its parent, the
+    // tenant root group (the ALZ accelerator's default root_parent_management_group_id).
+    const scope = mgScope(tenant);
     const regulated = criticality === "regulated";
     spec.environments = [
       env("plan", "Read-only plan on every pull request", []),

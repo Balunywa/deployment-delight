@@ -35,7 +35,7 @@ const TERRAFORM_ENV = `
       TF_IN_AUTOMATION: "true"`;
 
 const INIT = (dir: string) => `
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: __TF__
           terraform_wrapper: false
@@ -46,6 +46,23 @@ const INIT = (dir: string) => `
           -backend-config="container_name=%{{ vars.TF_STATE_CONTAINER }}"
           -backend-config="key=%{{ vars.TF_STATE_KEY }}"
           -backend-config="use_azuread_auth=true"`;
+
+/** Same counts the console shows for in-app plans (runner.server.ts summarize). */
+const PLAN_SUMMARY_JQ = `[.resource_changes[]? | select((.change.actions | any(. == "no-op" or . == "read")) | not)
+  | {a: .change.actions, t: (if .type == "azapi_resource" then ((.change.after.type // "azapi_resource") | split("@")[0]) else .type end), n: (.change.after.name // "")}] as $r
+  | {add: ([$r[] | select(.a | index("create"))] | length),
+     change: ([$r[] | select(.a | index("update"))] | length),
+     destroy: ([$r[] | select(.a | index("delete"))] | length),
+     byType: (reduce $r[] as $x ({}; .[$x.t] += 1)),
+     managementGroups: [$r[] | select(.t == "Microsoft.Management/managementGroups" and (.a | index("create"))) | .n],
+     policyAssignments: ([$r[] | select(.t | endswith("policyAssignments"))] | length),
+     roleAssignments: ([$r[] | select(.t | endswith("roleAssignments"))] | length)}`;
+
+const PLAN_MARKDOWN_JQ = `"### \\($title)\\n\\n**\\(.add) to add · \\(.change) to change · \\(.destroy) to destroy** · \\(.policyAssignments) policy assignments · \\(.roleAssignments) role assignments\\n\\n| Resource type | Changes |\\n|---|---:|\\n" + ([.byType | to_entries | sort_by(-.value)[] | "| \`\\(.key)\` | \\(.value) |"] | join("\\n"))`;
+
+/** Errors Azure clears on a second pass (eventual consistency); the in-app runner retries the same ones. */
+const TRANSIENT =
+  "PolicyDefinitionNotFound|PolicySetDefinitionNotFound|RoleDefinitionDoesNotExist|PrincipalNotFound|ReferencedResourceNotProvisioned|AnotherOperationInProgress|ManagementGroupNotFound|AuthorizationFailed|RetryableError|Conflict";
 
 const lz = `
 # Platform landing zone: plan on pull requests with the read-only identity, apply the saved plan on main
@@ -58,32 +75,62 @@ on:
         description: Apply the saved plan (push to main or manual run)
         type: boolean
         default: false
+      destroy:
+        description: Plan and apply a destroy of everything in state
+        type: boolean
+        default: false
       directory:
         type: string
         default: terraform
 permissions: {}
 jobs:
   plan:
+    name: Plan
     runs-on: ubuntu-latest
     environment: plan
     permissions:
       id-token: write
       contents: read
       pull-requests: write${TERRAFORM_ENV}
+      # The plan identity is read-only: the console registers resource providers before it opens the PR.
+      ARM_RESOURCE_PROVIDER_REGISTRATIONS: none
+      DIR: %{{ inputs.directory }}
+      DESTROY: %{{ inputs.destroy }}
     steps:
-      - uses: actions/checkout@v4${INIT("%{{ inputs.directory }}")}
-      - run: terraform -chdir="%{{ inputs.directory }}" fmt -check -recursive
-      - run: terraform -chdir="%{{ inputs.directory }}" validate -no-color
+      - uses: actions/checkout@v7${INIT("%{{ inputs.directory }}")}
+      - name: terraform fmt and validate
+        run: |
+          terraform -chdir="$DIR" fmt -check -recursive
+          terraform -chdir="$DIR" validate -no-color
       - name: terraform plan
         run: |
-          terraform -chdir="%{{ inputs.directory }}" plan -input=false -lock-timeout=5m -out=tfplan -no-color | tee plan.txt
-          { echo '### Landing zone plan'; echo '\`\`\`'; tail -n 200 plan.txt; echo '\`\`\`'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+          flags=""
+          if [ "$DESTROY" = "true" ]; then rm -f "$DIR"/*.imports.tf; flags="-destroy"; fi
+          terraform -chdir="$DIR" plan -input=false -lock-timeout=5m -no-color $flags -out=tfplan | tee plan.txt
+          terraform -chdir="$DIR" show -json tfplan | jq -c '__PLAN_SUMMARY__' > "$DIR/plan-summary.json"
+      - name: Plan summary
+        env:
+          GH_TOKEN: %{{ github.token }}
+          PR: %{{ github.event.pull_request.number }}
+        run: |
+          title="Landing zone plan"; [ "$DESTROY" = "true" ] && title="Destroy plan"
+          jq -r --arg title "$title" '__PLAN_MARKDOWN__' "$DIR/plan-summary.json" > summary.md
+          { echo; echo '<details><summary>terraform plan (last 80 lines)</summary>'; echo; echo '\`\`\`'; tail -n 80 plan.txt; echo '\`\`\`'; echo '</details>'; } >> summary.md
+          cat summary.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$PR" ]; then
+            gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file summary.md --edit-last 2>/dev/null \\
+              || gh pr comment "$PR" --repo "$GITHUB_REPOSITORY" --body-file summary.md
+          fi
+      - uses: actions/upload-artifact@v7
         with:
           name: lz-plan
-          path: "%{{ inputs.directory }}/tfplan"
+          path: |
+            %{{ inputs.directory }}/tfplan
+            %{{ inputs.directory }}/plan-summary.json
           retention-days: 1
+          overwrite: true
   apply:
+    name: Apply
     if: inputs.apply
     needs: plan
     runs-on: ubuntu-latest
@@ -94,14 +141,31 @@ jobs:
     permissions:
       id-token: write
       contents: read${TERRAFORM_ENV}
+      DIR: %{{ inputs.directory }}
+      DESTROY: %{{ inputs.destroy }}
     steps:
-      - uses: actions/checkout@v4${INIT("%{{ inputs.directory }}")}
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7${INIT("%{{ inputs.directory }}")}
+      - uses: actions/download-artifact@v8
         with:
           name: lz-plan
-          path: "%{{ inputs.directory }}"
-      - run: terraform -chdir="%{{ inputs.directory }}" apply -input=false -lock-timeout=5m tfplan
-`;
+          path: %{{ inputs.directory }}
+      - name: terraform apply
+        run: |
+          flags=""
+          if [ "$DESTROY" = "true" ]; then rm -f "$DIR"/*.imports.tf; flags="-destroy"; fi
+          terraform -chdir="$DIR" apply -input=false -lock-timeout=5m -no-color -parallelism=20 tfplan 2>&1 | tee apply.txt && exit 0
+          # Azure is eventually consistent: a definition or role can exist and still read as "not found" for a while.
+          for attempt in 2 3 4; do
+            grep -Eq '__TRANSIENT__' apply.txt || exit 1
+            echo "::warning::Azure reported a transient error. Planning and applying again in 30s (attempt $attempt of 4)."
+            sleep 30
+            terraform -chdir="$DIR" apply -input=false -lock-timeout=5m -no-color -parallelism=20 -auto-approve $flags 2>&1 | tee apply.txt && exit 0
+          done
+          exit 1
+`
+  .replace("__PLAN_SUMMARY__", () => PLAN_SUMMARY_JQ.replace(/\s*\n\s*/g, " "))
+  .replace("__PLAN_MARKDOWN__", () => PLAN_MARKDOWN_JQ)
+  .replace("__TRANSIENT__", () => TRANSIENT);
 
 const install = `
 # One customer environment. The environment file pins an offering version and its digest; the package is the
@@ -135,7 +199,7 @@ jobs:
     outputs:
       changed: %{{ steps.changed.outputs.changed }}${TERRAFORM_ENV}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 2
       - id: changed
@@ -182,7 +246,7 @@ jobs:
           mkdir -p work && tar -xzf pkg/offering.tgz -C work
           yq -o json '.inputs // {}' "environments/%{{ inputs.environment }}/%{{ inputs.install }}.yaml" > work/terraform/inputs.auto.tfvars.json
       - if: steps.changed.outputs.changed == 'true'
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: __TF__
           terraform_wrapper: false
@@ -213,7 +277,7 @@ jobs:
           { echo "$INSTALL in $ENVIRONMENT no longer matches environments/$ENVIRONMENT/$INSTALL.yaml."; echo; echo '\`\`\`'; tail -n 150 plan.txt; echo '\`\`\`'; } > body.md
           gh issue create --repo "$GITHUB_REPOSITORY" --title "Drift: $INSTALL in $ENVIRONMENT" --label drift --body-file body.md
       - if: steps.changed.outputs.changed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: plan-%{{ inputs.environment }}-%{{ inputs.install }}
           path: work
@@ -230,11 +294,11 @@ jobs:
       id-token: write
       contents: read${TERRAFORM_ENV}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: plan-%{{ inputs.environment }}-%{{ inputs.install }}
           path: work
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: __TF__
           terraform_wrapper: false
@@ -265,8 +329,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: __TF__
           terraform_wrapper: false
@@ -289,7 +353,7 @@ jobs:
       version: %{{ steps.tag.outputs.version }}
       digest: %{{ steps.pack.outputs.digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: tag
         name: Parse <offering>/vX.Y.Z
         env:
@@ -309,7 +373,7 @@ jobs:
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: offering.tgz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: offering
           path: offering.tgz
@@ -324,11 +388,11 @@ jobs:
       id-token: write
       contents: read${TERRAFORM_ENV}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: offering
       - run: mkdir -p work && tar -xzf offering.tgz -C work
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: __TF__
           terraform_wrapper: false
@@ -349,7 +413,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: offering
       - name: Publish the immutable release
@@ -390,7 +454,7 @@ jobs:
       contents: read
       issues: write${TERRAFORM_ENV}
     steps:
-      - uses: actions/checkout@v4${INIT("%{{ inputs.directory }}")}
+      - uses: actions/checkout@v7${INIT("%{{ inputs.directory }}")}
       - id: plan
         name: terraform plan -detailed-exitcode
         run: |
@@ -429,7 +493,7 @@ jobs:
       contents: read${TERRAFORM_ENV}
       GITHUB_OWNER: %{{ github.repository_owner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: app
         uses: actions/create-github-app-token@v1
         with:
@@ -442,7 +506,7 @@ jobs:
         run: |
           terraform -chdir=terraform plan -input=false -lock-timeout=5m -out=tfplan -no-color | tee plan.txt
           { echo '### Vending plan'; echo '\`\`\`'; tail -n 300 plan.txt; echo '\`\`\`'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: vend-plan
           path: terraform/tfplan
@@ -460,14 +524,14 @@ jobs:
       contents: read${TERRAFORM_ENV}
       GITHUB_OWNER: %{{ github.repository_owner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: app
         uses: actions/create-github-app-token@v1
         with:
           app-id: %{{ vars.CD_APP_ID }}
           private-key: %{{ secrets.CD_APP_PRIVATE_KEY }}
           owner: %{{ github.repository_owner }}${INIT("terraform")}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: vend-plan
           path: terraform
@@ -496,7 +560,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
@@ -508,7 +572,7 @@ jobs:
       - uses: actions/attest-build-provenance@v2
         with:
           subject-path: cloud-delivery-app.zip
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: app
           path: cloud-delivery-app.zip
@@ -524,7 +588,7 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: app
       - uses: azure/login@v2

@@ -4,6 +4,8 @@ import {
   CheckCircle2,
   CircleAlert,
   CircleX,
+  ExternalLink,
+  Github,
   Loader2,
   Play,
   Rocket,
@@ -13,6 +15,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { ConnectPipelineCard, PipelineGraph, PipelinePanel } from "@/components/lz/PipelineRun";
 import { Pill } from "@/components/Primitives";
 import {
   AlertDialog,
@@ -38,10 +41,13 @@ import {
 import { Switch } from "@/components/ui/switch";
 import {
   type DeployRun,
+  approvePipelineRun,
+  connectPipeline,
   getDeployReadiness,
   getDeployRuns,
   startDeployRun,
 } from "@/lib/alz/deploy.functions";
+import type { PipelineConnection, PipelineRun } from "@/lib/alz/pipeline.server";
 import { relative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -137,6 +143,22 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const connect = useMutation({
+    mutationFn: useServerFn(connectPipeline),
+    onSuccess: (x: { runId: string }) => {
+      setOpen(x.runId);
+      void queryClient.invalidateQueries({ queryKey: ["deploy-runs", foundationId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const approve = useMutation({
+    mutationFn: useServerFn(approvePipelineRun),
+    onSuccess: () => {
+      toast.success("Approved. GitHub is starting the Apply job.");
+      void queryClient.invalidateQueries({ queryKey: ["deploy-runs", foundationId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   useEffect(() => {
     if (latest && latest.status !== "running") {
       void queryClient.invalidateQueries({ queryKey: ["foundation", foundationId] });
@@ -154,6 +176,8 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
   if (!r) return <p className="text-sm text-danger">Couldn't check Azure access.</p>;
 
   const blocking = r.checks.some((c) => c.level === "fail");
+  const conn = r.pipeline.connection as PipelineConnection | null;
+  const openPr = r.pipeline.pr;
   const needsScope = r.needsBillingScope || Object.values(choices).some((c) => c.mode === "new");
   const missingPrincipals = r.principals.filter(
     (p) => !/^[0-9a-f-]{36}$/i.test(principals[p] ?? ""),
@@ -178,6 +202,8 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       `Enter the Microsoft Entra object ID for ${missingPrincipals.join(", ")}.`,
   ].filter(Boolean) as string[];
   const canPlan = blockers.length === 0;
+  // A plan pull request left open (planned in GitHub) can be applied from here too.
+  const applyReady = canApply || (!!conn && !!openPr && !busy);
   // Plan is not read-only when it vends: it builds the hierarchy and creates subscriptions first.
   const vending = r.targets.filter((t) => choices[t.key]?.mode === "new");
   const payload = (action: "plan" | "apply" | "destroy") => ({
@@ -210,7 +236,62 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
           </a>
         </div>
       )}
-      {!list.length && (
+      {r.pipeline.available && !conn && (
+        <AlertDialog>
+          <ConnectPipelineCard
+            repo={r.pipeline.repo}
+            pending={connect.isPending}
+            disabled={busy || blocking}
+            onConnect={() => document.getElementById("connect-pipeline-trigger")?.click()}
+          />
+          <AlertDialogTrigger id="connect-pipeline-trigger" className="hidden" />
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Connect {r.pipeline.repo ?? "the landing zone"} to GitHub Actions
+              </AlertDialogTitle>
+              <AlertDialogDescription asChild>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <p>This creates, or adopts if they already exist:</p>
+                  <ul className="list-disc space-y-1 pl-5">
+                    <li>
+                      <b className="text-foreground">GitHub:</b> the private repository{" "}
+                      <span className="font-mono">{r.pipeline.repo}</span> with{" "}
+                      <span className="font-mono">plan</span> and{" "}
+                      <span className="font-mono">apply</span> environments, and{" "}
+                      <span className="font-mono">cd-delivery-templates</span> released at its
+                      pinned tag.
+                    </li>
+                    <li>
+                      <b className="text-foreground">Azure:</b> two user-assigned identities
+                      federated with those environments (plan: Reader, apply: Owner at the tenant
+                      root group, like the ALZ accelerator), and a state storage account with Entra
+                      ID-only access and versioning.
+                    </li>
+                  </ul>
+                  <p>
+                    From then on, Plan opens a pull request and Apply merges it; Terraform runs in
+                    GitHub, not in this app.
+                  </p>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() =>
+                  connect.mutate({
+                    data: { foundationId, startedBy: r.identity?.name || "Platform engineer" },
+                  })
+                }
+              >
+                Connect
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      {!list.length && !conn && (
         <div className="rounded-md border border-border bg-muted/30 px-4 py-2.5 text-[12.5px] text-muted-foreground">
           <b className="font-medium text-foreground">How deploying works:</b> pick the platform
           subscriptions, then run a <b className="font-medium text-foreground">Plan</b>. When Plan
@@ -226,13 +307,18 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
             <h2 className="text-[13px] font-semibold">Deploy to Azure</h2>
             <p className="text-xs text-muted-foreground">
               Real deployment of the saved design with Terraform (ALZ {r.libraryRef}) into tenant{" "}
-              <span className="font-mono">{r.tenantId ?? "—"}</span>.
+              <span className="font-mono">{r.tenantId ?? "—"}</span>
+              {conn ? ", run by GitHub Actions." : ", run by this app."}
             </p>
           </div>
-          <Pill tone={r.status === "deployed" ? "success" : "neutral"}>
-            {r.status === "deployed" ? "Deployed" : "Not deployed"}
-          </Pill>
+          <div className="flex items-center gap-1.5">
+            {conn && <Pill tone="info">GitHub Actions</Pill>}
+            <Pill tone={r.status === "deployed" ? "success" : "neutral"}>
+              {r.status === "deployed" ? "Deployed" : "Not deployed"}
+            </Pill>
+          </div>
         </header>
+        {conn && <PipelinePanel conn={conn} pr={openPr} />}
         <ul className="divide-y divide-border">
           {r.checks.map((c) => (
             <li key={c.id} className="flex gap-2 px-4 py-2">
@@ -390,17 +476,29 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
             <Button
               disabled={!canPlan || start.isPending}
               onClick={() => start.mutate(payload("plan"))}
-              title="Reads Azure and shows exactly what Apply would change"
+              title={
+                conn
+                  ? "Commits the design to a pull request; GitHub plans it"
+                  : "Reads Azure and shows exactly what Apply would change"
+              }
             >
-              <Play className="size-3.5" /> Plan
+              <Play className="size-3.5" /> {conn ? "Plan · open pull request" : "Plan"}
             </Button>
           )}
           <Button
-            variant={canApply ? "default" : "outline"}
-            disabled={!canApply || busy || start.isPending}
+            variant={applyReady ? "default" : "outline"}
+            disabled={!applyReady || busy || start.isPending}
             onClick={() => start.mutate(payload("apply"))}
+            title={
+              conn
+                ? openPr
+                  ? `Merges pull request #${openPr.number}; GitHub plans main and applies it`
+                  : "Runs plan and apply on main in GitHub"
+                : undefined
+            }
           >
-            <Rocket className="size-3.5" /> Apply plan
+            <Rocket className="size-3.5" />{" "}
+            {conn ? (openPr ? `Merge #${openPr.number} & apply` : "Apply main") : "Apply plan"}
           </Button>
           {blockers.length > 0 && (
             <ul className="w-full space-y-0.5 text-xs text-warning">
@@ -409,7 +507,7 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
               ))}
             </ul>
           )}
-          {!canApply && !busy && lastPlan?.status === "succeeded" && (
+          {!applyReady && !busy && lastPlan?.status === "succeeded" && (
             <span className="text-xs text-muted-foreground">
               Plan again to apply the latest design.
             </span>
@@ -417,7 +515,14 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
         </div>
       </section>
 
-      {shown && <RunPanel run={shown} />}
+      {shown && (
+        <RunPanel
+          run={shown}
+          viaPipeline={!!conn && shown.action !== "connect" && shown.created_at >= conn.connectedAt}
+          onApprove={() => approve.mutate({ data: { foundationId, runId: shown.id } })}
+          approving={approve.isPending}
+        />
+      )}
 
       {list.length > 1 && (
         <section className="rounded-md border border-border bg-card">
@@ -435,6 +540,12 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
                   <span className="flex items-center gap-2">
                     <StatusIcon status={x.status} />
                     <b className="font-medium capitalize">{x.action}</b>
+                    {(x.summary as { pipeline?: PipelineRun } | null)?.pipeline && (
+                      <Github
+                        className="size-3 text-muted-foreground"
+                        aria-label="GitHub Actions"
+                      />
+                    )}
                     <span className="text-muted-foreground">by {x.started_by}</span>
                   </span>
                   <span className="text-xs text-muted-foreground">{relative(x.created_at)}</span>
@@ -494,8 +605,19 @@ function StatusIcon({ status }: { status: DeployRun["status"] }) {
   );
 }
 
-function RunPanel({ run }: { run: DeployRun }) {
-  const s = (run.summary ?? {}) as Summary;
+function RunPanel({
+  run,
+  viaPipeline,
+  onApprove,
+  approving,
+}: {
+  run: DeployRun;
+  viaPipeline: boolean;
+  onApprove: () => void;
+  approving: boolean;
+}) {
+  const s = (run.summary ?? {}) as Summary & { pipeline?: PipelineRun };
+  const gh = s.pipeline && s.pipeline.runId !== undefined ? s.pipeline : (s.pipeline ?? null);
   const ref = useRef<HTMLPreElement | null>(null);
   const lines = useMemo(() => run.log.split("\n"), [run.log]);
   useEffect(() => {
@@ -513,7 +635,17 @@ function RunPanel({ run }: { run: DeployRun }) {
             {relative(run.created_at)}
           </span>
         </p>
-        {run.action === "plan" && run.status === "succeeded" && (
+        {gh?.runUrl && (
+          <a
+            href={gh.runUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+          >
+            <Github className="size-3.5" /> Run #{gh.runId} <ExternalLink className="size-3" />
+          </a>
+        )}
+        {run.action === "plan" && run.status === "succeeded" && s.add !== undefined && (
           <p className="font-mono text-xs">
             <span className="text-success">+{s.add ?? 0}</span> ·{" "}
             <span className="text-warning">~{s.change ?? 0}</span> ·{" "}
@@ -521,7 +653,10 @@ function RunPanel({ run }: { run: DeployRun }) {
           </p>
         )}
       </header>
-      {run.action === "plan" && run.status === "succeeded" && (
+      {(viaPipeline || !!s.pipeline) && run.action !== "connect" && (
+        <PipelineGraph t={gh} runStatus={run.status} onApprove={onApprove} approving={approving} />
+      )}
+      {run.action !== "apply" && run.status === "succeeded" && s.add !== undefined && (
         <div className="grid gap-3 border-b border-border px-4 py-3 text-xs sm:grid-cols-3">
           <div>
             <p className="text-muted-foreground">Management groups created</p>

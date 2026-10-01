@@ -89,7 +89,11 @@ test.describe.serial("operations", () => {
     await unit.click();
     await loaded(page);
     await expect(page.getByText("Request ready").first()).toBeVisible();
-    await expect(page.getByText(/managementGroups\/e2elz/).first()).toBeVisible();
+    // Pipeline identities hold their roles at the tenant root group: Terraform creates the intermediate root.
+    await expect(
+      page.getByText(/managementGroups\/(<isv-tenant-id>|[0-9a-f-]{36})/).first(),
+    ).toBeVisible();
+    await expect(page.getByText(/lz\/[a-z0-9-]+\.tfstate/).first()).toBeVisible();
   });
 
   test("branding changes save", async ({ page }) => {

@@ -404,11 +404,12 @@ async function github<T>(path: string, init: { method?: string; body?: unknown }
   return (await res.json()) as T;
 }
 
-export const vendingConfigured = () => !!process.env["CD_GITHUB_TOKEN"];
+export const vendingConfigured = () =>
+  !!process.env["CD_GITHUB_TOKEN"] && !!process.env["CD_VENDING_REPO"];
 
 /**
- * Writes the unit's vending request. With CD_GITHUB_TOKEN (a GitHub App installation token with contents and
- * pull-request write on cd-vending) it opens the pull request; otherwise the request is recorded for someone to
+ * Writes the unit's vending request. With CD_GITHUB_TOKEN and CD_VENDING_REPO (contents and pull-request write on
+ * that repository) it opens the pull request; otherwise the request is recorded for someone to
  * commit, and nothing outside the console changes.
  */
 export async function requestVending(
@@ -430,7 +431,7 @@ export async function requestVending(
   });
   let url: string | null = null;
   if (vendingConfigured()) {
-    const repo = `${p.org}/${process.env["CD_VENDING_REPO"] ?? "cd-vending"}`;
+    const repo = `${p.org}/${process.env["CD_VENDING_REPO"]}`;
     const meta = await github<{ default_branch: string }>(`/repos/${repo}`);
     const base = await github<{ object: { sha: string } }>(
       `/repos/${repo}/git/ref/heads/${meta.default_branch}`,

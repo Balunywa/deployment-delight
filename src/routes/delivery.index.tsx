@@ -73,8 +73,9 @@ function DeliveryUnits() {
           <p className="mt-0.5 text-muted-foreground">
             Set <span className="font-mono">CD_GITHUB_TOKEN</span> (a GitHub App installation token
             with contents and pull-request write on{" "}
-            <span className="font-mono">{org}/cd-vending</span>) and{" "}
-            <span className="font-mono">CD_GITHUB_ORG</span> to open vending pull requests. Nothing
+            <span className="font-mono">{org}/cd-vending</span>),{" "}
+            <span className="font-mono">CD_GITHUB_ORG</span> and{" "}
+            <span className="font-mono">CD_VENDING_REPO</span> to open vending pull requests. Nothing
             outside the console is changed until then.
           </p>
         </div>

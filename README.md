@@ -89,8 +89,16 @@ isolation findings and the repository content vending creates.
   `templates.ts`, `scaffold.ts` and `vending.ts` generate the templates repository, each unit's repository
   content, and the vending requests plus the Terraform that applies them.
 - Submitting a solution, onboarding a customer and creating a landing zone file the unit's vending request.
-  With `CD_GITHUB_TOKEN` (a GitHub App installation token) it's opened as a pull request on `cd-vending`;
-  without it, it's recorded in the console and nothing outside it changes (see `.env.example`).
+  With `CD_GITHUB_TOKEN` and `CD_VENDING_REPO` it's opened as a pull request on `cd-vending`;
+  without them, it's recorded in the console and nothing outside it changes (see `.env.example`).
+- Landing zones can run their Terraform in **GitHub Actions** instead of inside the app
+  (`src/lib/alz/pipeline.server.ts`). With `CD_GITHUB_TOKEN` and `CD_GITHUB_ORG`, **Deploy → Connect GitHub
+  Actions** creates `<org>/lz-<tenant>` and releases `cd-delivery-templates`. In Azure it creates two user-assigned
+  identities (plan: Reader, apply: Owner, at the tenant root group). They trust only that repository's `plan`
+  and `apply` environments when those run `lz.yml` at the pinned tag. It also creates an Entra-only, versioned state
+  storage account. After that, **Plan** prepares Azure (management groups, subscriptions, providers), commits
+  the rendered Terraform and opens a pull request that GitHub plans. **Apply** merges it, and GitHub plans and
+  applies `main`. The Deploy step follows each run: its jobs, steps, approval and logs.
 - `bun scripts/delivery-generate.ts <dir>` writes all of it; CI (`validate-delivery.yml`) lints every workflow,
   checks callers against templates, validates the vending Terraform and fails on isolation findings.
 

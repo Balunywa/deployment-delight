@@ -157,12 +157,26 @@ export function landingZoneRepo(
     {
       path: ".github/workflows/landing-zone.yml",
       content: `name: landing-zone
+run-name: >-
+  \${{ github.event_name == 'pull_request' && format('Plan · #{0} {1}', github.event.pull_request.number, github.event.pull_request.title)
+  || github.event_name == 'workflow_dispatch' && format('{0} · run by {1}', inputs.action, github.actor)
+  || format('Apply · {0}', github.event.head_commit.message) }}
 on:
   pull_request:
   push:
     branches: [main]
-  workflow_dispatch: {}
+    paths: ["terraform/**", ".github/workflows/landing-zone.yml"]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: plan only, plan and apply main, or destroy everything in state
+        type: choice
+        options: [plan, apply, destroy]
+        default: plan
 permissions: {}
+concurrency:
+  group: landing-zone-\${{ github.ref }}
+  cancel-in-progress: \${{ github.event_name == 'pull_request' }}
 jobs:
   landing-zone:
     uses: ${templateRef(spec, p, "lz.yml")}
@@ -171,7 +185,8 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      apply: \${{ github.event_name != 'pull_request' }}
+      apply: \${{ github.event_name == 'push' || inputs.action == 'apply' || inputs.action == 'destroy' }}
+      destroy: \${{ inputs.action == 'destroy' }}
 `,
     },
     driftCaller(spec, p, ["plan"], "terraform"),

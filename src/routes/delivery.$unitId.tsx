@@ -39,7 +39,7 @@ function UnitPage() {
       toast.success(
         r.url
           ? "Vending pull request opened on cd-vending."
-          : "Vending request recorded. Configure CD_GITHUB_TOKEN to open it as a pull request.",
+          : "Vending request recorded. Configure CD_GITHUB_TOKEN and CD_VENDING_REPO to open it as a pull request.",
       );
       void queryClient.invalidateQueries({ queryKey: ["delivery-unit"] });
       void queryClient.invalidateQueries({ queryKey: ["delivery-units"] });
@@ -133,7 +133,7 @@ function UnitPage() {
               ? "Platform repositories are bootstrapped once by an org admin."
               : vendingConfigured
                 ? `Opens a pull request on ${org}/cd-vending; two approvals apply it.`
-                : "Records the request here. With CD_GITHUB_TOKEN set, it opens a pull request on cd-vending."}
+                : "Records the request here. With CD_GITHUB_TOKEN and CD_VENDING_REPO set, it opens a pull request on cd-vending."}
             {u.requested_at && ` Last requested ${relative(u.requested_at)} by ${u.requested_by}.`}
           </p>
         </div>
