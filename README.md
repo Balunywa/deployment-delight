@@ -56,14 +56,22 @@ Either way, it's the same product setup, the same deployment process and the sam
      "How it works" shows the architecture Cloud Delivery draws from the solution's code, per delivery model,
      with the flow in numbered steps on it. Then come the business scenario, caveats to read before deploying, and how
      to deploy, including the project's own command. Catalog cards open the solution page.
-0. **Listen before you solution (Engagements).** SEs, CSAs and SSPs start with the customer's problem, not a
-   product. **Listen** captures the workflow, the problem, the outcome, why now, the accountable owner, the
-   baseline (left empty until measured, never guessed) and who's in the room. **Assess** rates readiness across
-   six concepts: AI that changes workflows, business context, modernizing what blocks AI, reachable and governed
-   data, safe and affordable operation, and owners and adoption. **Map** links each priority to catalog
-   accelerators. **Propose** generates the same story for a customer executive, technical and field leaders, and
-   an internal audience (commercial measures stay internal). **Prove** deploys a PoC from the catalog, measures it
-   against the baseline and records the decision in the audit log. See `src/lib/engagements.ts`.
+0. **Listen before you solution (Engagements).** A conversation navigator for SEs, CSAs and SSPs, used live in
+   the meeting. It opens with what the customer is struggling with, in their language ("our pilots don't reach
+   production", "our AI answers aren't reliable"…) and their own words, then moves through **Understand**
+   (outcome, workflow, why now, owner, baseline) → **Explore** (one question at a time; each answer shows what it
+   usually indicates and routes to the next question with the reason) → **Illustrate** (catalog examples chosen by
+   what they said) → **Validate** (hypotheses put back to the customer as questions) → **Agree** (next steps with
+   owners and dates). A working summary keeps everything labelled *confirmed*, *hypothesis*, *still unknown* or
+   *ruled out*, and by source (customer, presenter, AI). Around it: **Prep** (what Cloud Delivery knows about the
+   account and starting hypotheses), **Fit & gap** (accelerators ranked by the answers that point to them, their
+   honest gaps, and whether an agent is the right answer yet: can it reach the data, does it know what the data
+   means, can it act safely), a **customer recap** at `/recap/<id>` that is built server-side from confirmed
+   findings and agreed actions only, an internal **handoff** for the CSA with the full reasoning trail, and
+   **Prove** (deploy a proof from the catalog, measure against the baseline, record the decision in the audit
+   log). The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
+   suggests next questions and hypotheses from the presenter's notes and drafts the follow-up email; it can only
+   suggest existing questions, and nothing is added until the presenter accepts it. See `src/lib/conversation.ts`.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.

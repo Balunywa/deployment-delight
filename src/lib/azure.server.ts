@@ -204,7 +204,10 @@ export async function scanTenant(): Promise<TenantSnapshot> {
 
 export const advisorConfigured = () => !!process.env["AZURE_OPENAI_ENDPOINT"];
 
-export async function chat(messages: { role: "system" | "user" | "assistant"; content: string }[]) {
+export async function chat(
+  messages: { role: "system" | "user" | "assistant"; content: string }[],
+  options: { json?: boolean } = {},
+) {
   const endpoint = process.env["AZURE_OPENAI_ENDPOINT"];
   if (!endpoint)
     throw new Error(
@@ -217,7 +220,12 @@ export async function chat(messages: { role: "system" | "user" | "assistant"; co
     {
       method: "POST",
       headers: { authorization: `Bearer ${bearer}`, "content-type": "application/json" },
-      body: JSON.stringify({ messages, temperature: 0.2, max_tokens: 1400 }),
+      body: JSON.stringify({
+        messages,
+        temperature: 0.2,
+        max_tokens: 1400,
+        ...(options.json ? { response_format: { type: "json_object" } } : {}),
+      }),
     },
   );
   const body = (await res.json()) as {

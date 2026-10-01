@@ -1,14 +1,15 @@
 /*
- * Engagements: listen and consult before solutioning. Pure: the six concepts an engagement is assessed on, the
- * stages, and the story generated for each audience from what was captured. Nothing here invents numbers: a
- * baseline is either measured or shown as "to measure".
+ * Engagements: listen and consult before solutioning. Pure: the six concepts a customer's situation is reasoned
+ * about, the stages of a consulting conversation, and what an engagement records. The questions themselves, and
+ * how answers route to the next one, live in conversation.ts.
  */
 
 export type ConceptKey =
   "workflows" | "context" | "modernize" | "data" | "governance" | "ownership";
 export type Readiness = "ready" | "partial" | "blocker" | "not-needed" | "unknown";
 export type Audience = "executive" | "technical" | "internal";
-export type Stage = "listen" | "assess" | "map" | "propose" | "prove" | "decided";
+export type Stage =
+  "understand" | "explore" | "illustrate" | "validate" | "agree" | "prove" | "decided";
 
 export type Concept = {
   key: ConceptKey;
@@ -136,10 +137,11 @@ export const READINESS: Record<Readiness, { label: string; tone: string }> = {
 };
 
 export const STAGES: { key: Exclude<Stage, "decided">; title: string; sub: string }[] = [
-  { key: "listen", title: "Listen", sub: "The business problem and baseline" },
-  { key: "assess", title: "Assess", sub: "Readiness across six concepts" },
-  { key: "map", title: "Map", sub: "Priorities to accelerators" },
-  { key: "propose", title: "Propose", sub: "The story, per audience" },
+  { key: "understand", title: "Understand", sub: "The outcome, the work, why now" },
+  { key: "explore", title: "Explore", sub: "Symptoms to causes, one question at a time" },
+  { key: "illustrate", title: "Illustrate", sub: "Something concrete to react to" },
+  { key: "validate", title: "Validate", sub: "Test the hypotheses with the customer" },
+  { key: "agree", title: "Agree", sub: "Owned next steps, with dates" },
   { key: "prove", title: "Prove", sub: "Deploy, measure, decide" },
 ];
 
@@ -147,14 +149,21 @@ export type Stakeholder = { name: string; role: string; audience: Audience };
 export type Metric = { metric: string; value: string; unit: string };
 
 export type Brief = {
+  /** What the customer opened with, as entry paths (see conversation.ts PATHS). */
+  signals?: string[];
+  /** The customer's own words. */
+  words?: string;
   problem?: string;
   workflow?: string;
   outcome?: string;
   whyNow?: string;
   owner?: string;
+  success?: string;
   constraints?: string;
   stakeholders?: Stakeholder[];
   baseline?: Metric[];
+  /** Internal only: never in the customer recap. */
+  internal?: string;
 };
 export type ReadinessMap = Partial<Record<ConceptKey, { status: Readiness; note: string }>>;
 export type MapItem = { concept: ConceptKey; products: string[]; note: string };
@@ -172,6 +181,33 @@ export type Decision = {
   at: string;
 };
 
+/** A meeting. Everything asked is recorded against the meeting it was asked in. */
+export type Session = { id: string; title: string; at: string; attendees: string };
+/** One question asked: the answers chosen and the customer's own words. Parked questions have no answers. */
+export type Turn = {
+  card: string;
+  answers: string[];
+  note: string;
+  session: string;
+  at: string;
+  parked?: boolean;
+};
+export type FindingKind = "confirmed" | "hypothesis" | "unknown" | "ruled-out";
+export type Finding = {
+  id: string;
+  text: string;
+  kind: FindingKind;
+  /** Who it came from: the customer said it, the presenter inferred it, or an AI suggested it. */
+  source: "customer" | "presenter" | "ai";
+  /** The customer's words, when they said it. */
+  quote?: string;
+  card?: string;
+  /** Set when the presenter confirmed, ruled out or edited it: re-answering the card keeps it. */
+  edited?: boolean;
+  at: string;
+};
+export type Action = { id: string; text: string; owner: string; due: string; done: boolean };
+
 export type Engagement = {
   id: string;
   name: string;
@@ -184,265 +220,34 @@ export type Engagement = {
   solution_map: MapItem[];
   results: Result[];
   decision: Decision | null;
+  sessions: Session[];
+  trail: Turn[];
+  findings: Finding[];
+  actions: Action[];
   created_at: string;
   updated_at: string;
 };
 
-/** What's missing before each stage is done; empty means done. */
-export function gaps(
-  e: Pick<Engagement, "brief" | "readiness" | "solution_map" | "results" | "decision">,
-) {
-  const b = e.brief;
-  return {
-    listen: [
-      !b.workflow?.trim() && "the workflow",
-      !b.problem?.trim() && "the business problem",
-      !b.outcome?.trim() && "the outcome",
-      !b.owner?.trim() && "an accountable owner",
-      !(b.baseline ?? []).some((m) => m.metric.trim()) && "a baseline metric",
-    ].filter(Boolean) as string[],
-    assess: CONCEPTS.filter(
-      (c) => !e.readiness[c.key] || e.readiness[c.key]!.status === "unknown",
-    ).map((c) => c.title),
-    map: e.solution_map.some((m) => m.products.length) ? [] : ["an accelerator for a priority"],
-    propose: [] as string[],
-    prove: e.decision ? [] : ["a decision"],
-  };
-}
+export const stageIndex = (s: Stage) =>
+  s === "decided" ? STAGES.length : STAGES.findIndex((x) => x.key === s);
 
-/** Where an engagement is: the stages done, the current one, and what it needs next. */
+/** Where an engagement is, and a one-line summary of what it has. */
 export function progressOf(e: Engagement) {
-  const g = gaps(e);
-  const current = e.stage === "decided" ? 5 : STAGES.findIndex((s) => s.key === e.stage);
+  const current = stageIndex(e.stage);
+  const count = (k: FindingKind) => e.findings.filter((f) => f.kind === k).length;
+  const asked = e.trail.filter((t) => !t.parked && !t.card.startsWith("show:")).length;
   const next =
     e.stage === "decided"
       ? `Decided: ${e.decision?.choice ?? ""}`
-      : (g[e.stage as keyof typeof g] as string[]).length
-        ? `Needs ${(g[e.stage as keyof typeof g] as string[]).slice(0, 2).join(" and ")}`
-        : `Ready for ${STAGES[Math.min(current + 1, STAGES.length - 1)]!.title}`;
+      : !asked
+        ? "Not started"
+        : [
+            `${asked} asked`,
+            `${count("confirmed")} confirmed`,
+            count("hypothesis") ? `${count("hypothesis")} to test` : "",
+            e.actions.length ? `${e.actions.filter((a) => !a.done).length} actions open` : "",
+          ]
+            .filter(Boolean)
+            .join(" · ");
   return { current, next };
-}
-
-const lower = (s: string) => (s ? s[0]!.toLowerCase() + s.slice(1) : s);
-const list = (items: string[]) =>
-  items.length <= 1 ? (items[0] ?? "") : `${items.slice(0, -1).join(", ")} and ${items.at(-1)}`;
-const sentence = (s: string) => (s && !/[.!?]$/.test(s.trim()) ? `${s.trim()}.` : s.trim());
-
-export type Story = {
-  audience: Audience;
-  title: string;
-  /** For internal material: never shown to the customer. */
-  internalOnly: boolean;
-  opening: string[];
-  messages: string[];
-  ask: string;
-  sections: { title: string; items: string[] }[];
-};
-
-/**
- * The same strategic narrative for three audiences, filled from the engagement. Emphasis changes; facts don't.
- * Claims are only what was captured; anything unmeasured says so.
- */
-export function buildStory(
-  e: Engagement,
-  audience: Audience,
-  productName: (id: string) => string | undefined,
-): Story {
-  const b = e.brief;
-  const customer = e.customer_name ?? "the customer";
-  const workflow = b.workflow?.trim() || "the first workflow";
-  const outcome = b.outcome?.trim() || "a measurable change in that workflow";
-  const owner = b.owner?.trim() || "";
-  const status = (k: ConceptKey) => e.readiness[k]?.status ?? "unknown";
-  const barriers = CONCEPTS.filter(
-    (c) => status(c.key) === "blocker" || status(c.key) === "partial",
-  );
-  const blockers = CONCEPTS.filter((c) => status(c.key) === "blocker");
-  const mapped = e.solution_map.flatMap((m) =>
-    m.products.map((id) => ({
-      concept: m.concept,
-      name: productName(id) ?? "an accelerator",
-      note: m.note,
-    })),
-  );
-  const metrics = (b.baseline ?? []).filter((m) => m.metric.trim());
-  const measured = (m: Metric) =>
-    m.value.trim()
-      ? `${m.metric}: ${m.value}${m.unit ? ` ${m.unit}` : ""} today`
-      : `${m.metric}: baseline to measure`;
-  const solutions = mapped.length
-    ? `We'd start from ${list([...new Set(mapped.map((m) => m.name))])}, proven Microsoft accelerators packaged to deploy the same way every time`
-    : "We'd start from a proven, reusable accelerator";
-
-  if (audience === "executive")
-    return {
-      audience,
-      title: `${customer}: ${workflow}`,
-      internalOnly: false,
-      opening: [
-        `Most organizations now have AI pilots; far fewer have AI that changes how work gets done. For ${customer}, the work that matters most right now is ${lower(workflow)}. ${sentence(b.problem ?? "")}`.trim(),
-        barriers.length
-          ? `What's in the way isn't the model. It's ${list(barriers.map((c) => c.gap))}.`
-          : "What's in the way usually isn't the model: it's reachable data, shared business meaning, and a safe way for AI to act.",
-        `${solutions}. We'd modernize only what blocks this workflow, run it under the same security and cost controls as everything else, and measure it against today's baseline.`,
-        `The goal: ${lower(sentence(outcome))}`,
-        b.whyNow ? `Why now: ${lower(sentence(b.whyNow))}` : "",
-      ].filter(Boolean),
-      messages: [
-        `Value comes from changing ${lower(workflow)}, not from more pilots.`,
-        "Reachable data, shared business meaning and safe action are different problems; we solve them for this workflow first, without replacing everything.",
-        owner
-          ? `${owner} owns the outcome, and it's measured from day one.`
-          : "The outcome needs a named owner, and a measure from day one.",
-      ],
-      ask: `Agree ${lower(workflow)} as the first workflow, ${owner ? `confirm ${owner} as its owner` : "name an accountable owner"}, and agree the baseline${metrics.length ? ` (${list(metrics.map((m) => lower(m.metric)))})` : ""}. We'll come back with a 90-day plan to put it into production.`,
-      sections: [
-        {
-          title: "Briefing outline",
-          items: [
-            `Most of our AI investment hasn't changed how ${lower(workflow)} gets done yet.`,
-            `The goal: ${lower(sentence(outcome))}`,
-            "Three barriers stand between pilots and value: reachable data, shared meaning, and safe action.",
-            `Modernize what blocks ${lower(workflow)} first.`,
-            "One connected approach: agents act on trusted context, over governed data, on modern systems.",
-            "Security, governance and cost control are what let AI scale.",
-            "How we'll prove it: measured against today's baseline.",
-            "A 90-day path: one workflow, owned, deployed and measured.",
-            "The decision: confirm the workflow, the owner and the measures.",
-          ],
-        },
-        {
-          title: "How the customer will measure success",
-          items: metrics.length
-            ? metrics.map(measured)
-            : ["Agree the baseline metric for this workflow"],
-        },
-        {
-          title: "Check before presenting",
-          items: [
-            "Every statistic has a source and a date, or it comes out.",
-            "Competitive comparisons are like-for-like, or they come out.",
-            "Preview capabilities are labelled preview; offers state their conditions.",
-            "No ROI figure without the customer's baseline and a method.",
-          ],
-        },
-      ],
-    };
-
-  if (audience === "technical")
-    return {
-      audience,
-      title: `${workflow}: dependencies and validation`,
-      internalOnly: false,
-      opening: [
-        `Workflow: ${workflow}. ${sentence(b.problem ?? "")}`.trim(),
-        b.constraints ? `Constraints: ${sentence(b.constraints)}` : "",
-        blockers.length
-          ? `Blocking today: ${list(blockers.map((c) => c.gap))}.`
-          : "Nothing is recorded as blocking; confirm the partly-ready areas before the PoC.",
-      ].filter(Boolean),
-      messages: [
-        "Start from a pinned, reviewed accelerator release, not a fork.",
-        "Prove it in a sandbox against the customer's constraints, then promote the same release.",
-        "Production readiness is checked, not assumed: landing zone, identity, data access, evaluation and cost.",
-      ],
-      ask: "Agree the PoC environment and access, and who signs off production readiness.",
-      sections: [
-        {
-          title: "Dependencies",
-          items: CONCEPTS.map((c) => {
-            const r = e.readiness[c.key];
-            return `${c.title}: ${READINESS[r?.status ?? "unknown"].label.toLowerCase()}${r?.note ? ` (${r.note})` : ""}`;
-          }),
-        },
-        {
-          title: "Technical validation (PoC)",
-          items: mapped.length
-            ? mapped.map(
-                (m) =>
-                  `Deploy ${m.name} into a sandbox from its pinned release${m.note ? `: ${lower(sentence(m.note))}` : "."}`,
-              )
-            : ["Map an accelerator to the workflow first"],
-        },
-        {
-          title: "Production readiness",
-          items: [
-            `Landing zone and policy: ${READINESS[status("governance")].label.toLowerCase()}`,
-            `Data access for the workflow: ${READINESS[status("data")].label.toLowerCase()}`,
-            `Business context: ${READINESS[status("context")].label.toLowerCase()}`,
-            "Evaluation and monitoring of AI answers and actions",
-            "Cost guardrails and an owner for spend",
-          ],
-        },
-        {
-          title: "Handoffs",
-          items: [
-            "SE → CSA: engagement brief, readiness and the solution map travel with the engagement",
-            "CSA → delivery or partner: the offering is pinned to a version, deployed through the customer's own pipeline",
-            "Delivery → operations: the install shows in the installed base, with releases rolled out ring by ring",
-          ],
-        },
-      ],
-    };
-
-  return {
-    audience,
-    title: `${customer}: priorities and accountability`,
-    internalOnly: true,
-    opening: [
-      `${customer} · ${workflow}. Stage: ${e.stage}. ${owner ? `Customer owner: ${owner}.` : "No customer owner yet."}`,
-      e.owner_name ? `Our owner: ${e.owner_name}.` : "No owner on our side yet.",
-    ],
-    messages: [
-      "Lead with the customer's workflow and baseline, never with products or our metrics.",
-      "Reuse a catalog accelerator before building anything new.",
-      "Every next step has a named owner and a date.",
-    ],
-    ask: "Commit delivery resources for the 90-day plan, and confirm who owns each next step.",
-    sections: [
-      {
-        title: "Priorities",
-        items: [
-          `First workflow: ${workflow}`,
-          ...barriers.map(
-            (c) =>
-              `Unblock: ${c.title}${e.readiness[c.key]?.note ? ` (${e.readiness[c.key]!.note})` : ""}`,
-          ),
-        ],
-      },
-      {
-        title: "Resources to reuse",
-        items: mapped.length
-          ? [...new Set(mapped.map((m) => `${m.name} (catalog accelerator)`))]
-          : ["Pick an accelerator in Map"],
-      },
-      {
-        title: "Commercial measures (internal only, never in customer material)",
-        items: [
-          "Azure consumption from the deployed offering",
-          "Workloads in production",
-          "Accelerator reuse across customers",
-          "Pipeline stage and next milestone",
-        ],
-      },
-    ],
-  };
-}
-
-export function storyText(s: Story) {
-  return [
-    s.internalOnly ? "INTERNAL — NOT FOR CUSTOMERS" : "",
-    s.title,
-    "",
-    ...s.opening,
-    "",
-    "Remember:",
-    ...s.messages.map((m, i) => `${i + 1}. ${m}`),
-    "",
-    `The ask: ${s.ask}`,
-    ...s.sections.flatMap((sec) => ["", `${sec.title}:`, ...sec.items.map((i) => `- ${i}`)]),
-  ]
-    .filter((l, i, a) => !(l === "" && a[i - 1] === ""))
-    .join("\n")
-    .trim();
 }

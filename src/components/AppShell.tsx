@@ -120,8 +120,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // The customer-facing install page is branded for the customer's admin and has no ISV chrome.
-  if (pathname.startsWith("/connect")) return <>{children}</>;
+  // Customer-facing pages (the install page, an engagement recap) have no ISV chrome.
+  if (pathname.startsWith("/connect") || pathname.startsWith("/recap")) return <>{children}</>;
 
   const isvName = org.data?.name ?? "GridWorks";
   const demo = org.data?.demo_mode ?? true;

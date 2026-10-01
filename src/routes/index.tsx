@@ -386,7 +386,8 @@ function EngagementsPanel() {
         <div>
           <h2 className="text-[13px] font-semibold">Engagements</h2>
           <p className="text-[11.5px] text-muted-foreground">
-            Listen and consult before solutioning: Listen, Assess, Map, Propose, Prove.
+            Listen and consult before solutioning: understand, explore, illustrate, validate, agree,
+            then prove.
           </p>
         </div>
         <div className="flex items-center gap-3 text-[12px]">

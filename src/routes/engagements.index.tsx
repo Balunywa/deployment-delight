@@ -43,7 +43,7 @@ function Engagements() {
     <div className="mx-auto max-w-6xl">
       <PageHeader
         title="Engagements"
-        description="Listen and consult before solutioning. Capture the customer's business problem and baseline, assess readiness, map priorities to proven accelerators, and leave with a story for every audience and a measured result."
+        description="Listen and consult before solutioning. A conversation navigator for SEs and CSAs: one question at a time, a working summary of what's confirmed and what's still a hypothesis, examples from the catalog chosen by what the customer said, and owned next steps. Then a customer-safe recap, an internal handoff, and a proof."
         actions={
           <Button onClick={() => setOpen(true)}>
             <Plus className="size-4" /> Start an engagement
@@ -51,7 +51,7 @@ function Engagements() {
         }
       />
 
-      <ol className="mb-6 grid gap-2 sm:grid-cols-5">
+      <ol className="mb-6 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
         {STAGES.map((s, i) => (
           <li key={s.key} className="rounded-xl border border-border bg-card px-3.5 py-3">
             <p className="font-mono text-[11px] text-muted-foreground">0{i + 1}</p>
@@ -66,7 +66,7 @@ function Engagements() {
       ) : !items.length ? (
         <EmptyState
           title="No engagements yet"
-          description="Start one before the first solutioning conversation: listen first, then map to what the catalog already has."
+          description="Start one before the first solutioning conversation: listen first, then show what the catalog already has."
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
@@ -86,16 +86,16 @@ function Engagements() {
                     >
                       {e.name}
                     </Link>
-                    <p className="mt-0.5 text-[12px] text-muted-foreground">
+                    <p className="mt-0.5 line-clamp-1 text-[12px] text-muted-foreground">
                       {e.customer_name ?? "No customer yet"}
                       {e.brief.workflow ? ` · ${e.brief.workflow}` : ""}
                     </p>
                   </div>
                   <StageDots e={e} />
                 </div>
-                {e.brief.outcome && (
+                {(e.brief.outcome || e.brief.words) && (
                   <p className="mt-2 line-clamp-2 text-[12.5px] text-foreground/85">
-                    {e.brief.outcome}
+                    {e.brief.outcome || `“${e.brief.words}”`}
                   </p>
                 )}
                 <div className="mt-3 flex items-center justify-between gap-2 border-t border-border pt-2.5 text-[11.5px] text-muted-foreground">
@@ -129,13 +129,12 @@ function NewEngagement({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [customerId, setCustomerId] = useState<string>("none");
-  const [workflow, setWorkflow] = useState("");
   const create = useMutation({
     mutationFn: useServerFn(createEngagement),
     onSuccess: (r: { id: string }) => {
       void queryClient.invalidateQueries({ queryKey: ["engagements"] });
       onOpenChange(false);
-      toast.success("Engagement started. Listen first.");
+      toast.success("Engagement started. Start with what they're trying to accomplish.");
       void navigate({ to: "/engagements/$engagementId", params: { engagementId: r.id } });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -177,15 +176,6 @@ function NewEngagement({
               </SelectContent>
             </Select>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="eng-workflow">The workflow that should change (optional)</Label>
-            <Input
-              id="eng-workflow"
-              placeholder="e.g. Maintenance work-package preparation"
-              value={workflow}
-              onChange={(ev) => setWorkflow(ev.target.value)}
-            />
-          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
@@ -198,7 +188,8 @@ function NewEngagement({
                 data: {
                   name: name.trim(),
                   customerId: customerId === "none" ? null : customerId,
-                  workflow: workflow.trim(),
+                  signals: [],
+                  words: "",
                 },
               })
             }

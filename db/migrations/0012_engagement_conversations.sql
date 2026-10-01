@@ -1,4 +1,21 @@
--- Demo engagement for fresh databases. Kept identical to the upsert in migration 0012.
+-- Engagements become a conversation navigator: meetings (sessions), the questions asked and the customer's answers
+-- (trail), what was learned, labelled confirmed / hypothesis / still unknown / ruled out (findings), and agreed
+-- next steps (actions). Stages follow a consulting conversation: understand, explore, illustrate, validate, agree,
+-- then prove.
+alter table public.engagements
+  add column if not exists sessions jsonb not null default '[]'::jsonb,
+  add column if not exists trail jsonb not null default '[]'::jsonb,
+  add column if not exists findings jsonb not null default '[]'::jsonb,
+  add column if not exists actions jsonb not null default '[]'::jsonb;
+
+alter table public.engagements drop constraint if exists engagements_stage_check;
+update public.engagements set stage = case stage
+  when 'listen' then 'understand' when 'assess' then 'explore' when 'map' then 'illustrate'
+  when 'propose' then 'validate' else stage end;
+alter table public.engagements alter column stage set default 'understand';
+alter table public.engagements add constraint engagements_stage_check
+  check (stage in ('understand', 'explore', 'illustrate', 'validate', 'agree', 'prove', 'decided'));
+
 -- The demo engagement, as the conversation it would have been: two meetings with Metro Energy. Demo customers only.
 -- @S1 and @S2 are the meeting times; @Dn is a due date n days from now.
 with t as (select now() at time zone 'utc' as n),

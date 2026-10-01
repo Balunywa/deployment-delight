@@ -31,6 +31,7 @@ import { Route as FoundationsIndexRouteImport } from './routes/foundations.index
 import { Route as FoundationsFoundationIdRouteImport } from './routes/foundations.$foundationId'
 import { Route as ProductsIndexRouteImport } from './routes/products.index'
 import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
+import { Route as RecapEngagementIdRouteImport } from './routes/recap.$engagementId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -142,6 +143,11 @@ const ProductsProductIdRoute = ProductsProductIdRouteImport.update({
   path: '/products/$productId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RecapEngagementIdRoute = RecapEngagementIdRouteImport.update({
+  id: '/recap/$engagementId',
+  path: '/recap/$engagementId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -160,6 +166,7 @@ export interface FileRoutesByFullPath {
   '/engagements/$engagementId': typeof EngagementsEngagementIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/recap/$engagementId': typeof RecapEngagementIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
@@ -184,6 +191,7 @@ export interface FileRoutesByTo {
   '/engagements/$engagementId': typeof EngagementsEngagementIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/recap/$engagementId': typeof RecapEngagementIdRoute
   '/customers': typeof CustomersIndexRoute
   '/delivery': typeof DeliveryIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
@@ -209,6 +217,7 @@ export interface FileRoutesById {
   '/engagements/$engagementId': typeof EngagementsEngagementIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
+  '/recap/$engagementId': typeof RecapEngagementIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
@@ -235,6 +244,7 @@ export interface FileRouteTypes {
     | '/engagements/$engagementId'
     | '/foundations/$foundationId'
     | '/products/$productId'
+    | '/recap/$engagementId'
     | '/customers/'
     | '/delivery/'
     | '/deployments/'
@@ -259,6 +269,7 @@ export interface FileRouteTypes {
     | '/engagements/$engagementId'
     | '/foundations/$foundationId'
     | '/products/$productId'
+    | '/recap/$engagementId'
     | '/customers'
     | '/delivery'
     | '/deployments'
@@ -283,6 +294,7 @@ export interface FileRouteTypes {
     | '/engagements/$engagementId'
     | '/foundations/$foundationId'
     | '/products/$productId'
+    | '/recap/$engagementId'
     | '/customers/'
     | '/delivery/'
     | '/deployments/'
@@ -308,6 +320,7 @@ export interface RootRouteChildren {
   EngagementsEngagementIdRoute: typeof EngagementsEngagementIdRoute
   FoundationsFoundationIdRoute: typeof FoundationsFoundationIdRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
+  RecapEngagementIdRoute: typeof RecapEngagementIdRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
   DeliveryIndexRoute: typeof DeliveryIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
@@ -472,6 +485,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProductsProductIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/recap/$engagementId': {
+      id: '/recap/$engagementId'
+      path: '/recap/$engagementId'
+      fullPath: '/recap/$engagementId'
+      preLoaderRoute: typeof RecapEngagementIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -492,6 +512,7 @@ const rootRouteChildren: RootRouteChildren = {
   EngagementsEngagementIdRoute: EngagementsEngagementIdRoute,
   FoundationsFoundationIdRoute: FoundationsFoundationIdRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
+  RecapEngagementIdRoute: RecapEngagementIdRoute,
   CustomersIndexRoute: CustomersIndexRoute,
   DeliveryIndexRoute: DeliveryIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,

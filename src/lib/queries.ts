@@ -1,6 +1,11 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import { getEngagement, listEngagements } from "@/lib/engagements.functions";
+import {
+  getAssistStatus,
+  getEngagement,
+  getRecap,
+  listEngagements,
+} from "@/lib/engagements.functions";
 
 import {
   getCustomer,
@@ -107,3 +112,13 @@ export const engagementQuery = (id: string) =>
     queryKey: ["engagement", id],
     queryFn: () => getEngagement({ data: { id } }),
   });
+export const recapQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["engagement", id, "recap"],
+    queryFn: () => getRecap({ data: { id } }),
+  });
+export const assistStatusQuery = queryOptions({
+  queryKey: ["assist-status"],
+  queryFn: () => getAssistStatus(),
+  staleTime: Infinity,
+});

@@ -1,30 +1,37 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowLeft, Building2, Check, UserRound } from "lucide-react";
+import { ArrowLeft, Building2, Presentation, UserRound } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
-import {
-  AssessView,
-  type CatalogProduct,
-  ListenView,
-  MapView,
-  ProposeView,
-  ProveView,
-} from "@/components/engagement/Stages";
+import { StageDots } from "@/components/engagement/StageDots";
+import { type Apply, Conversation, type Focus } from "@/components/engagement/Conversation";
+import { FitGapView, HandoffView, PrepView, RecapView } from "@/components/engagement/Panels";
+import { type CatalogProduct, ProveView } from "@/components/engagement/Prove";
 import { EmptyState, Pill } from "@/components/Primitives";
-import { STAGES, type Stage, gaps } from "@/lib/engagements";
+import { Button } from "@/components/ui/button";
+import { advance } from "@/lib/conversation";
+import type { Engagement } from "@/lib/engagements";
 import { saveEngagement } from "@/lib/engagements.functions";
 import { relative } from "@/lib/format";
 import { engagementQuery, productsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type View = Exclude<Stage, "decided">;
+const TABS = [
+  { key: "prep", title: "Prep" },
+  { key: "conversation", title: "Conversation" },
+  { key: "fit", title: "Fit & gap" },
+  { key: "recap", title: "Customer recap" },
+  { key: "handoff", title: "Handoff" },
+  { key: "prove", title: "Prove" },
+] as const;
+type Tab = (typeof TABS)[number]["key"];
 
 export const Route = createFileRoute("/engagements/$engagementId")({
-  validateSearch: (s: Record<string, unknown>): { view?: View } =>
-    typeof s["view"] === "string" && STAGES.some((x) => x.key === s["view"])
-      ? { view: s["view"] as View }
+  validateSearch: (s: Record<string, unknown>): { tab?: Tab } =>
+    typeof s["tab"] === "string" && TABS.some((t) => t.key === s["tab"])
+      ? { tab: s["tab"] as Tab }
       : {},
   head: () => ({ meta: [{ title: "Engagement · Cloud Delivery" }] }),
   component: EngagementPage,
@@ -37,10 +44,8 @@ function EngagementPage() {
   const queryClient = useQueryClient();
   const q = useQuery(engagementQuery(engagementId));
   const catalog = useQuery(productsQuery);
-  const save = useMutation({
-    mutationFn: useServerFn(saveEngagement),
-    onError: (err: Error) => toast.error(err.message),
-  });
+  const [focus, setFocus] = useState<Focus>({});
+  const save = useMutation({ mutationFn: useServerFn(saveEngagement) });
 
   if (q.isLoading) return <EmptyState title="Loading engagement…" />;
   if (!q.data)
@@ -50,41 +55,45 @@ function EngagementPage() {
         description={q.error?.message ?? "It may have been removed."}
       />
     );
-  const { engagement: e, installs } = q.data;
-  const products: CatalogProduct[] = (catalog.data ?? [])
-    .filter((p) => p.offerings.some((o) => o.version))
-    .map((p) => ({ id: p.id, name: p.name, description: p.description }));
-  const reached =
-    e.stage === "decided" ? STAGES.length : STAGES.findIndex((s) => s.key === e.stage);
-  const view: View = search.view ?? (e.stage === "decided" ? "prove" : (e.stage as View));
-  const g = gaps(e);
-  const go = (v: View) => void navigate({ search: { view: v } });
+  const { engagement: e, installs, account } = q.data;
+  const products: CatalogProduct[] = (catalog.data ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    outcome: (p as { outcome?: string | null }).outcome ?? null,
+  }));
+  const tab: Tab = search.tab ?? "conversation";
+  const go = (t: Tab) => void navigate({ search: { tab: t } });
+  const key = engagementQuery(engagementId).queryKey;
 
-  const persist = (patch: Record<string, unknown>, next?: string) => {
-    const idx = next ? STAGES.findIndex((s) => s.key === next) : -1;
-    // Moving on never moves the engagement backwards.
-    const stage = next && idx > reached && e.stage !== "decided" ? { stage: next } : {};
+  // Every change shows at once and saves in the background; the conversation shouldn't wait on the network.
+  const apply: Apply = (patch, message) => {
+    const prev = queryClient.getQueryData(key);
+    // A decision is stamped by the server (who, when), so it shows once saved.
+    if (!("decision" in patch))
+      queryClient.setQueryData(key, (old) =>
+        old ? { ...old, engagement: { ...old.engagement, ...patch } as Engagement } : old,
+      );
     save.mutate(
-      { data: { id: e.id, patch: { ...patch, ...stage } as never } },
+      { data: { id: e.id, patch: patch as never } },
       {
-        onSuccess: async () => {
-          await queryClient.invalidateQueries({ queryKey: ["engagement", e.id] });
+        onSuccess: () => {
+          if (message) toast.success(message);
           void queryClient.invalidateQueries({ queryKey: ["engagements"] });
-          toast.success(
-            "decision" in patch
-              ? "Decision recorded."
-              : next
-                ? `Saved. On to ${STAGES[idx]!.title}.`
-                : "Saved.",
-          );
-          if (next) go(next as View);
+          void queryClient.invalidateQueries({ queryKey: [...key, "recap"] });
+          if ("decision" in patch || "results" in patch)
+            void queryClient.invalidateQueries({ queryKey: key });
+        },
+        onError: (err: Error) => {
+          queryClient.setQueryData(key, prev);
+          toast.error(err.message);
         },
       },
     );
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-5">
+    <div className="mx-auto max-w-[1400px] space-y-5">
       <Link
         to="/engagements"
         className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
@@ -111,7 +120,6 @@ function EngagementPage() {
                 <Building2 className="size-3.5" /> Not a customer yet
               </span>
             )}
-            {e.brief.workflow && <span>{e.brief.workflow}</span>}
             {e.owner_name && (
               <span className="inline-flex items-center gap-1">
                 <UserRound className="size-3.5" /> {e.owner_name}
@@ -120,84 +128,89 @@ function EngagementPage() {
             <span>Updated {relative(e.updated_at)}</span>
           </p>
         </div>
-        {e.decision && (
-          <Pill tone={e.decision.choice === "stop" ? "neutral" : "success"}>
-            Decided: {e.decision.choice}
-          </Pill>
-        )}
+        <div className="flex items-center gap-3">
+          <StageDots e={e} />
+          {e.decision ? (
+            <Pill tone={e.decision.choice === "stop" ? "neutral" : "success"}>
+              Decided: {e.decision.choice}
+            </Pill>
+          ) : (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/recap/$engagementId" params={{ engagementId: e.id }} target="_blank">
+                <Presentation className="size-3.5" /> Customer view
+              </Link>
+            </Button>
+          )}
+        </div>
       </header>
 
-      <nav
-        aria-label="Engagement stages"
-        className="grid gap-2 rounded-xl border border-border bg-card p-2 sm:grid-cols-5"
-      >
-        {STAGES.map((s, i) => {
-          const done = i < reached && !(g[s.key] as string[]).length;
-          const active = view === s.key;
-          return (
-            <button
-              key={s.key}
-              onClick={() => go(s.key)}
-              aria-current={active ? "step" : undefined}
-              className={cn(
-                "flex items-center gap-2.5 rounded-lg px-3 py-2 text-left transition-colors",
-                active ? "bg-primary/[0.07] ring-1 ring-primary/25" : "hover:bg-muted/60",
-              )}
-            >
-              <span
-                className={cn(
-                  "grid size-7 shrink-0 place-items-center rounded-full text-[12px] font-semibold",
-                  done
-                    ? "bg-success text-white"
-                    : active
-                      ? "bg-primary text-primary-foreground"
-                      : i <= reached
-                        ? "bg-primary/15 text-primary"
-                        : "bg-muted text-muted-foreground",
-                )}
-              >
-                {done ? <Check className="size-3.5" /> : i + 1}
-              </span>
-              <span className="min-w-0">
-                <span className="block text-[13px] font-semibold">{s.title}</span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {(g[s.key] as string[]).length && i <= reached
-                    ? `Needs ${(g[s.key] as string[])[0]}`
-                    : s.sub}
-                </span>
-              </span>
-            </button>
-          );
-        })}
+      <nav aria-label="Engagement" className="flex gap-1 overflow-x-auto border-b border-border">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => go(t.key)}
+            aria-current={tab === t.key ? "page" : undefined}
+            className={cn(
+              "-mb-px border-b-2 px-3.5 py-2 text-[13px] font-medium whitespace-nowrap transition-colors",
+              tab === t.key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.title}
+          </button>
+        ))}
       </nav>
 
-      {view === "listen" && (
-        <ListenView key={e.updated_at} e={e} save={persist} saving={save.isPending} />
-      )}
-      {view === "assess" && (
-        <AssessView key={e.updated_at} e={e} save={persist} saving={save.isPending} />
-      )}
-      {view === "map" && (
-        <MapView
-          key={e.updated_at}
+      {tab === "conversation" && (
+        <Conversation
           e={e}
-          save={persist}
-          saving={save.isPending}
+          apply={apply}
           products={products}
+          focus={focus}
+          setFocus={setFocus}
+          onTab={go}
         />
       )}
-      {view === "propose" && (
-        <ProposeView
+      {tab === "prep" && (
+        <PrepView
           e={e}
+          account={account}
+          installs={installs}
           products={products}
-          onNext={() => (reached < 4 ? persist({}, "prove") : go("prove"))}
+          apply={apply}
+          onAsk={(f) => {
+            setFocus(f);
+            go("conversation");
+          }}
         />
       )}
-      {view === "prove" && (
+      {tab === "fit" && (
+        <FitGapView
+          e={e}
+          products={products}
+          apply={apply}
+          onAsk={(f) => {
+            setFocus(f);
+            go("conversation");
+          }}
+        />
+      )}
+      {tab === "recap" && <RecapView e={e} />}
+      {tab === "handoff" && <HandoffView e={e} products={products} apply={apply} />}
+      {tab === "prove" && (
         <ProveView
           key={e.updated_at}
           e={e}
-          save={persist}
+          save={(patch) =>
+            apply(
+              {
+                ...patch,
+                ...(patch["decision"] ? {} : advance(e, "prove")),
+              } as Partial<Engagement>,
+              "decision" in patch ? "Decision recorded." : "Saved.",
+            )
+          }
           saving={save.isPending}
           products={products}
           installs={installs}
