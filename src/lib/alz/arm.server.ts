@@ -333,12 +333,22 @@ export async function vendSubscription(opts: {
         : {}),
     },
   };
-  // Azure throttles subscription creation per billing account; wait it out instead of failing the run.
-  let put = await arm<{
+  // Azure limits how fast a billing account can create subscriptions (429). Say exactly what Azure said, wait
+  // out short-term throttling, and stop at once when it's a quota that waiting won't fix.
+  type AliasPut = {
     properties?: { subscriptionId?: string; provisioningState?: string };
-    error?: { message?: string };
-  }>("PUT", path, body);
-  for (let attempt = 1; put.status === 429 && attempt <= 8; attempt++) {
+    error?: { code?: string; message?: string };
+  };
+  const reason = (r: { data: AliasPut }) =>
+    [r.data.error?.code, r.data.error?.message].filter(Boolean).join(": ") ||
+    JSON.stringify(r.data).slice(0, 300);
+  const isQuota = (r: { data: AliasPut }) =>
+    /quota|limit(ed)? (has been )?reached|exceed/i.test(
+      `${r.data.error?.code ?? ""} ${r.data.error?.message ?? ""}`,
+    );
+  let put = await arm<AliasPut>("PUT", path, body);
+  if (put.status === 429) opts.log(`Azure said (429): ${reason(put)}`);
+  for (let attempt = 1; put.status === 429 && !isQuota(put) && attempt <= 8; attempt++) {
     const wait = Math.min(
       300,
       Math.max(30, Number(put.headers.get("retry-after") ?? 0) || 30 * attempt),
@@ -347,13 +357,17 @@ export async function vendSubscription(opts: {
       `Azure is throttling subscription creation for this billing account — retrying in ${wait}s (attempt ${attempt} of 8).`,
     );
     await new Promise((r) => setTimeout(r, wait * 1000));
-    put = await arm("PUT", path, body);
+    put = await arm<AliasPut>("PUT", path, body);
   }
   if (put.status >= 400)
     throw new Error(
       put.status === 429
-        ? `Azure is still throttling subscription creation for this billing account. Plan again in a few minutes — subscriptions already created are reused, not created twice.`
-        : `Creating subscription ${opts.displayName} failed (${put.status}): ${put.data.error?.message ?? JSON.stringify(put.data).slice(0, 300)}`,
+        ? `Azure won't create more subscriptions on this billing account right now (${reason(put)}). ` +
+            `Subscriptions already created are kept and reused when you plan again. To carry on now: pick an ` +
+            `existing subscription for "${opts.displayName}" in Platform subscriptions, or turn that subscription ` +
+            `off in the design (its services move into Management), or ask Microsoft support to raise the ` +
+            `billing account's subscription creation limit.`
+        : `Creating subscription ${opts.displayName} failed (${put.status}): ${reason(put)}`,
     );
   for (let i = 0; i < 60; i++) {
     const g = await arm<{ properties?: { subscriptionId?: string; provisioningState?: string } }>(
