@@ -15,7 +15,12 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { ConnectPipelineCard, PipelineGraph, PipelinePanel } from "@/components/lz/PipelineRun";
+import {
+  ConnectPipelineCard,
+  InAppPipeline,
+  PipelineGraph,
+  PipelinePanel,
+} from "@/components/lz/PipelineRun";
 import { Pill } from "@/components/Primitives";
 import {
   AlertDialog,
@@ -42,7 +47,9 @@ import { Switch } from "@/components/ui/switch";
 import {
   type DeployRun,
   approvePipelineRun,
+  approvePlan,
   connectPipeline,
+  disconnectPipeline,
   getDeployReadiness,
   getDeployRuns,
   startDeployRun,
@@ -156,6 +163,22 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
     },
     onError: (e: Error) => toast.error(e.message),
   });
+  const approveInApp = useMutation({
+    mutationFn: useServerFn(approvePlan),
+    onSuccess: () => {
+      toast.success("Plan approved. Apply is ready.");
+      void queryClient.invalidateQueries({ queryKey: ["deploy-runs", foundationId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const disconnect = useMutation({
+    mutationFn: useServerFn(disconnectPipeline),
+    onSuccess: () => {
+      toast.success("Terraform runs in this app again. State stays in Azure Storage.");
+      void queryClient.invalidateQueries({ queryKey: ["deploy-readiness", foundationId] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const approve = useMutation({
     mutationFn: useServerFn(approvePipelineRun),
     onSuccess: () => {
@@ -210,8 +233,9 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       `Enter the Microsoft Entra object ID for ${missingPrincipals.join(", ")}.`,
   ].filter(Boolean) as string[];
   const canPlan = blockers.length === 0;
-  // A plan pull request left open (planned in GitHub) can be applied from here too.
-  const applyReady = canApply || (!!conn && !!openPr && !busy);
+  const approved = !!(lastPlan?.summary as { approval?: unknown } | null)?.approval;
+  // In this app, Apply runs only an approved plan. A plan pull request left open can be merged from here too.
+  const applyReady = conn ? canApply || (!!openPr && !busy) : canApply && approved;
   // Plan is not read-only when it vends: it builds the hierarchy and creates subscriptions first.
   const vending = r.targets.filter((t) => choices[t.key]?.mode === "new");
   const payload = (action: "plan" | "apply" | "destroy") => ({
@@ -304,8 +328,9 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
           <b className="font-medium text-foreground">How deploying works:</b> pick the platform
           subscriptions, then run a <b className="font-medium text-foreground">Plan</b>. When Plan
           creates new subscriptions, it first builds the designed management group hierarchy (no
-          policy yet) and creates each subscription directly in its group. Review the plan, then
-          click <b className="font-medium text-foreground">Apply plan</b> to assign policy and
+          policy yet) and creates each subscription directly in its group. Review the plan,{" "}
+          <b className="font-medium text-foreground">approve</b> it, then click{" "}
+          <b className="font-medium text-foreground">Apply approved plan</b> to assign policy and
           access and to move any existing subscriptions you picked into their groups.
         </div>
       )}
@@ -326,7 +351,20 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
             </Pill>
           </div>
         </header>
-        {conn && <PipelinePanel conn={conn} pr={openPr} />}
+        {conn && (
+          <PipelinePanel
+            conn={conn}
+            pr={openPr}
+            onDisconnect={() => {
+              if (
+                window.confirm(
+                  `Run Terraform in this app again? ${conn.repo} stays as it is; state stays in Azure Storage.`,
+                )
+              )
+                disconnect.mutate({ data: { foundationId } });
+            }}
+          />
+        )}
         <ul className="divide-y divide-border">
           {r.checks.map((c) => (
             <li key={c.id} className="flex gap-2 px-4 py-2">
@@ -510,7 +548,13 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
             }
           >
             <Rocket className="size-3.5" />{" "}
-            {conn ? (openPr ? `Merge #${openPr.number} & apply` : "Apply main") : "Apply plan"}
+            {conn
+              ? openPr
+                ? `Merge #${openPr.number} & apply`
+                : "Apply main"
+              : approved
+                ? "Apply approved plan"
+                : "Apply plan"}
           </Button>
           {blockers.length > 0 && (
             <ul className="w-full space-y-0.5 text-xs text-warning">
@@ -519,7 +563,12 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
               ))}
             </ul>
           )}
-          {!applyReady && !busy && lastPlan?.status === "succeeded" && (
+          {!conn && canApply && !approved && !busy && (
+            <span className="text-xs text-muted-foreground">
+              Approve the plan in the pipeline below to apply it.
+            </span>
+          )}
+          {!canApply && !busy && lastPlan?.status === "succeeded" && (
             <span className="text-xs text-muted-foreground">
               Plan again to apply the latest design.
             </span>
@@ -527,6 +576,18 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
         </div>
       </section>
 
+      {!conn && (
+        <InAppPipeline
+          runs={list}
+          approving={approveInApp.isPending}
+          onApprove={(runId) => approveInApp.mutate({ data: { foundationId, runId } })}
+          stateLabel={
+            r.deployment.state
+              ? `${r.deployment.state.account}/${r.deployment.state.container}/${r.deployment.state.key}`
+              : null
+          }
+        />
+      )}
       {shown && (
         <RunPanel
           run={shown}

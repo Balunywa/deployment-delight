@@ -91,14 +91,18 @@ isolation findings and the repository content vending creates.
 - Submitting a solution, onboarding a customer and creating a landing zone file the unit's vending request.
   With `CD_GITHUB_TOKEN` and `CD_VENDING_REPO` it's opened as a pull request on `cd-vending`;
   without them, it's recorded in the console and nothing outside it changes (see `.env.example`).
-- Landing zones can run their Terraform in **GitHub Actions** instead of inside the app
-  (`src/lib/alz/pipeline.server.ts`). With `CD_GITHUB_TOKEN` and `CD_GITHUB_ORG`, **Deploy → Connect GitHub
-  Actions** creates `<org>/lz-<tenant>` and releases `cd-delivery-templates`. In Azure it creates two user-assigned
-  identities (plan: Reader, apply: Owner, at the tenant root group). They trust only that repository's `plan`
-  and `apply` environments when those run `lz.yml` at the pinned tag. It also creates an Entra-only, versioned state
-  storage account. After that, **Plan** prepares Azure (management groups, subscriptions, providers), commits
-  the rendered Terraform and opens a pull request that GitHub plans. **Apply** merges it, and GitHub plans and
-  applies `main`. The Deploy step follows each run: its jobs, steps, approval and logs.
+- Landing zone Terraform runs **in this app by default**, as a pipeline: Prepare Azure → Plan → Approval →
+  Apply → Verify. Apply runs only the latest plan that someone approved; the approval is recorded on the run
+  and in the audit log. With `CD_STATE_SUBSCRIPTION_ID` and `CD_STATE_RESOURCE_GROUP` set, state is in an
+  Entra ID-only, versioned storage account per landing zone (`stcdlz<slug>/tfstate/lz/<slug>.tfstate`). Earlier
+  local state moves there on the next run. Without those settings (local development), state stays on disk.
+- **GitHub Actions is opt-in per landing zone** (`src/lib/alz/pipeline.server.ts`), for teams whose change
+  process requires pull requests. With `CD_GITHUB_TOKEN` and `CD_GITHUB_ORG`, **Deploy → Connect GitHub Actions**
+  creates `<org>/lz-<tenant>` and releases `cd-delivery-templates`. It also creates two user-assigned identities
+  (plan: Reader, apply: Owner, at the tenant root group) that trust only that repository's `plan` and `apply`
+  environments running `lz.yml` at the pinned tag. Plan then opens a pull request that GitHub plans, and Apply
+  merges it. The pipeline uses the same state key as the in-app runner, so connecting, and **Run in this app
+  instead**, move no state.
 - `bun scripts/delivery-generate.ts <dir>` writes all of it; CI (`validate-delivery.yml`) lints every workflow,
   checks callers against templates, validates the vending Terraform and fails on isolation findings.
 

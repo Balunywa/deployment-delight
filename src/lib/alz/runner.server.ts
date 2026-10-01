@@ -185,10 +185,15 @@ function summarize(plan: {
   return s;
 }
 
+export type Backend = { account: string; container: string; key: string };
+
+const BACKEND_FILE = ".cloud-delivery-backend.json";
+
 export async function writeConfig(
   foundationId: string,
   files: { path: string; content: string }[],
   vars: Record<string, unknown>,
+  backend?: Backend | null,
 ) {
   const dir = workDir(foundationId);
   await mkdir(dir, { recursive: true });
@@ -202,7 +207,83 @@ export async function writeConfig(
     await writeFile(p, f.content);
   }
   await writeFile(path.join(dir, "cloud-delivery.auto.tfvars.json"), JSON.stringify(vars, null, 2));
+  if (backend) {
+    await writeFile(
+      path.join(dir, "cloud-delivery.backend.tf"),
+      'terraform {\n  # State in Azure Storage (Entra ID auth); init passes account, container and key.\n  backend "azurerm" {}\n}\n',
+    );
+    await writeFile(path.join(dir, BACKEND_FILE), JSON.stringify(backend));
+  } else await rm(path.join(dir, BACKEND_FILE), { force: true });
   return dir;
+}
+
+async function backendOf(dir: string): Promise<Backend | null> {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    return JSON.parse(await readFile(path.join(dir, BACKEND_FILE), "utf8")) as Backend;
+  } catch {
+    return null;
+  }
+}
+
+/** Resources in a local terraform.tfstate (state that hasn't moved to Azure Storage yet). */
+async function localResources(dir: string) {
+  const { readFile } = await import("node:fs/promises");
+  try {
+    const st = JSON.parse(await readFile(path.join(dir, "terraform.tfstate"), "utf8")) as {
+      resources?: unknown[];
+    };
+    return st.resources?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * terraform init. With an Azure Storage backend, local state left by earlier runs is copied up once (and kept
+ * as terraform.tfstate.migrated). A role just granted on the container can take a few minutes to apply, so
+ * authorization failures are retried.
+ */
+async function init(bin: string, dir: string, env: Record<string, string>, log: Logger) {
+  const backend = await backendOf(dir);
+  if (!backend) return run(bin, ["init", "-input=false", "-no-color"], dir, env, log);
+  const migrate = (await localResources(dir)) > 0;
+  if (migrate)
+    log(
+      `Moving this landing zone's Terraform state to Azure Storage (${backend.account}/${backend.container}/${backend.key}).`,
+    );
+  const args = [
+    "init",
+    "-input=false",
+    "-no-color",
+    `-backend-config=storage_account_name=${backend.account}`,
+    `-backend-config=container_name=${backend.container}`,
+    `-backend-config=key=${backend.key}`,
+    "-backend-config=use_azuread_auth=true",
+    ...(migrate ? ["-migrate-state", "-force-copy"] : ["-reconfigure"]),
+  ];
+  for (let attempt = 1; ; attempt++) {
+    let output = "";
+    const code = await run(bin, args, dir, env, (l) => {
+      output += `${l}\n`;
+      log(l);
+    });
+    if (code === 0) {
+      if (migrate) {
+        const { rename } = await import("node:fs/promises");
+        await rename(
+          path.join(dir, "terraform.tfstate"),
+          path.join(dir, "terraform.tfstate.migrated"),
+        ).catch(() => {});
+        await rm(path.join(dir, "terraform.tfstate.backup"), { force: true });
+      }
+      return 0;
+    }
+    if (attempt >= 8 || !/AuthorizationPermissionMismatch|AuthorizationFailure|403/.test(output))
+      return code;
+    log(`Waiting for access to the state container to apply (attempt ${attempt} of 8)…`);
+    await new Promise((r) => setTimeout(r, 30_000));
+  }
 }
 
 /**
@@ -303,6 +384,16 @@ export async function terraformOutputs(
 
 /** Resource addresses in a workspace's state (empty when nothing is deployed yet). */
 export async function stateAddresses(key: string): Promise<string[]> {
+  const dir = workDir(key);
+  if ((await backendOf(dir)) && existsSync(path.join(dir, ".terraform"))) {
+    try {
+      const bin = await terraformBinary(() => {});
+      const out = await capture(bin, ["state", "list", "-no-color"], dir, await tfEnv());
+      return out.split("\n").filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
   const { readFile } = await import("node:fs/promises");
   try {
     const st = JSON.parse(await readFile(path.join(workDir(key), "terraform.tfstate"), "utf8")) as {
@@ -348,8 +439,7 @@ export async function terraform(
     GIT_CONFIG_VALUE_0: "*",
   };
   if (action !== "apply") {
-    const init = await run(bin, ["init", "-input=false", "-no-color"], dir, env, log);
-    if (init !== 0) return { ok: false, summary: { stage: "init" } };
+    if ((await init(bin, dir, env, log)) !== 0) return { ok: false, summary: { stage: "init" } };
   }
   if (action === "plan") {
     const code = await run(

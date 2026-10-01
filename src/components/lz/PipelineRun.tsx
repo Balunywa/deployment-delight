@@ -14,6 +14,7 @@ import {
   Loader2,
   MinusCircle,
   PlugZap,
+  Server,
   ShieldCheck,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -65,7 +66,7 @@ function duration(a: string | null, b: string | null) {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-type Stage = {
+export type Stage = {
   key: string;
   title: string;
   sub: string;
@@ -210,40 +211,7 @@ export function PipelineGraph({
 
   return (
     <div className="border-b border-border bg-muted/20 px-4 py-3">
-      <ol className="flex flex-wrap items-center gap-y-2">
-        {stages.map((s, i) => (
-          <li key={s.key} className="flex items-center">
-            <div
-              className={cn(
-                "flex min-w-[168px] items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors",
-                RING[s.state],
-              )}
-            >
-              {ICON[s.state]}
-              <div className="min-w-0 flex-1">
-                <p className="flex items-center gap-1.5 text-[12.5px] font-semibold">
-                  <span className="text-muted-foreground">{s.icon}</span>
-                  {s.title}
-                  {s.href && (
-                    <a
-                      href={s.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-muted-foreground hover:text-foreground"
-                      aria-label={`Open ${s.title} in GitHub`}
-                    >
-                      <ExternalLink className="size-3" />
-                    </a>
-                  )}
-                </p>
-                <p className="truncate text-[11px] text-muted-foreground">{s.sub}</p>
-              </div>
-              {s.action}
-            </div>
-            {i < stages.length - 1 && <span className={cn("h-0.5 w-5 sm:w-8", LINE[s.state])} />}
-          </li>
-        ))}
-      </ol>
+      <StageStrip stages={stages} />
       {focus && steps.length > 0 && (
         <div className="mt-3 rounded-md border border-border bg-card">
           <p className="flex items-center justify-between border-b border-border px-3 py-1.5 text-[11.5px] font-semibold">
@@ -283,13 +251,55 @@ export function PipelineGraph({
   );
 }
 
+/** Stages left to right, connected; shared by GitHub Actions runs and runs in this app. */
+export function StageStrip({ stages }: { stages: Stage[] }) {
+  return (
+    <ol className="flex flex-wrap items-center gap-y-2">
+      {stages.map((s, i) => (
+        <li key={s.key} className="flex items-center">
+          <div
+            className={cn(
+              "flex min-w-[168px] items-center gap-2.5 rounded-lg border px-3 py-2 transition-colors",
+              RING[s.state],
+            )}
+          >
+            {ICON[s.state]}
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-1.5 text-[12.5px] font-semibold">
+                <span className="text-muted-foreground">{s.icon}</span>
+                {s.title}
+                {s.href && (
+                  <a
+                    href={s.href}
+                    target={s.href.startsWith("http") ? "_blank" : undefined}
+                    rel="noreferrer"
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label={`Open ${s.title}`}
+                  >
+                    <ExternalLink className="size-3" />
+                  </a>
+                )}
+              </p>
+              <p className="truncate text-[11px] text-muted-foreground">{s.sub}</p>
+            </div>
+            {s.action}
+          </div>
+          {i < stages.length - 1 && <span className={cn("h-0.5 w-5 sm:w-8", LINE[s.state])} />}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 /** Where Terraform runs once connected: repository, approval, identities and state. */
 export function PipelinePanel({
   conn,
   pr,
+  onDisconnect,
 }: {
   conn: PipelineConnection;
   pr: { number: number; url: string; title: string } | null;
+  onDisconnect?: () => void;
 }) {
   return (
     <div className="grid gap-3 border-b border-border bg-muted/20 px-4 py-3 text-[12px] md:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,1fr)]">
@@ -323,6 +333,14 @@ export function PipelinePanel({
             Pull requests ↗
           </a>
           <span className="font-mono text-[11px]">{conn.templates}</span>
+          {onDisconnect && (
+            <button
+              onClick={onDisconnect}
+              className="underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Run in this app instead
+            </button>
+          )}
         </p>
         {pr && (
           <a
@@ -389,12 +407,13 @@ export function ConnectPipelineCard({
       <div className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
         <div className="min-w-0 max-w-2xl">
           <h3 className="flex items-center gap-2 text-[13px] font-semibold">
-            <Github className="size-4" /> Run this landing zone in GitHub Actions
+            <Github className="size-4" /> Run this landing zone through GitHub Actions instead
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Terraform runs inside this app today, with state on the app's disk. Connect GitHub and
-            every change goes through a pull request: GitHub plans it and comments the plan, merging
-            applies it, and each run's jobs, steps and logs show up here and in GitHub.
+            Optional. Terraform runs in this app, with an approval before every apply. Connect your
+            GitHub when your change process requires pull requests: GitHub plans each change and
+            comments the plan, merging applies it, and runs show up here and in GitHub. State stays
+            where it is, and you can switch back.
           </p>
         </div>
         <Button onClick={onConnect} disabled={pending || disabled}>
@@ -442,6 +461,151 @@ export function ConnectPipelineCard({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+type InAppRun = {
+  id: string;
+  action: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  created_at: string;
+  finished_at: string | null;
+  log: string;
+  summary: unknown;
+};
+
+const runState = (r: InAppRun | undefined): State =>
+  !r
+    ? "pending"
+    : r.status === "running" || r.status === "queued"
+      ? "running"
+      : r.status === "succeeded"
+        ? "success"
+        : "failure";
+
+/**
+ * The same pipeline for Terraform run by this app: Prepare Azure → Plan → Approval → Apply → Verify. Apply only
+ * runs a plan someone approved; the approval is recorded on the plan and in the audit log.
+ */
+export function InAppPipeline({
+  runs,
+  onApprove,
+  approving,
+  stateLabel,
+}: {
+  runs: InAppRun[];
+  onApprove: (runId: string) => void;
+  approving: boolean;
+  stateLabel: string | null;
+}) {
+  const cycle = runs.filter((r) => r.action === "plan" || r.action === "apply");
+  const planIndex = cycle.findIndex((r) => r.action === "plan");
+  const plan = planIndex >= 0 ? cycle[planIndex] : undefined;
+  const apply = planIndex > 0 ? cycle[planIndex - 1] : undefined;
+  const s = (plan?.summary ?? {}) as {
+    add?: number;
+    change?: number;
+    destroy?: number;
+    approval?: { by: string; at: string };
+  };
+  const terraformStarted = !!plan && plan.log.includes("$ terraform");
+  const planState = runState(plan);
+  const prepareState: State = !plan
+    ? "pending"
+    : terraformStarted || planState === "success"
+      ? "success"
+      : planState;
+  const approved = !!s.approval;
+  const stages: Stage[] = [
+    {
+      key: "prepare",
+      title: "Prepare Azure",
+      sub: plan ? "Groups · subscriptions · providers" : "Runs with Plan",
+      state: prepareState,
+      icon: <Cloud className="size-3.5" />,
+    },
+    {
+      key: "plan",
+      title: "Plan",
+      sub:
+        planState === "running"
+          ? terraformStarted
+            ? `terraform plan · ${duration(plan!.created_at, null)}`
+            : "Waiting for Azure"
+          : planState === "success" && s.add !== undefined
+            ? `+${s.add} ~${s.change ?? 0} -${s.destroy ?? 0} · ${duration(plan!.created_at, plan!.finished_at)}`
+            : planState === "failure"
+              ? terraformStarted
+                ? "Failed · see the log"
+                : "Not reached"
+              : "terraform plan",
+      state: planState === "failure" && !terraformStarted ? "skipped" : planState,
+      icon: <Server className="size-3.5" />,
+    },
+    {
+      key: "approval",
+      title: "Approval",
+      sub: approved
+        ? `${s.approval!.by} · ${new Date(s.approval!.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`
+        : planState === "success"
+          ? "Review the plan, then approve"
+          : "Needs a successful plan",
+      state: approved ? "success" : planState === "success" ? "waiting" : "pending",
+      icon: <ShieldCheck className="size-3.5" />,
+      action:
+        planState === "success" && !approved && !apply ? (
+          <Button
+            size="sm"
+            className="h-6 px-2 text-[11px]"
+            disabled={approving}
+            onClick={() => onApprove(plan!.id)}
+          >
+            {approving ? (
+              <Loader2 className="size-3 animate-spin" />
+            ) : (
+              <ShieldCheck className="size-3" />
+            )}{" "}
+            Approve
+          </Button>
+        ) : undefined,
+    },
+    {
+      key: "apply",
+      title: "Apply",
+      sub: apply
+        ? apply.status === "running"
+          ? `terraform apply · ${duration(apply.created_at, null)}`
+          : `${apply.status} · ${duration(apply.created_at, apply.finished_at)}`
+        : approved
+          ? "Ready: applies the approved plan"
+          : "Applies only an approved plan",
+      state: runState(apply),
+      icon: <Server className="size-3.5" />,
+    },
+    {
+      key: "verify",
+      title: "Verify",
+      sub: apply?.status === "succeeded" ? "Scan the tenant against the design" : "After apply",
+      state: "pending",
+      icon: <CheckCircle2 className="size-3.5" />,
+      href: apply?.status === "succeeded" ? "?view=assessment" : undefined,
+    },
+  ];
+  return (
+    <section className="overflow-hidden rounded-md border border-border bg-card">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <p className="text-[13px] font-semibold">Pipeline · runs in this app</p>
+        {stateLabel && (
+          <p className="flex items-center gap-1.5 text-[11.5px] text-muted-foreground">
+            <Database className="size-3" />
+            <span className="font-mono">{stateLabel}</span>
+          </p>
+        )}
+      </header>
+      <div className="bg-muted/20 px-4 py-3">
+        <StageStrip stages={stages} />
+      </div>
     </section>
   );
 }

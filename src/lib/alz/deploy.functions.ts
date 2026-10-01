@@ -59,6 +59,8 @@ export type Deployment = {
   precreatedGroups?: string[];
   /** Set once Terraform runs in GitHub Actions instead of this app. */
   pipeline?: PipelineConnection;
+  /** Where Terraform state lives in Azure Storage (shared by the in-app runner and the pipeline). */
+  state?: import("./state.server").StateLocation & { grantedTo?: string[] };
 };
 
 type FoundationRow = {
@@ -647,11 +649,67 @@ async function runInPipeline(
   await trackPipeline(db, f, answers, t, r);
 }
 
+/**
+ * The landing zone's state location in Azure Storage, created on first use, with the identity this app deploys
+ * as allowed to read and write it. Null when CD_STATE_* isn't set (local development): state stays on disk.
+ */
+async function stateFor(
+  db: Db,
+  foundationId: string,
+  deployment: Deployment,
+  log: (l: string) => void,
+) {
+  const state = await import("./state.server");
+  if (!state.stateConfigured()) return null;
+  const me = await (await import("./arm.server")).whoAmI();
+  if (deployment.state?.grantedTo?.includes(me.objectId)) return deployment.state;
+  const units = await import("../delivery/units.server");
+  const unit = await units.ensureUnit(db, { foundation_id: foundationId });
+  if (!unit) return null;
+  const loc = await state.ensureState({
+    unitRepo: unit.repository,
+    preferredAccount: unit.spec.state[0]!.storageAccount,
+    stateKey: unit.spec.state[0]!.key,
+    principal: { id: me.objectId, type: me.kind === "user" ? "User" : "ServicePrincipal" },
+    log,
+  });
+  deployment.state = {
+    account: loc.account,
+    container: loc.container,
+    key: loc.key,
+    resourceGroup: loc.resourceGroup,
+    subscriptionId: loc.subscriptionId,
+    grantedTo: [...(deployment.state?.grantedTo ?? []), me.objectId],
+  };
+  await db.update("foundations", { deployment }, { id: foundationId });
+  log(
+    `Terraform state: ${loc.account}/${loc.container}/${loc.key} (Azure Storage, Entra ID only).`,
+  );
+  return deployment.state;
+}
+
+/** Apply runs only a plan someone approved, and only the latest one. */
+async function requireApprovedPlan(db: Db, foundationId: string) {
+  const [latest] = await db.query<{
+    action: string;
+    status: string;
+    summary: { approval?: unknown };
+  }>(
+    "select action, status, summary from public.foundation_runs where foundation_id = $1 and action in ('plan', 'apply', 'destroy') order by created_at desc limit 1",
+    [foundationId],
+  );
+  if (!latest || latest.action !== "plan" || latest.status !== "succeeded")
+    throw new Error("Run a plan first: Apply applies the latest successful plan.");
+  if (!latest.summary?.approval) throw new Error("Approve the plan before applying it.");
+}
+
 export const startDeployRun = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => runInput.parse(d))
   .handler(async ({ data }) => {
     const { db, f, answers } = await load(data.foundationId);
-    const r = await beginRun(db, f, data.action, data.startedBy, data.targets);
+    const who = (await import("../identity.server")).currentUser().name;
+    if (data.action === "apply" && !f.deployment?.pipeline) await requireApprovedPlan(db, f.id);
+    const r = await beginRun(db, f, data.action, who, data.targets);
 
     void (async () => {
       try {
@@ -669,7 +727,12 @@ export const startDeployRun = createServerFn({ method: "POST" })
             log,
             new Set(await runner.stateAddresses(f.id)),
           );
-          await runner.writeConfig(f.id, prep.files, prep.vars);
+          await runner.writeConfig(
+            f.id,
+            prep.files,
+            prep.vars,
+            await stateFor(db, f.id, deployment, log),
+          );
           await runner.writeImports(f.id, prep.imports);
           const res = await runner.terraform("plan", f.id, log);
           if (res.ok)
@@ -743,11 +806,17 @@ export const connectPipeline = createServerFn({ method: "POST" })
         "Set CD_GITHUB_TOKEN and CD_GITHUB_ORG to run landing zones in GitHub Actions.",
       );
     const runner = await import("./runner.server");
-    if ((await runner.stateAddresses(f.id)).length)
+    // State in Azure Storage is shared with the pipeline; state still on this app's disk isn't.
+    if (!f.deployment?.state && (await runner.stateAddresses(f.id)).length)
       throw new Error(
-        "This landing zone's Terraform state is in this app (deployed by the in-app runner). Destroy it first, or move the state to the pipeline's backend, before connecting.",
+        "This landing zone's Terraform state is still on this app's disk. Run a Plan here first: it moves the state to Azure Storage, where GitHub Actions can use it.",
       );
-    const r = await beginRun(db, f, "connect", data.startedBy);
+    const r = await beginRun(
+      db,
+      f,
+      "connect",
+      (await import("../identity.server")).currentUser().name,
+    );
     void (async () => {
       try {
         const units = await import("../delivery/units.server");
@@ -780,6 +849,72 @@ export const connectPipeline = createServerFn({ method: "POST" })
       }
     })();
     return { runId: r.runId };
+  });
+
+/** Records who approved the latest plan; Apply in this app runs only an approved plan. */
+export const approvePlan = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z.object({ foundationId: z.string().uuid(), runId: z.string().uuid() }).parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await import("../db.server");
+    const [latest] = await db.query<{
+      id: string;
+      action: string;
+      status: string;
+      summary: Record<string, unknown>;
+    }>(
+      "select id, action, status, summary from public.foundation_runs where foundation_id = $1 and action in ('plan', 'apply', 'destroy') order by created_at desc limit 1",
+      [data.foundationId],
+    );
+    if (
+      !latest ||
+      latest.id !== data.runId ||
+      latest.action !== "plan" ||
+      latest.status !== "succeeded"
+    )
+      throw new Error("Only the latest successful plan can be approved. Plan again.");
+    const user = (await import("../identity.server")).currentUser();
+    const approval = { by: user.name, email: user.email, at: new Date().toISOString() };
+    await db.update(
+      "foundation_runs",
+      { summary: { ...latest.summary, approval } as Json },
+      { id: latest.id },
+    );
+    await db.insert("audit_events", {
+      organization_id: "11111111-1111-1111-1111-111111111111",
+      actor_name: user.name,
+      event_type: "landing_zone.plan_approved",
+      resource_type: "foundation",
+      resource_id: data.foundationId,
+      new_value: {
+        run: latest.id,
+        add: latest.summary["add"],
+        change: latest.summary["change"],
+        destroy: latest.summary["destroy"],
+      } as never,
+      result: "success",
+      metadata_json: {} as never,
+    });
+    return approval;
+  });
+
+/** Back to running Terraform in this app. State stays where it is (Azure Storage), so nothing moves. */
+export const disconnectPipeline = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ foundationId: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    const { db, f } = await load(data.foundationId);
+    const conn = f.deployment?.pipeline;
+    if (!conn) return { ok: true };
+    if (running.has(f.id)) throw new Error("Wait for the current run to finish.");
+    const { pipeline: _, ...rest } = f.deployment ?? {};
+    await db.update(
+      "foundations",
+      // Keep the pipeline's state location; the next in-app plan grants this app access to it.
+      { deployment: { ...rest, state: { ...conn.state, grantedTo: [] } } },
+      { id: f.id },
+    );
+    return { ok: true, repo: conn.repo };
   });
 
 /** Approves the apply environment of a run waiting for review (the token's user must be a reviewer). */

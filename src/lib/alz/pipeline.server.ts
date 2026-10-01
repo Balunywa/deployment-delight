@@ -8,13 +8,12 @@
  * After that, Plan commits the rendered Terraform to a branch and opens a pull request (GitHub plans it), and
  * Apply merges it (GitHub plans main and applies). The app streams the run's jobs, steps and logs.
  */
-import { createHash } from "node:crypto";
-
 import { type Platform, type UnitSpec } from "../delivery/model";
 import { type ScaffoldFile, landingZoneRepo } from "../delivery/scaffold";
 import { deliveryTemplates } from "../delivery/templates";
 import { GitHubError, github, githubDownload, githubMaybe, githubToken } from "../github.server";
 import { arm } from "./arm.server";
+import { ROLE, armOk, assignRole, ensureState, guid, sleep } from "./state.server";
 
 type Log = (line: string) => void;
 
@@ -79,33 +78,8 @@ export type PipelineRun = {
 
 export const BRANCH = "cloud-delivery/plan";
 const WORKFLOW = ".github/workflows/landing-zone.yml";
-const ROLE = {
-  reader: "acdd72a7-3385-48ef-bd42-f606fba81ae7",
-  owner: "8e3af657-a8ff-443c-a75c-2fe8c4bcb635",
-  blobContributor: "ba92f5b4-2d11-453d-a403-e96b0029c9fe",
-};
-
 /** GitHub token and owner are set: CD_GITHUB_TOKEN and CD_GITHUB_ORG. */
 export const pipelineAvailable = () => !!githubToken() && !!process.env["CD_GITHUB_ORG"]?.trim();
-
-const sleep = (s: number) => new Promise((r) => setTimeout(r, s * 1000));
-
-function guid(...parts: string[]) {
-  const h = createHash("sha1").update(parts.join("|").toLowerCase()).digest("hex");
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
-}
-
-const armError = (r: { status: number; data: unknown }) => {
-  const e = (r.data as { error?: { code?: string; message?: string } }).error;
-  return `${r.status} ${e?.code ?? ""} ${e?.message ?? JSON.stringify(r.data).slice(0, 300)}`.trim();
-};
-
-async function armOk<T = Record<string, unknown>>(method: string, path: string, body?: unknown) {
-  const r = await arm<T>(method, path, body);
-  if (r.status >= 400)
-    throw new Error(`Azure ${method} ${path.split("?")[0]} failed: ${armError(r)}`);
-  return r;
-}
 
 /* ---------------------------------- GitHub ---------------------------------- */
 
@@ -222,68 +196,6 @@ async function publishTemplates(p: Platform, ownerIsUser: boolean, log: Log) {
 
 /* ---------------------------------- Azure ----------------------------------- */
 
-async function ensureStateStorage(
-  sub: string,
-  rg: string,
-  preferred: string,
-  location: string,
-  tags: Record<string, string>,
-  log: Log,
-) {
-  const base = `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.Storage/storageAccounts`;
-  let name = preferred;
-  const existing = await arm("GET", `${base}/${name}?api-version=2023-05-01`);
-  if (existing.status === 404) {
-    const avail = await armOk<{ nameAvailable: boolean }>(
-      "POST",
-      `/subscriptions/${sub}/providers/Microsoft.Storage/checkNameAvailability?api-version=2023-05-01`,
-      { name, type: "Microsoft.Storage/storageAccounts" },
-    );
-    if (!avail.data.nameAvailable) name = `${preferred.slice(0, 18)}${guid(sub, rg).slice(0, 6)}`;
-    if ((await arm("GET", `${base}/${name}?api-version=2023-05-01`)).status === 404) {
-      log(`Creating state storage account ${name} in ${rg} (Entra ID only, versioned)…`);
-      const body = (sku: string) => ({
-        sku: { name: sku },
-        kind: "StorageV2",
-        location,
-        tags,
-        properties: {
-          allowSharedKeyAccess: false,
-          allowBlobPublicAccess: false,
-          minimumTlsVersion: "TLS1_2",
-          supportsHttpsTrafficOnly: true,
-          defaultToOAuthAuthentication: true,
-        },
-      });
-      let put = await arm("PUT", `${base}/${name}?api-version=2023-05-01`, body("Standard_ZRS"));
-      if (put.status >= 400)
-        put = await arm("PUT", `${base}/${name}?api-version=2023-05-01`, body("Standard_LRS"));
-      if (put.status >= 400) throw new Error(`Creating storage account ${name}: ${armError(put)}`);
-      for (let i = 0; i < 60; i++) {
-        const g = await arm<{ properties?: { provisioningState?: string } }>(
-          "GET",
-          `${base}/${name}?api-version=2023-05-01`,
-        );
-        if (g.data.properties?.provisioningState === "Succeeded") break;
-        await sleep(5);
-      }
-    }
-  }
-  await armOk("PUT", `${base}/${name}/blobServices/default?api-version=2023-05-01`, {
-    properties: {
-      isVersioningEnabled: true,
-      deleteRetentionPolicy: { enabled: true, days: 30 },
-      containerDeleteRetentionPolicy: { enabled: true, days: 30 },
-    },
-  });
-  await armOk(
-    "PUT",
-    `${base}/${name}/blobServices/default/containers/tfstate?api-version=2023-05-01`,
-    { properties: { publicAccess: "None" } },
-  );
-  return { name, containerScope: `${base}/${name}/blobServices/default/containers/tfstate` };
-}
-
 async function ensureIdentity(
   sub: string,
   rg: string,
@@ -310,30 +222,6 @@ async function ensureIdentity(
     },
   });
   return { id, clientId: r.data.properties.clientId, principalId: r.data.properties.principalId };
-}
-
-async function assignRole(scope: string, role: string, principalId: string, log: Log) {
-  const sub = scope.match(/^\/subscriptions\/[^/]+/)?.[0] ?? "";
-  const path = `${scope}/providers/Microsoft.Authorization/roleAssignments/${guid(scope, role, principalId)}?api-version=2022-04-01`;
-  const body = {
-    properties: {
-      roleDefinitionId: `${sub}/providers/Microsoft.Authorization/roleDefinitions/${role}`,
-      principalId,
-      principalType: "ServicePrincipal",
-      description: "Cloud Delivery landing zone pipeline",
-    },
-  };
-  // A new identity takes a little while to replicate to Microsoft Entra ID.
-  for (let attempt = 1; ; attempt++) {
-    const r = await arm<{ error?: { code?: string } }>("PUT", path, body);
-    if (r.status < 400 || r.data.error?.code === "RoleAssignmentExists") return;
-    if (r.data.error?.code === "PrincipalNotFound" && attempt < 18) {
-      if (attempt === 1) log("Waiting for the new identity to reach Microsoft Entra ID…");
-      await sleep(10);
-      continue;
-    }
-    throw new Error(`Assigning role ${role} at ${scope}: ${armError(r)}`);
-  }
 }
 
 /* --------------------------------- Connect ---------------------------------- */
@@ -380,16 +268,14 @@ export async function connectPipeline(opts: {
     body: { name: "drift", color: "d93f0b", description: "Azure no longer matches main" },
   }).catch(() => null);
 
-  for (const ns of ["Microsoft.Storage", "Microsoft.ManagedIdentity"])
-    await arm("POST", `/subscriptions/${sub}/providers/${ns}/register?api-version=2021-04-01`);
-  const group = await armOk<{ location: string }>(
-    "GET",
-    `/subscriptions/${sub}/resourceGroups/${rg}?api-version=2021-04-01`,
-  );
-  const location = group.data.location;
   const tags = { "cd-unit": spec.repository.name, "managed-by": "cloud-delivery" };
-  const stateSpec = spec.state[0]!;
-  const storage = await ensureStateStorage(sub, rg, stateSpec.storageAccount, location, tags, log);
+  const storage = await ensureState({
+    unitRepo: spec.repository.name,
+    preferredAccount: spec.state[0]!.storageAccount,
+    stateKey: spec.state[0]!.key,
+    log,
+  });
+  const location = storage.location;
 
   const root = `/providers/Microsoft.Management/managementGroups/${tenantId}`;
   const identities = {} as PipelineConnection["identities"];
@@ -440,9 +326,9 @@ export async function connectPipeline(opts: {
     body: { name: meta.default_branch, type: "branch" },
   }).catch(() => null);
   const state = {
-    account: storage.name,
-    container: "tfstate",
-    key: stateSpec.key,
+    account: storage.account,
+    container: storage.container,
+    key: storage.key,
     resourceGroup: rg,
     subscriptionId: sub,
   };

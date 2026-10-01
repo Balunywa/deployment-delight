@@ -158,6 +158,51 @@ test.describe("platform landing zones", () => {
     }
   });
 
+  test("deploy: Apply runs only a plan someone approved, and records who", async ({ page }) => {
+    const [f] = await sql<{ id: string }>(
+      "select id from foundations where name = 'Harbor Municipal Utility tenant'",
+    );
+    // A finished plan, as if Plan had run; nothing here touches Azure.
+    await sql(
+      `insert into foundation_runs (foundation_id, action, status, started_by, summary, log, created_at, finished_at)
+       values ($1, 'plan', 'succeeded', 'e2e', $2, '00:00:01  $ terraform init', now() - interval '2 minutes', now())`,
+      [
+        f!.id,
+        JSON.stringify({
+          add: 12,
+          change: 1,
+          destroy: 0,
+          policyAssignments: 3,
+          roleAssignments: 2,
+        }),
+      ],
+    );
+    try {
+      await openZone(page, /Harbor Municipal Utility tenant/);
+      await step(page, 4, "Deploy").click();
+      const pipeline = page.locator("section", { hasText: "Pipeline · runs in this app" });
+      await expect(pipeline).toContainText("+12 ~1 -0");
+      await expect(pipeline).toContainText("Review the plan, then approve");
+      const apply = page.getByRole("button", { name: /^Apply (approved )?plan$/ });
+      await expect(apply).toBeDisabled();
+      await pipeline.getByRole("button", { name: "Approve", exact: true }).click();
+      await expect(page.getByText("Plan approved. Apply is ready.")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Apply approved plan" })).toBeEnabled();
+      const [run] = await sql<{ by: string }>(
+        "select summary->'approval'->>'by' as by from foundation_runs where foundation_id = $1",
+        [f!.id],
+      );
+      expect(run!.by).toBeTruthy();
+      const [audit] = await sql<{ n: number }>(
+        "select count(*)::int as n from audit_events where event_type = 'landing_zone.plan_approved' and resource_id = $1",
+        [f!.id],
+      );
+      expect(audit!.n).toBeGreaterThan(0);
+    } finally {
+      await sql("delete from foundation_runs where foundation_id = $1", [f!.id]);
+    }
+  });
+
   test("traffic flows step through the design, hop by hop @readonly", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
     await step(page, 2, "Design").click();
