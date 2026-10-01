@@ -5,12 +5,12 @@ import { cn } from "@/lib/utils";
 type Tone = "neutral" | "success" | "warning" | "danger" | "info" | "primary";
 
 const toneClass: Record<Tone, string> = {
-  neutral: "bg-muted text-muted-foreground border-border",
-  success: "bg-success/10 text-success border-success/25",
-  warning: "bg-warning/12 text-warning border-warning/30",
-  danger: "bg-danger/10 text-danger border-danger/25",
-  info: "bg-info/10 text-info border-info/25",
-  primary: "bg-primary/10 text-primary border-primary/25",
+  neutral: "bg-muted text-muted-foreground ring-border",
+  success: "bg-success/10 text-success ring-success/20",
+  warning: "bg-warning/12 text-[oklch(0.5_0.12_70)] ring-warning/25",
+  danger: "bg-danger/10 text-danger ring-danger/20",
+  info: "bg-info/10 text-info ring-info/20",
+  primary: "bg-primary/10 text-primary ring-primary/20",
 };
 
 export function Pill({
@@ -25,7 +25,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-sm border px-1.5 py-px text-[11px] font-medium whitespace-nowrap",
+        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ring-1 ring-inset",
         toneClass[tone],
         className,
       )}
@@ -63,17 +63,19 @@ export function Panel({
   bodyClassName?: string;
 }) {
   return (
-    <section className={cn("rounded-md border border-border bg-card", className)}>
+    <section className={cn("rounded-lg border border-border bg-card", className)}>
       {(title || actions) && (
-        <header className="flex items-start justify-between gap-4 border-b border-border px-4 py-3">
+        <header className="flex items-start justify-between gap-4 border-b border-border px-5 py-3.5">
           <div>
-            {title && <h2 className="text-sm font-semibold text-foreground">{title}</h2>}
+            {title && (
+              <h2 className="text-[14px] font-semibold tracking-tight text-foreground">{title}</h2>
+            )}
             {description && <p className="mt-0.5 text-xs text-muted-foreground">{description}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cn("p-4", bodyClassName)}>{children}</div>
+      <div className={cn("p-5", bodyClassName)}>{children}</div>
     </section>
   );
 }
@@ -98,11 +100,11 @@ export function Metric({
     primary: "text-primary",
   };
   return (
-    <div className="rounded-md border border-border bg-card px-4 py-3">
-      <p className="text-xs text-muted-foreground">{label}</p>
+    <div className="rounded-lg border border-border bg-card px-4 py-3.5">
+      <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
       <p
         className={cn(
-          "mt-1 font-mono text-2xl leading-none font-semibold tabular-nums",
+          "mt-1.5 text-[26px] leading-none font-semibold tracking-tight tabular-nums",
           valueTone[tone],
         )}
       >
@@ -127,7 +129,9 @@ export function PageHeader({
   return (
     <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1 className="text-[22px] leading-tight font-semibold text-foreground">{title}</h1>
+        <h1 className="text-[24px] leading-tight font-semibold tracking-tight text-foreground">
+          {title}
+        </h1>
         {description && (
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
         )}

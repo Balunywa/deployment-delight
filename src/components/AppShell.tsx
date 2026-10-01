@@ -141,12 +141,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             rail ? "justify-center px-2" : "px-4",
           )}
         >
-          <span className="grid size-7 shrink-0 place-items-center rounded-sm bg-primary text-[12px] font-bold text-primary-foreground">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-[oklch(0.62_0.16_250)] to-[oklch(0.45_0.17_262)] text-[13px] font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255/0.25),0_2px_6px_rgb(0_0_0/0.3)]">
             {isvName.slice(0, 1)}
           </span>
           {!rail && (
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-nav-foreground">{isvName}</p>
+              <p className="truncate text-[13.5px] font-semibold tracking-tight text-nav-foreground">
+                {isvName}
+              </p>
               <p className="truncate text-[11px] text-nav-muted">Cloud Delivery</p>
             </div>
           )}
@@ -155,7 +157,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link
             to="/onboard"
             title="Onboard customer"
-            className="flex items-center justify-center gap-1.5 rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground transition-opacity hover:opacity-90"
+            className="flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_1px_3px_rgb(0_0_0/0.3)] transition-colors hover:bg-primary/90"
           >
             <Plus className="size-3.5 shrink-0" />
             {!rail && "Onboard customer"}
@@ -165,7 +167,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {nav.map((group, gi) => (
             <div key={gi} className="mb-3">
               {group.label && !rail && (
-                <p className="mb-1 px-2.5 text-[11px] font-medium text-nav-muted/70">
+                <p className="mb-1.5 px-2.5 text-[10.5px] font-semibold tracking-[0.08em] text-nav-muted/60 uppercase">
                   {group.label}
                 </p>
               )}
@@ -176,12 +178,18 @@ export function AppShell({ children }: { children: ReactNode }) {
                   to={item.to}
                   title={rail ? item.label : undefined}
                   className={cn(
-                    "mb-px flex items-center gap-2.5 rounded-sm py-1.5 text-[13px] text-nav-muted transition-colors hover:bg-nav-active hover:text-nav-foreground",
+                    "relative mb-0.5 flex items-center gap-2.5 rounded-md py-[7px] text-[13px] text-nav-muted transition-colors hover:bg-white/[0.06] hover:text-nav-foreground",
                     rail ? "justify-center px-0" : "px-2.5",
-                    isActive(item.to) && "bg-nav-active font-medium text-nav-foreground",
+                    isActive(item.to) &&
+                      "bg-white/[0.09] font-medium text-nav-foreground before:absolute before:top-1.5 before:bottom-1.5 before:-left-2 before:w-[3px] before:rounded-full before:bg-[oklch(0.68_0.15_250)]",
                   )}
                 >
-                  <item.icon className="size-4 shrink-0 opacity-80" />
+                  <item.icon
+                    className={cn(
+                      "size-4 shrink-0",
+                      isActive(item.to) ? "opacity-100" : "opacity-70",
+                    )}
+                  />
                   {!rail && item.label}
                 </Link>
               ))}
@@ -192,7 +200,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           onClick={() => setRailOverride(!rail)}
           title={rail ? "Expand navigation" : "Collapse navigation"}
           className={cn(
-            "mx-2 mb-2 flex items-center gap-2 rounded-sm py-1.5 text-[12px] text-nav-muted hover:bg-nav-active hover:text-nav-foreground",
+            "mx-2 mb-2 flex items-center gap-2 rounded-md py-1.5 text-[12px] text-nav-muted hover:bg-white/[0.06] hover:text-nav-foreground",
             rail ? "justify-center" : "px-2.5",
           )}
         >
@@ -200,7 +208,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {!rail && "Collapse"}
         </button>
         {demo && !rail && (
-          <div className="mx-3 mb-3 rounded-sm border border-nav-active px-2.5 py-2 text-[11px] leading-snug text-nav-muted">
+          <div className="mx-3 mb-3 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-[11px] leading-snug text-nav-muted">
             <span className="font-medium text-nav-foreground">Demo engine.</span> Customer rollouts
             are simulated. Landing zone deploys and offering test deploys run for real in Azure.
           </div>
@@ -208,10 +216,10 @@ export function AppShell({ children }: { children: ReactNode }) {
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-card/95 px-4 py-2 backdrop-blur lg:px-6">
+        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/80 bg-card/80 px-4 py-2.5 backdrop-blur-md backdrop-saturate-150 lg:px-6">
           <button
             onClick={() => setPaletteOpen(true)}
-            className="flex w-full max-w-sm items-center gap-2 rounded-sm border border-border bg-background px-2.5 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:border-border-strong"
+            className="flex w-full max-w-sm items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-1.5 text-left text-[13px] text-muted-foreground transition-colors hover:border-border-strong hover:bg-card"
           >
             <Search className="size-3.5" />
             <span className="flex-1">Jump to a customer, page or action…</span>

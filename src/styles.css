@@ -11,8 +11,12 @@
  */
 
 @theme inline {
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --shadow-xs: 0 1px 2px 0 rgb(16 24 40 / 0.04);
+  --shadow-sm: 0 1px 2px 0 rgb(16 24 40 / 0.04), 0 1px 3px 0 rgb(16 24 40 / 0.06);
+  --shadow-md: 0 4px 8px -2px rgb(16 24 40 / 0.07), 0 2px 4px -2px rgb(16 24 40 / 0.05);
+  --shadow-lg: 0 12px 24px -6px rgb(16 24 40 / 0.1), 0 4px 8px -4px rgb(16 24 40 / 0.06);
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
@@ -76,11 +80,11 @@
 }
 
 :root {
-  --radius: 0.375rem;
+  --radius: 0.5rem;
 
-  --background: oklch(0.985 0.002 250);
-  --foreground: oklch(0.225 0.018 255);
-  --surface: oklch(0.965 0.004 250);
+  --background: oklch(0.978 0.004 255);
+  --foreground: oklch(0.21 0.02 258);
+  --surface: oklch(0.962 0.005 255);
   --surface-foreground: oklch(0.225 0.018 255);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.225 0.018 255);
@@ -91,8 +95,8 @@
   --primary-foreground: oklch(0.99 0.002 250);
   --secondary: oklch(0.94 0.006 250);
   --secondary-foreground: oklch(0.3 0.02 255);
-  --muted: oklch(0.955 0.004 250);
-  --muted-foreground: oklch(0.52 0.015 255);
+  --muted: oklch(0.957 0.005 255);
+  --muted-foreground: oklch(0.5 0.018 257);
   --accent: oklch(0.93 0.017 253);
   --accent-foreground: oklch(0.36 0.09 253);
 
@@ -107,15 +111,15 @@
   --info: oklch(0.52 0.15 253);
   --info-foreground: oklch(0.99 0.002 250);
 
-  --border: oklch(0.905 0.006 250);
-  --border-strong: oklch(0.84 0.008 250);
-  --input: oklch(0.89 0.008 250);
+  --border: oklch(0.915 0.006 255);
+  --border-strong: oklch(0.85 0.009 255);
+  --input: oklch(0.88 0.009 255);
   --ring: oklch(0.52 0.15 253);
 
-  --nav: oklch(0.255 0.026 258);
-  --nav-foreground: oklch(0.95 0.005 250);
-  --nav-muted: oklch(0.72 0.014 252);
-  --nav-active: oklch(0.32 0.035 258);
+  --nav: oklch(0.215 0.03 262);
+  --nav-foreground: oklch(0.97 0.004 255);
+  --nav-muted: oklch(0.74 0.016 256);
+  --nav-active: oklch(0.29 0.04 262);
 
   --chart-1: oklch(0.52 0.15 253);
   --chart-2: oklch(0.55 0.11 195);
@@ -165,13 +169,35 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
+    font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
-  h1,
+  h1 {
+    letter-spacing: -0.022em;
+  }
   h2,
   h3 {
-    letter-spacing: -0.01em;
+    letter-spacing: -0.012em;
+  }
+
+  /* Surfaces: every bordered card gets a soft, layered lift instead of a flat outline. */
+  :where(.bg-card.border, .bg-card.rounded-md.border, .bg-card.rounded-lg.border) {
+    box-shadow: var(--shadow-sm);
+  }
+  :where(a.bg-card.border, button.bg-card.border):hover {
+    box-shadow: var(--shadow-md);
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in oklch, var(--color-ring) 70%, transparent);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--color-primary) 18%, transparent);
   }
 }
 
@@ -183,17 +209,19 @@
 
   & thead th {
     text-align: left;
-    font-weight: 500;
-    font-size: 0.75rem;
+    font-weight: 600;
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
     color: var(--color-muted-foreground);
-    padding: 0.5rem 0.75rem;
+    padding: 0.625rem 0.875rem;
     border-bottom: 1px solid var(--color-border);
-    background-color: var(--color-muted);
+    background-color: color-mix(in oklch, var(--color-muted) 60%, var(--color-card));
     white-space: nowrap;
   }
 
   & tbody td {
-    padding: 0.625rem 0.75rem;
+    padding: 0.7rem 0.875rem;
     border-bottom: 1px solid var(--color-border);
     vertical-align: middle;
   }

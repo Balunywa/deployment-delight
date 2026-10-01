@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowUpCircle, Building2, Eye, Server } from "lucide-react";
+import { ArrowUpCircle, Building2, ChevronRight, Eye, Network, Plus, Server } from "lucide-react";
 
 import { NewLandingZone } from "@/components/lz/NewLandingZone";
 import { EmptyState, Pill } from "@/components/Primitives";
@@ -51,26 +51,32 @@ function Foundations() {
   return (
     <>
       <NewLandingZone open={creating} onOpenChange={setCreating} customers={available} />
-      <div className="mb-2 flex justify-end">
-        <Button onClick={() => setCreating(true)}>New landing zone</Button>
-      </div>
-      <div className="mb-6 max-w-3xl">
-        <p className="text-xs text-muted-foreground">Platform</p>
-        <h1 className="mt-0.5 text-[22px] font-semibold">Landing zones</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          The Azure foundation each customer install lands in — management groups, policy and
-          platform subscriptions, built from Microsoft's{" "}
-          <a
-            href="https://github.com/Azure/Azure-Landing-Zones-Library"
-            target="_blank"
-            rel="noreferrer"
-            className="text-primary hover:underline"
-          >
-            Azure Landing Zones Library
-          </a>
-          . There is one per Microsoft Entra tenant: your own hosting tenant, customer tenants you
-          build, and customer landing zones you plug into.
-        </p>
+      <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
+        <div className="max-w-3xl">
+          <p className="text-[11px] font-semibold tracking-[0.08em] text-primary uppercase">
+            Platform
+          </p>
+          <h1 className="mt-1 text-[26px] leading-tight font-semibold tracking-tight">
+            Landing zones
+          </h1>
+          <p className="mt-1.5 text-[14px] leading-relaxed text-muted-foreground">
+            The Azure foundation each customer install lands in — management groups, policy and
+            platform subscriptions, built from Microsoft's{" "}
+            <a
+              href="https://github.com/Azure/Azure-Landing-Zones-Library"
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:underline"
+            >
+              Azure Landing Zones Library
+            </a>
+            . There is one per Microsoft Entra tenant: your own hosting tenant, customer tenants you
+            build, and customer landing zones you plug into.
+          </p>
+        </div>
+        <Button onClick={() => setCreating(true)}>
+          <Plus /> New landing zone
+        </Button>
       </div>
 
       {foundations.isLoading && <EmptyState title="Loading landing zones…" />}
@@ -117,13 +123,16 @@ function Group({
 }) {
   if (!items.length) return null;
   return (
-    <section className="mb-6">
-      <div className="mb-2 flex items-center gap-2">
-        <span className="text-muted-foreground">{icon}</span>
-        <h2 className="text-[13px] font-semibold">{title}</h2>
-        <span className="text-xs text-muted-foreground">· {subtitle}</span>
+    <section className="mb-8">
+      <div className="mb-3 flex items-baseline gap-2">
+        <span className="self-center text-muted-foreground">{icon}</span>
+        <h2 className="text-[14px] font-semibold tracking-tight">{title}</h2>
+        <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold text-muted-foreground tabular-nums">
+          {items.length}
+        </span>
+        <span className="text-[12.5px] text-muted-foreground">{subtitle}</span>
       </div>
-      <div className="grid gap-3 lg:grid-cols-2">
+      <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
         {items.map((f) => {
           const answers = withDefaults(f.answers);
           const lib = libraryFor(f.library_ref);
@@ -140,11 +149,16 @@ function Group({
               key={f.id}
               to="/foundations/$foundationId"
               params={{ foundationId: f.id }}
-              className="rounded-md border border-border bg-card p-4 transition-colors hover:border-border-strong"
+              className="group flex flex-col rounded-lg border border-border bg-card transition-[border-color,box-shadow] hover:border-border-strong"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-[14px] font-semibold">{f.name}</p>
+              <div className="flex items-start justify-between gap-3 p-4 pb-0">
+                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-primary/[0.08] text-primary ring-1 ring-primary/15 ring-inset">
+                  <Network className="size-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[14.5px] font-semibold tracking-tight group-hover:text-primary">
+                    {f.name}
+                  </p>
                   <p className="font-mono text-[11px] text-muted-foreground">
                     {answers.intermediateRootId} ·{" "}
                     {f.mode === "existing"
@@ -154,19 +168,22 @@ function Group({
                 </div>
                 <Pill tone={status.tone}>{status.label}</Pill>
               </div>
-              <div className="mt-3 flex flex-wrap gap-1.5">
+              <div className="mt-3 flex flex-wrap gap-1.5 px-4 pl-[3.75rem]">
                 {tree
                   .filter((n) => ["corp", "online", "local", "sandbox"].includes(n.libraryId))
                   .map((n) => (
                     <span
                       key={n.id}
-                      className="rounded-sm border border-border bg-background px-2 py-0.5 text-[11px]"
+                      className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11.5px] text-foreground/80"
                     >
-                      {n.displayName} <b className="font-mono">{byLz[n.libraryId] ?? 0}</b>
+                      {n.displayName}
+                      <b className="font-semibold text-foreground tabular-nums">
+                        {byLz[n.libraryId] ?? 0}
+                      </b>
                     </span>
                   ))}
               </div>
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border bg-muted/30 px-4 py-2.5 text-[11.5px] text-muted-foreground">
                 <span>
                   {tree.length} management groups · {placed.length} install
                   {placed.length === 1 ? "" : "s"} placed
@@ -177,7 +194,11 @@ function Group({
                   </span>
                 ) : f.last_deployed_at ? (
                   <span>deployed {relative(f.last_deployed_at)}</span>
-                ) : null}
+                ) : (
+                  <span className="inline-flex items-center gap-0.5 font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
+                    Open <ChevronRight className="size-3.5" />
+                  </span>
+                )}
               </div>
             </Link>
           );
