@@ -16,13 +16,14 @@ async function openZone(page: Page, name: RegExp) {
   await loaded(page);
 }
 
-const step = (page: Page, n: number, label: string) =>
-  page.getByRole("button", { name: new RegExp(`^${n}\\s*${label}`) }).first();
+/** The landing zone's tabs: Overview, Design, Traffic, Governance, Deploy, Code. */
+const tab = (page: Page, name: string) =>
+  page.getByRole("tab", { name: new RegExp(`^${name}`) }).first();
 
 test.describe("platform landing zones", () => {
   test("traffic simulator: high availability and disaster recovery what-ifs", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     const map = page.locator(".react-flow");
     // ExpressRoute alongside the VPN, and a hub in a second region.
     await map
@@ -32,7 +33,7 @@ test.describe("platform landing zones", () => {
       .getByTitle("Add to the design")
       .click();
     await map.getByText("Add a hub in a second region").click();
-    await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    await tab(page, "Traffic").click();
     const scenarios = page.getByRole("complementary", { name: "Traffic scenarios" });
     const drawing = page.getByRole("img", { name: /Network topology/ });
 
@@ -78,9 +79,45 @@ test.describe("platform landing zones", () => {
     await expect(page.getByTestId("drop")).toContainText("No installs are deployed in eastus");
   });
 
+  test("overview: cost, best practices, traffic and fixes in one place", async ({ page }) => {
+    await openZone(page, /Harbor Municipal Utility tenant/);
+    await expect(tab(page, "Overview")).toHaveAttribute("aria-selected", "true");
+    for (const k of [
+      "Platform cost",
+      "First deployment",
+      "Microsoft best practices",
+      "Traffic",
+      "Resilience",
+    ])
+      await expect(page.getByText(k, { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("region", { name: "Monthly cost" })).toContainText(
+      "Azure Firewall",
+    );
+    const attention = page.getByRole("region", { name: "Needs your attention" });
+    await expect(attention.locator('[data-severity="fail"]').first()).toBeVisible();
+    // A fix changes the design (not Azure) and the page says so.
+    await attention.getByRole("button", { name: "Add the platform team" }).click();
+    await expect(tab(page, "Design")).toContainText("1 unsaved");
+    await expect(attention.getByRole("button", { name: "Save & review" })).toBeVisible();
+  });
+
+  test("new landing zone: each scenario says what it costs and how long it takes @readonly", async ({
+    page,
+  }) => {
+    await open(page, "/foundations");
+    await expect(page.getByLabel("Fleet")).toContainText("Platform cost");
+    await page.getByRole("button", { name: "New landing zone" }).click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Most common")).toBeVisible();
+    await expect(dialog.getByText("Lowest cost")).toBeVisible();
+    await expect(dialog.getByText(/\$[\d,]+\/mo/).first()).toBeVisible();
+    await expect(dialog.getByText(/about \d+ min to deploy/).first()).toBeVisible();
+    await page.keyboard.press("Escape");
+  });
+
   test("traffic simulator opens from the design's Traffic tab @readonly", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await page.getByRole("button", { name: "Traffic", exact: true }).click();
     await page.getByRole("link", { name: /Simulate it end to end/ }).click();
     await loaded(page);
@@ -97,13 +134,13 @@ test.describe("platform landing zones", () => {
       "Customer tenants you build",
       "Customer landing zones you use",
     ])
-      await expect(page.getByText(section, { exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: section, exact: true })).toBeVisible();
     await expect(page.getByText(/ALZ 2026\.08\.1 available/)).toBeVisible();
   });
 
   test("design: edit, see the Azure impact, discard, then save and review", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await loaded(page);
 
     // One more environment: the change bar says what it means in Azure.
@@ -111,7 +148,7 @@ test.describe("platform landing zones", () => {
     await env.fill("qa");
     await env.press("Enter");
     await expect(page.getByText(/^1 unsaved change/).first()).toBeVisible();
-    await expect(step(page, 2, "Design")).toContainText("1 unsaved change");
+    await expect(tab(page, "Design")).toContainText("1 unsaved");
     await expect(page.getByRole("button", { name: /^Next: Save your changes/ })).toBeVisible();
     await page.getByRole("button", { name: "Discard" }).click();
     await expect(page.getByText(/unsaved change/)).toHaveCount(0);
@@ -126,21 +163,25 @@ test.describe("platform landing zones", () => {
 
     await page.getByRole("button", { name: /Save & review/ }).click();
     await expect(page.getByText("Design saved. Here's what it changes.")).toBeVisible();
-    await expect(step(page, 3, "Review changes")).toHaveClass(/ring-1/);
+    await expect(tab(page, "Deploy")).toHaveAttribute("aria-selected", "true");
     await expect(page.getByText("What changes in Azure")).toBeVisible();
-    await expect(page.getByRole("button", { name: /^Next: Continue to deploy/ })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Before you deploy" })).toContainText(
+      "Monthly platform cost",
+    );
     await expect(page.getByText(/^13 management groups under Harbor/)).toBeVisible();
 
     await page.getByRole("button", { name: "See the Terraform" }).click();
     await expect(page.getByText("main.tf").first()).toBeVisible();
-    await step(page, 3, "Review changes").click();
-    await page.getByRole("button", { name: /^Next: Continue to deploy/ }).click();
-    await expect(step(page, 4, "Deploy")).toHaveClass(/ring-1/);
+    await tab(page, "Deploy").click();
+    await page.getByRole("button", { name: /^Continue to deploy/ }).click();
+    await expect(
+      page.getByText(/Checking your Azure access|^Deploys as|^No Azure identity/).first(),
+    ).toBeVisible();
   });
 
   test("deploy: readiness is checked and Plan says what it will do", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 4, "Deploy").click();
+    await tab(page, "Deploy").click();
     await expect(page.getByText(/Checking your Azure access/)).toHaveCount(0, { timeout: 60_000 });
     // Either a signed-in identity (local az login) or a clear reason there isn't one (CI).
     await expect(page.getByText(/^(Deploys as|No Azure identity)/).first()).toBeVisible();
@@ -160,7 +201,7 @@ test.describe("platform landing zones", () => {
 
   test("traffic flows step through the design, hop by hop @readonly", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await page.getByRole("button", { name: "Traffic", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Traffic flows" })).toBeVisible();
     await expect(page.getByText("Users reach an Online install")).toBeVisible();
@@ -183,7 +224,7 @@ test.describe("platform landing zones", () => {
   }) => {
     // Harbor: hub and spoke, Azure Firewall, a site-to-site VPN gateway.
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await page.getByRole("button", { name: "Traffic", exact: true }).click();
     const outcome = page.locator("[data-outcome]");
 
@@ -214,13 +255,13 @@ test.describe("platform landing zones", () => {
     await page.getByText("The office reaches a Corp workload").click();
     await expect(outcome).toHaveAttribute("data-outcome", "needs-rules");
     await expect(page.getByText(/rt-hub-gateway \(GatewaySubnet\)/).first()).toBeVisible();
-    await page.getByRole("button", { name: "Terraform", exact: true }).click();
+    await tab(page, "Code").click();
     await expect(page.getByText(/route_table_custom_routes/).first()).toBeVisible();
   });
 
   test("traffic simulator: a packet through the real routes, both ways", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    await tab(page, "Traffic").click();
     const scenarios = page.getByRole("complementary", { name: "Traffic scenarios" });
     const verdict = page.locator("[data-verdict]");
     const hop = page.getByRole("region", { name: "Current hop" });
@@ -254,7 +295,7 @@ test.describe("platform landing zones", () => {
     page,
   }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     const map = page.locator(".react-flow");
     const where = page.getByRole("navigation", { name: "Where you are" });
     await expect(page.getByRole("tab", { name: "Architecture" })).toHaveAttribute(
@@ -285,7 +326,7 @@ test.describe("platform landing zones", () => {
 
   test("the map: tick a part out and back, and the change bar says so", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     const bastion = page.locator(".react-flow__node").filter({ hasText: "Azure Bastion" }).first();
     await bastion.getByTitle("Leave out of the design").click();
     await expect(page.getByText(/^1 unsaved change/).first()).toBeVisible();
@@ -296,7 +337,7 @@ test.describe("platform landing zones", () => {
 
   test("the map: a workload landing zone shows up in its group once chosen", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     const map = page.locator(".react-flow");
     await expect(map.getByText("AKS landing zone")).toHaveCount(0);
     await map.getByText("Corp landing zones", { exact: true }).click();
@@ -319,7 +360,7 @@ test.describe("platform landing zones", () => {
     page,
   }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await page.getByRole("tab", { name: "Access & policy" }).click();
     const map = page.locator(".react-flow");
     const checks = page.getByRole("region", { name: "Best-practice checks" });
@@ -365,7 +406,7 @@ test.describe("platform landing zones", () => {
 
   test("access: Microsoft's recommended roles apply as a design change", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await page.getByRole("button", { name: "Access", exact: true }).click();
     const recommend = page.getByRole("button", { name: "Use Microsoft's recommendation" });
     await expect(recommend).toBeVisible();
@@ -379,7 +420,7 @@ test.describe("platform landing zones", () => {
     page,
   }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await step(page, 2, "Design").click();
+    await tab(page, "Design").click();
     await page.getByRole("button", { name: "✦ Advisor", exact: true }).click();
     await expect(page.getByRole("heading", { name: /Design advisor/ })).toBeVisible();
     await expect(page.getByText(/AZURE_OPENAI_ENDPOINT/).first()).toBeVisible();
@@ -387,7 +428,7 @@ test.describe("platform landing zones", () => {
 
   test("policies per group, filtered by effect and by your changes @readonly", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await page.getByRole("button", { name: "Policies", exact: true }).click();
+    await tab(page, "Governance").click();
     for (const f of ["Deny effects", "Changed in your design", "All"])
       await page.getByRole("button", { name: f, exact: true }).click();
     await expect(
@@ -400,14 +441,14 @@ test.describe("platform landing zones", () => {
 
   test("pin the newer ALZ library after seeing the diff", async ({ page }) => {
     await openZone(page, /GridWorks hosting tenant/);
-    await page.getByRole("button", { name: "ALZ version", exact: true }).click();
+    await tab(page, "Code").click();
     await page
       .getByRole("button", { name: /2026\.08\.1/ })
       .first()
       .click();
     await page.getByRole("button", { name: "Pin ALZ 2026.08.1" }).click();
     await expect(page.getByText(/Pinned to ALZ 2026\.08\.1/)).toBeVisible();
-    await page.getByRole("button", { name: "Terraform", exact: true }).click();
+    await tab(page, "Code").click();
     await expect(page.getByText(/pinned to 2026\.08\.1/).first()).toBeVisible();
   });
 
@@ -433,7 +474,7 @@ test.describe("platform landing zones", () => {
     test.skip(!process.env["E2E_AZURE"], "Needs an Azure sign-in; set E2E_AZURE=1 to run.");
     test.setTimeout(300_000);
     await openZone(page, /GridWorks hosting tenant/);
-    await step(page, 1, "Assess").click();
+    await page.getByRole("button", { name: /Assess an existing tenant/ }).click();
     await page.getByRole("button", { name: "Scan a live tenant" }).click();
     await expect(page.getByText(/Aligned with the Azure landing zone standard/)).toBeVisible({
       timeout: 240_000,

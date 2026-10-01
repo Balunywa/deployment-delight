@@ -9,7 +9,10 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
 import { TrafficSimulator } from "@/components/lz/TrafficSimulator";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
-import { ChangeBar, ReviewView, StepBar } from "@/components/lz/Flow";
+import { ChangeBar, ReviewView } from "@/components/lz/Flow";
+import { BeforeYouDeploy, LandingZoneOverview } from "@/components/lz/Overview";
+import { BestPracticeChecks } from "@/components/lz/Panels";
+import { accessChecks, checkSummary } from "@/lib/alz/access-checks";
 import { RealDeploy } from "@/components/lz/RealDeploy";
 import { describeChanges } from "@/lib/alz/changes";
 import { assess } from "@/lib/alz/assess";
@@ -40,7 +43,18 @@ import { customersQuery, foundationQuery, offeringsQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 type View =
-  "design" | "assessment" | "review" | "policies" | "version" | "iac" | "deploy" | "traffic";
+  | "overview"
+  | "design"
+  | "traffic"
+  | "governance"
+  | "deploy"
+  | "code"
+  | "assessment"
+  /* earlier links */
+  | "review"
+  | "policies"
+  | "version"
+  | "iac";
 
 export const Route = createFileRoute("/foundations/$foundationId")({
   validateSearch: (s: Record<string, unknown>): { view?: View; flow?: string } => {
@@ -80,8 +94,15 @@ function FoundationDetail() {
   if (!f) return <EmptyState title="Landing zone not found." />;
 
   const managed = f.mode === "managed";
+  const requested = search.view;
   const view: View = managed
-    ? (search.view ?? "design")
+    ? requested === "review"
+      ? "deploy"
+      : requested === "policies"
+        ? "governance"
+        : requested === "iac" || requested === "version"
+          ? "code"
+          : (requested ?? "overview")
     : search.view === "policies" || search.view === "design"
       ? search.view
       : "assessment";
@@ -131,35 +152,49 @@ function FoundationDetail() {
           run: () => save.mutate({ data: { foundationId: f.id, answers } }),
         }
       : f.status !== "deployed" || pending > 0
-        ? view === "review"
-          ? {
-              label: "Continue to deploy",
+        ? view === "deploy"
+          ? null
+          : {
+              label: f.status === "draft" ? "Review, then deploy" : "Review changes",
               run: () => void navigate({ search: { view: "deploy" } }),
             }
-          : view === "deploy"
-            ? null
-            : {
-                label: f.status === "draft" ? "Review, then deploy" : "Review changes",
-                run: () => void navigate({ search: { view: "review" } }),
-              }
-        : f.library_ref !== LATEST_REF
+        : f.library_ref !== LATEST_REF && view !== "code"
           ? {
               label: `Upgrade to ALZ ${shortRef(LATEST_REF)}`,
-              run: () => void navigate({ search: { view: "version" } }),
+              run: () => void navigate({ search: { view: "code" } }),
             }
           : null;
   const tabs: [View, string][] = managed
     ? [
-        ["traffic", "Traffic flows"],
-        ["policies", "Policies"],
-        ["version", "ALZ version"],
-        ["iac", "Terraform"],
+        ["overview", "Overview"],
+        ["design", "Design"],
+        ["traffic", "Traffic"],
+        ["governance", "Governance"],
+        ["deploy", "Deploy"],
+        ["code", "Code"],
       ]
     : [
         ["assessment", assessment ? `Assessment · ${assessment.overall}%` : "Assessment"],
         ["design", "Where your product lands"],
         ["policies", "Reference policies"],
       ];
+
+  const score = checkSummary(accessChecks(current, tree));
+  const tabBadge: Partial<
+    Record<View, { text: string; tone: "ok" | "warn" | "neutral" } | undefined>
+  > = {
+    design: unsaved ? { text: `${unsaved} unsaved`, tone: "warn" } : undefined,
+    governance: { text: `${score.passed}/${score.scored}`, tone: score.fix ? "warn" : "ok" },
+    deploy:
+      f.status === "deployed" && !pending
+        ? { text: "Live", tone: "ok" }
+        : { text: f.status === "draft" ? "Not deployed" : `${pending} to deploy`, tone: "warn" },
+    code: f.library_ref !== LATEST_REF ? { text: "Update", tone: "warn" } : undefined,
+  };
+  const spokesNow = spokesFor(
+    ["corp", "online", "local", "sandbox"].filter((g) => tree.some((n) => n.libraryId === g)),
+    placed,
+  );
 
   return (
     <div className="-mx-4 -my-6 lg:-mx-8">
@@ -211,13 +246,43 @@ function FoundationDetail() {
             : `Discovered from ${String((f.discovered as Record<string, unknown>)?.["source"] ?? "Azure Resource Graph")} · follows the ALZ reference architecture · owned by ${f.customers?.name}'s platform team`}
         </p>
         {managed && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 pb-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <StepBar
-                view={view}
-                onGo={(v) => void navigate({ search: { view: v } })}
-                status={stepStatus}
-              />
+          <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+            <nav className="-mb-px flex flex-wrap gap-1 text-[13.5px]" aria-label="Landing zone">
+              {tabs.map(([id, label]) => {
+                const badge = tabBadge[id];
+                return (
+                  <button
+                    key={id}
+                    role="tab"
+                    aria-selected={view === id}
+                    onClick={() => navigate({ search: { view: id } })}
+                    className={cn(
+                      "flex items-center gap-1.5 border-b-2 px-3 pb-2.5 transition-colors",
+                      view === id
+                        ? "border-primary font-semibold text-foreground"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                    {badge && (
+                      <span
+                        className={cn(
+                          "rounded-full px-1.5 text-[10.5px] font-semibold",
+                          badge.tone === "warn"
+                            ? "bg-[#fff4ce] text-[#8a6100]"
+                            : badge.tone === "ok"
+                              ? "bg-[#dff6dd] text-[#107c10]"
+                              : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {badge.text}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="flex items-center gap-2 pb-2">
               {next ? (
                 <Button size="sm" disabled={save.isPending} onClick={next.run}>
                   Next: {next.label} <ArrowRight className="size-3.5" />
@@ -226,22 +291,6 @@ function FoundationDetail() {
                 f.status === "deployed" &&
                 !dirty && <span className="text-[12px] text-success">Up to date with Azure</span>
               )}
-            </div>
-            <div className="flex items-center gap-3 text-[12.5px]">
-              {tabs.map(([id, label]) => (
-                <button
-                  key={id}
-                  onClick={() => navigate({ search: { view: id } })}
-                  className={cn(
-                    "hover:text-foreground",
-                    view === id
-                      ? "font-medium text-foreground underline underline-offset-4"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
             </div>
           </div>
         )}
@@ -264,6 +313,46 @@ function FoundationDetail() {
       </div>
 
       <div className="p-4 lg:p-6">
+        {view === "overview" && managed && (
+          <LandingZoneOverview
+            lib={lib}
+            tree={tree}
+            answers={answers}
+            deployed={deployedAnswers}
+            status={f.status}
+            libraryRef={f.library_ref}
+            dirty={dirty}
+            unsaved={unsaved}
+            pending={pending}
+            assessed={assessment ? assessment.overall : null}
+            spokes={spokesNow}
+            extras={sceneExtras(answers, lib, tree)}
+            placedCount={placed.length}
+            set={(p) => {
+              setAnswers({ ...answers, ...p });
+              toast.success("Changed in the design. Save it to review and deploy.");
+            }}
+            go={(v, flow) => void navigate({ search: { view: v, ...(flow ? { flow } : {}) } })}
+            onSave={() => save.mutate({ data: { foundationId: f.id, answers } })}
+          />
+        )}
+        {view === "governance" && managed && (
+          <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
+            <BestPracticeChecks
+              tree={tree}
+              answers={answers}
+              set={(p) => setAnswers({ ...answers, ...p })}
+            />
+            <div className="min-w-0">
+              <h2 className="mb-1 text-[14px] font-semibold">Policy, by management group</h2>
+              <p className="mb-3 text-[12px] text-muted-foreground">
+                Every ALZ assignment this design deploys. Give a team access or add a policy on the
+                design map's Access &amp; policy view.
+              </p>
+              <PoliciesView tree={tree} />
+            </div>
+          </div>
+        )}
         {view === "design" && (
           <LandingZoneDesigner
             lib={lib}
@@ -287,18 +376,32 @@ function FoundationDetail() {
             onSave={() => save.mutate({ data: { foundationId: f.id, answers } })}
           />
         )}
-        {view === "review" && managed && (
-          <ReviewView
-            lib={lib}
-            deployed={deployedAnswers}
-            saved={saved}
-            status={f.status}
-            dirty={dirty}
-            baselineUnknown={baselineUnknown}
-            onBackToDesign={() => void navigate({ search: { view: "design" } })}
-            onDeploy={() => void navigate({ search: { view: "deploy" } })}
-            onTerraform={() => void navigate({ search: { view: "iac" } })}
-          />
+        {view === "deploy" && managed && (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+            <div className="min-w-0">
+              <ReviewView
+                lib={lib}
+                deployed={deployedAnswers}
+                saved={saved}
+                status={f.status}
+                dirty={dirty}
+                baselineUnknown={baselineUnknown}
+                onBackToDesign={() => void navigate({ search: { view: "design" } })}
+                onDeploy={() =>
+                  document.getElementById("deploy-to-azure")?.scrollIntoView({ behavior: "smooth" })
+                }
+                onTerraform={() => void navigate({ search: { view: "code" } })}
+              />
+            </div>
+            <BeforeYouDeploy
+              tree={tree}
+              answers={saved}
+              deployed={deployedAnswers}
+              spokes={spokesNow}
+              extras={sceneExtras(saved, lib, tree)}
+              go={(v, flow) => void navigate({ search: { view: v, ...(flow ? { flow } : {}) } })}
+            />
+          </div>
         )}
         {view === "assessment" && (
           <AssessmentView
@@ -333,12 +436,7 @@ function FoundationDetail() {
             </div>
             <TrafficSimulator
               answers={answers}
-              spokes={spokesFor(
-                ["corp", "online", "local", "sandbox"].filter((g) =>
-                  tree.some((n) => n.libraryId === g),
-                ),
-                placed,
-              )}
+              spokes={spokesNow}
               extras={sceneExtras(answers, lib, tree)}
               tree={tree}
               initial={search.flow}
@@ -347,13 +445,23 @@ function FoundationDetail() {
           </div>
         )}
         {view === "policies" && <PoliciesView tree={tree} />}
-        {view === "version" && (
-          <VersionView foundationId={f.id} pinned={f.library_ref} deployed={f.deployed_ref} />
+        {view === "code" && (
+          <div className="space-y-6">
+            <section>
+              <h2 className="mb-2 text-[14px] font-semibold">ALZ library version</h2>
+              <VersionView foundationId={f.id} pinned={f.library_ref} deployed={f.deployed_ref} />
+            </section>
+            <section>
+              <h2 className="mb-2 text-[14px] font-semibold">Terraform</h2>
+              <IacView libraryRef={f.library_ref} answers={answers} placed={placed} dirty={dirty} />
+            </section>
+          </div>
         )}
-        {view === "iac" && (
-          <IacView libraryRef={f.library_ref} answers={answers} placed={placed} dirty={dirty} />
+        {view === "deploy" && (
+          <div id="deploy-to-azure" className="mt-6 scroll-mt-4">
+            <DeployView foundationId={f.id} dirty={dirty} />
+          </div>
         )}
-        {view === "deploy" && <DeployView foundationId={f.id} dirty={dirty} />}
       </div>
     </div>
   );
@@ -426,7 +534,6 @@ function PoliciesView({ tree }: { tree: MgNode[] }) {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Management group</th>
               <th>Assignment</th>
               <th>Effect</th>
               <th>Type</th>
@@ -434,33 +541,50 @@ function PoliciesView({ tree }: { tree: MgNode[] }) {
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
-              <tr key={`${r.mg.id}-${r.name}`}>
-                <td className="whitespace-nowrap text-muted-foreground">{r.mg.displayName}</td>
-                <td>
-                  <p className="font-medium">{r.assignment?.displayName ?? r.name}</p>
-                  <p className="font-mono text-[10.5px] text-muted-foreground">{r.name}</p>
-                </td>
-                <td>
-                  <Pill tone={effectTone(r.assignment?.effect)}>
-                    {effectLabel(r.assignment?.effect)}
-                  </Pill>
-                </td>
-                <td className="text-xs text-muted-foreground">
-                  {r.assignment?.source === "builtin" ? "Built-in" : "ALZ custom"}{" "}
-                  {r.assignment?.kind === "initiative" ? "initiative" : "policy"}
-                </td>
-                <td>
-                  {r.change?.action === "remove" ? (
-                    <Pill tone="warning">Removed</Pill>
-                  ) : r.change?.action === "audit" ? (
-                    <Pill tone="neutral">Audit only</Pill>
-                  ) : (
-                    <Pill tone="success">Enforced</Pill>
-                  )}
-                </td>
-              </tr>
-            ))}
+            {[...new Set(shown.map((r) => r.mg.id))].map((mgId) => {
+              const group = shown.filter((r) => r.mg.id === mgId);
+              const mg = group[0]!.mg;
+              const deny = group.filter((r) =>
+                (r.assignment?.effect ?? "").toLowerCase().startsWith("deny"),
+              ).length;
+              return [
+                <tr key={`h-${mgId}`} className="bg-muted/40">
+                  <td colSpan={4} className="py-1.5 text-[12px]">
+                    <b className="font-semibold">{mg.displayName}</b>
+                    <span className="ml-2 text-muted-foreground">
+                      {group.length} assignment{group.length === 1 ? "" : "s"}
+                      {deny ? ` · ${deny} deny` : ""} · {mg.inherited} inherited from above
+                    </span>
+                  </td>
+                </tr>,
+                ...group.map((r) => (
+                  <tr key={`${r.mg.id}-${r.name}`}>
+                    <td>
+                      <p className="font-medium">{r.assignment?.displayName ?? r.name}</p>
+                      <p className="font-mono text-[10.5px] text-muted-foreground">{r.name}</p>
+                    </td>
+                    <td>
+                      <Pill tone={effectTone(r.assignment?.effect)}>
+                        {effectLabel(r.assignment?.effect)}
+                      </Pill>
+                    </td>
+                    <td className="text-xs text-muted-foreground">
+                      {r.assignment?.source === "builtin" ? "Built-in" : "ALZ custom"}{" "}
+                      {r.assignment?.kind === "initiative" ? "initiative" : "policy"}
+                    </td>
+                    <td>
+                      {r.change?.action === "remove" ? (
+                        <Pill tone="warning">Removed</Pill>
+                      ) : r.change?.action === "audit" ? (
+                        <Pill tone="neutral">Audit only</Pill>
+                      ) : (
+                        <Pill tone="success">Enforced</Pill>
+                      )}
+                    </td>
+                  </tr>
+                )),
+              ];
+            })}
           </tbody>
         </table>
       </div>
