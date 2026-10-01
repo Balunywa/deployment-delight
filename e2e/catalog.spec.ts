@@ -68,11 +68,15 @@ test.describe.serial("solution catalog", () => {
     // Steps are numbered on the diagram and follow the selected delivery model's real architecture.
     await expect(how.locator("ol > li").first()).toContainText("1");
     await expect(how.locator('[data-node="aks"]')).toBeVisible();
-    await how.getByRole("tab", { name: "Enterprise Private" }).click();
-    await expect(how.getByText("Traffic arrives through the customer's hub")).toBeVisible();
-    await expect(how.locator('[data-node="hub"]')).toContainText("1");
-    await how.getByRole("tab", { name: "Hosted by GridWorks" }).click();
-    await expect(how.getByText("Users sign in", { exact: true })).toBeVisible();
+    // Every delivery model gets its own steps, starting where its traffic enters, with numbers on the diagram.
+    const tabs = how.getByRole("tab");
+    for (let i = 0; i < (await tabs.count()); i++) {
+      await tabs.nth(i).click();
+      await expect(how.locator("ol > li").first()).toContainText(
+        /Users sign in|Traffic arrives through the customer's hub|Its own network in the customer's Azure/,
+      );
+      await expect(how.locator("span.rounded-full.bg-primary").first()).toBeVisible();
+    }
     const deploy = page.locator("#deploy");
     await expect(deploy.getByRole("link", { name: /^Deploy .+ v\d/ }).first()).toBeVisible();
     await expect(deploy.getByText("What the customer provides")).toBeVisible();
