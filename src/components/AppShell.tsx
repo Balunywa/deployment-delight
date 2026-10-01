@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import {
   Activity,
+  Ear,
   Boxes,
   Building2,
   Cog,
@@ -38,6 +39,7 @@ import { cn } from "@/lib/utils";
 
 type Path =
   | "/"
+  | "/engagements"
   | "/products"
   | "/offerings"
   | "/upgrades"
@@ -60,6 +62,10 @@ type NavItem = { to: Path; label: string; icon: LucideIcon };
  */
 const nav: { label: string; items: NavItem[] }[] = [
   { label: "", items: [{ to: "/", label: "Home", icon: LayoutDashboard }] },
+  {
+    label: "Engage",
+    items: [{ to: "/engagements", label: "Engagements", icon: Ear }],
+  },
   {
     label: "Product",
     items: [

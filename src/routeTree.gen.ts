@@ -25,6 +25,8 @@ import { Route as DeliveryIndexRouteImport } from './routes/delivery.index'
 import { Route as DeliveryUnitIdRouteImport } from './routes/delivery.$unitId'
 import { Route as DeploymentsIndexRouteImport } from './routes/deployments.index'
 import { Route as DeploymentsDeploymentIdRouteImport } from './routes/deployments.$deploymentId'
+import { Route as EngagementsIndexRouteImport } from './routes/engagements.index'
+import { Route as EngagementsEngagementIdRouteImport } from './routes/engagements.$engagementId'
 import { Route as FoundationsIndexRouteImport } from './routes/foundations.index'
 import { Route as FoundationsFoundationIdRouteImport } from './routes/foundations.$foundationId'
 import { Route as ProductsIndexRouteImport } from './routes/products.index'
@@ -110,6 +112,16 @@ const DeploymentsDeploymentIdRoute = DeploymentsDeploymentIdRouteImport.update({
   path: '/deployments/$deploymentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EngagementsIndexRoute = EngagementsIndexRouteImport.update({
+  id: '/engagements/',
+  path: '/engagements/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EngagementsEngagementIdRoute = EngagementsEngagementIdRouteImport.update({
+  id: '/engagements/$engagementId',
+  path: '/engagements/$engagementId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FoundationsIndexRoute = FoundationsIndexRouteImport.update({
   id: '/foundations/',
   path: '/foundations/',
@@ -145,11 +157,13 @@ export interface FileRoutesByFullPath {
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/delivery/$unitId': typeof DeliveryUnitIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/engagements/$engagementId': typeof EngagementsEngagementIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
+  '/engagements/': typeof EngagementsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
 }
@@ -167,11 +181,13 @@ export interface FileRoutesByTo {
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/delivery/$unitId': typeof DeliveryUnitIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/engagements/$engagementId': typeof EngagementsEngagementIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/customers': typeof CustomersIndexRoute
   '/delivery': typeof DeliveryIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
+  '/engagements': typeof EngagementsIndexRoute
   '/foundations': typeof FoundationsIndexRoute
   '/products': typeof ProductsIndexRoute
 }
@@ -190,11 +206,13 @@ export interface FileRoutesById {
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/delivery/$unitId': typeof DeliveryUnitIdRoute
   '/deployments/$deploymentId': typeof DeploymentsDeploymentIdRoute
+  '/engagements/$engagementId': typeof EngagementsEngagementIdRoute
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/customers/': typeof CustomersIndexRoute
   '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
+  '/engagements/': typeof EngagementsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
 }
@@ -214,11 +232,13 @@ export interface FileRouteTypes {
     | '/customers/$customerId'
     | '/delivery/$unitId'
     | '/deployments/$deploymentId'
+    | '/engagements/$engagementId'
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/customers/'
     | '/delivery/'
     | '/deployments/'
+    | '/engagements/'
     | '/foundations/'
     | '/products/'
   fileRoutesByTo: FileRoutesByTo
@@ -236,11 +256,13 @@ export interface FileRouteTypes {
     | '/customers/$customerId'
     | '/delivery/$unitId'
     | '/deployments/$deploymentId'
+    | '/engagements/$engagementId'
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/customers'
     | '/delivery'
     | '/deployments'
+    | '/engagements'
     | '/foundations'
     | '/products'
   id:
@@ -258,11 +280,13 @@ export interface FileRouteTypes {
     | '/customers/$customerId'
     | '/delivery/$unitId'
     | '/deployments/$deploymentId'
+    | '/engagements/$engagementId'
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/customers/'
     | '/delivery/'
     | '/deployments/'
+    | '/engagements/'
     | '/foundations/'
     | '/products/'
   fileRoutesById: FileRoutesById
@@ -281,11 +305,13 @@ export interface RootRouteChildren {
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   DeliveryUnitIdRoute: typeof DeliveryUnitIdRoute
   DeploymentsDeploymentIdRoute: typeof DeploymentsDeploymentIdRoute
+  EngagementsEngagementIdRoute: typeof EngagementsEngagementIdRoute
   FoundationsFoundationIdRoute: typeof FoundationsFoundationIdRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
   DeliveryIndexRoute: typeof DeliveryIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
+  EngagementsIndexRoute: typeof EngagementsIndexRoute
   FoundationsIndexRoute: typeof FoundationsIndexRoute
   ProductsIndexRoute: typeof ProductsIndexRoute
 }
@@ -404,6 +430,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DeploymentsDeploymentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/engagements/': {
+      id: '/engagements/'
+      path: '/engagements'
+      fullPath: '/engagements/'
+      preLoaderRoute: typeof EngagementsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/engagements/$engagementId': {
+      id: '/engagements/$engagementId'
+      path: '/engagements/$engagementId'
+      fullPath: '/engagements/$engagementId'
+      preLoaderRoute: typeof EngagementsEngagementIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/foundations/': {
       id: '/foundations/'
       path: '/foundations'
@@ -449,11 +489,13 @@ const rootRouteChildren: RootRouteChildren = {
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   DeliveryUnitIdRoute: DeliveryUnitIdRoute,
   DeploymentsDeploymentIdRoute: DeploymentsDeploymentIdRoute,
+  EngagementsEngagementIdRoute: EngagementsEngagementIdRoute,
   FoundationsFoundationIdRoute: FoundationsFoundationIdRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   CustomersIndexRoute: CustomersIndexRoute,
   DeliveryIndexRoute: DeliveryIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
+  EngagementsIndexRoute: EngagementsIndexRoute,
   FoundationsIndexRoute: FoundationsIndexRoute,
   ProductsIndexRoute: ProductsIndexRoute,
 }

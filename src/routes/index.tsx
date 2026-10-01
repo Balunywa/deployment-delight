@@ -14,6 +14,8 @@ import {
 import { type ReactNode } from "react";
 
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
+import { StageDots } from "@/components/engagement/StageDots";
+import { progressOf } from "@/lib/engagements";
 import { GridLegend, InstallGrid, OnboardingPipeline } from "@/components/Fleet";
 import { statusLabel } from "@/components/Primitives";
 import { LANDING_LABEL, fromManifest } from "@/lib/architecture";
@@ -21,7 +23,7 @@ import { SERVICE_BY_ID } from "@/lib/catalog";
 import { formatDuration, semverCompare } from "@/lib/fleet";
 import { relative } from "@/lib/format";
 import { pipelineFor } from "@/lib/pipeline";
-import { driftQuery, organizationQuery } from "@/lib/queries";
+import { driftQuery, engagementsQuery, organizationQuery } from "@/lib/queries";
 import { useFleet } from "@/lib/use-fleet";
 import { cn } from "@/lib/utils";
 
@@ -99,6 +101,8 @@ function Home() {
           <Stat k="Customized" v={`${kpis.custom}`} />
         </dl>
       </div>
+
+      <EngagementsPanel />
 
       <section className="mb-5 overflow-hidden rounded-md border border-border bg-card">
         <header className="flex items-center justify-between border-b border-border px-4 py-2.5">
@@ -369,5 +373,59 @@ function Item({
       </div>
       {children}
     </li>
+  );
+}
+
+/** Listening comes first: the engagements in flight, where each one is, and what it needs next. */
+function EngagementsPanel() {
+  const list = useQuery(engagementsQuery);
+  const items = (list.data ?? []).slice(0, 4);
+  return (
+    <section className="mb-5 overflow-hidden rounded-md border border-border bg-card">
+      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+        <div>
+          <h2 className="text-[13px] font-semibold">Engagements</h2>
+          <p className="text-[11.5px] text-muted-foreground">
+            Listen and consult before solutioning: Listen, Assess, Map, Propose, Prove.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 text-[12px]">
+          <Link to="/engagements" className="text-primary hover:underline">
+            All engagements
+          </Link>
+          <Link
+            to="/engagements"
+            className="rounded-md bg-primary px-2.5 py-1 font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Start one
+          </Link>
+        </div>
+      </header>
+      {items.length ? (
+        <ul className="divide-y divide-border">
+          {items.map((e) => (
+            <li key={e.id}>
+              <Link
+                to="/engagements/$engagementId"
+                params={{ engagementId: e.id }}
+                className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 hover:bg-muted/40"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium">{e.name}</span>
+                  <span className="block truncate text-[11.5px] text-muted-foreground">
+                    {e.customer_name ?? "Not a customer yet"} · {progressOf(e).next}
+                  </span>
+                </span>
+                <StageDots e={e} />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="px-4 py-3 text-[12.5px] text-muted-foreground">
+          No engagements yet. Start one before the first solutioning conversation.
+        </p>
+      )}
+    </section>
   );
 }

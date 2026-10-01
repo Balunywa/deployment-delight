@@ -1,5 +1,7 @@
 import { queryOptions } from "@tanstack/react-query";
 
+import { getEngagement, listEngagements } from "@/lib/engagements.functions";
+
 import {
   getCustomer,
   getDeployment,
@@ -94,4 +96,14 @@ export const solutionQuery = (productId: string) =>
   queryOptions({
     queryKey: ["solution", productId],
     queryFn: () => getSolution({ data: { productId } }),
+  });
+
+export const engagementsQuery = queryOptions({
+  queryKey: ["engagements"],
+  queryFn: () => listEngagements(),
+});
+export const engagementQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["engagement", id],
+    queryFn: () => getEngagement({ data: { id } }),
   });

@@ -56,6 +56,14 @@ Either way, it's the same product setup, the same deployment process and the sam
      "How it works" shows the project's own diagram with numbered steps, and the interactive architecture of each
      delivery model numbered to match. Then come the business scenario, caveats to read before deploying, and how
      to deploy, including the project's own command. Catalog cards open the solution page.
+0. **Listen before you solution (Engagements).** SEs, CSAs and SSPs start with the customer's problem, not a
+   product. **Listen** captures the workflow, the problem, the outcome, why now, the accountable owner, the
+   baseline (left empty until measured, never guessed) and who's in the room. **Assess** rates readiness across
+   six concepts: AI that changes workflows, business context, modernizing what blocks AI, reachable and governed
+   data, safe and affordable operation, and owners and adoption. **Map** links each priority to catalog
+   accelerators. **Propose** generates the same story for a customer executive, technical and field leaders, and
+   an internal audience (commercial measures stay internal). **Prove** deploys a PoC from the catalog, measures it
+   against the baseline and records the decision in the audit log. See `src/lib/engagements.ts`.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.
