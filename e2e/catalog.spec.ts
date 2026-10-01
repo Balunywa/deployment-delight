@@ -77,12 +77,10 @@ test.describe.serial("solution catalog", () => {
     await expect(page.locator("#overview")).toBeVisible();
     await expect(page.locator("article").filter({ hasText: "GitOps from day one" })).toBeVisible();
 
-    // How it works: the project's own diagram with numbered steps, then the interactive architecture.
+    // How it works: the architecture drawn from the code, with the flow in numbered steps.
     const how = page.locator("section").filter({ has: page.locator("#how-it-works") });
-    await expect(how.getByRole("img", { name: "Architecture" })).toBeVisible();
-    await expect(how.locator("ol > li").first()).toContainText("Deploy from Git");
-    await how.getByRole("tab", { name: /Interactive architecture/ }).click();
     await expect(how.locator('[data-node="aks"]')).toBeVisible();
+    await expect(how.locator("ol > li").first()).toContainText("Deploy from Git");
     // Every delivery model draws its own architecture, numbered to match the steps.
     for (const model of ["Customer Hosted", "Hosted"]) {
       await how.getByRole("tab", { name: model, exact: true }).click();

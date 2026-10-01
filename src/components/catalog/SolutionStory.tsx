@@ -14,8 +14,6 @@ import {
   Github,
   Globe2,
   Layers3,
-  Maximize2,
-  Network,
   Rocket,
   ShieldCheck,
   Sparkles,
@@ -28,7 +26,6 @@ import { type ReactNode, useMemo, useState } from "react";
 import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { type Architecture, LANDING_LABEL } from "@/lib/architecture";
 import { SERVICE_BY_ID } from "@/lib/catalog";
 import {
@@ -308,52 +305,9 @@ function Steps({
   );
 }
 
-function Diagram({ d }: { d: { title: string; url: string; caption?: string } }) {
-  const [open, setOpen] = useState(false);
-  return (
-    <figure className="overflow-hidden rounded-xl border border-border bg-white">
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="group relative block w-full cursor-zoom-in"
-        aria-label={`Open ${d.title} full size`}
-      >
-        <img
-          src={d.url}
-          alt={d.title}
-          className="mx-auto max-h-[460px] w-full object-contain p-3"
-        />
-        <span className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-md bg-foreground/75 px-2 py-1 text-[11px] text-background opacity-0 transition-opacity group-hover:opacity-100">
-          <Maximize2 className="size-3" /> Full size
-        </span>
-      </button>
-      <figcaption className="flex flex-wrap items-baseline justify-between gap-2 border-t border-border bg-muted/30 px-4 py-2 text-[11.5px] text-muted-foreground">
-        <span>
-          <b className="font-semibold text-foreground">{d.title}</b>
-          {d.caption ? ` · ${d.caption}` : ""}
-        </span>
-        <a
-          href={d.url}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-1 hover:text-foreground"
-        >
-          From the project <ExternalLink className="size-3" />
-        </a>
-      </figcaption>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-[min(1200px,95vw)] p-3">
-          <DialogTitle className="px-1 text-sm">{d.title}</DialogTitle>
-          <img src={d.url} alt={d.title} className="max-h-[80vh] w-full object-contain" />
-        </DialogContent>
-      </Dialog>
-    </figure>
-  );
-}
-
 /**
- * The project's own diagrams with numbered steps beside them, and the interactive architecture of each delivery
- * model (numbered too). Hovering a step highlights it, and its services on the interactive diagram.
+ * The architecture the platform draws from the solution's code, per delivery model, with the flow in numbered
+ * steps. Hovering a step highlights its services on the diagram.
  */
 export function HowItWorks({
   models,
@@ -364,11 +318,6 @@ export function HowItWorks({
   productName: string;
   story: CuratedStory | null;
 }) {
-  const diagrams = story?.diagrams ?? [];
-  const [view, setView] = useState<"diagram" | "interactive">(
-    diagrams.length ? "diagram" : "interactive",
-  );
-  const [diagram, setDiagram] = useState(0);
   const [modelId, setModelId] = useState(
     (models.find((m) => m.published) ?? models[0])?.id ?? null,
   );
@@ -378,120 +327,61 @@ export function HowItWorks({
     () => (model ? howItWorks(model.arch, productName) : []),
     [model, productName],
   );
+  if (!model) return null;
   const steps = story?.steps?.length ? story.steps : generated;
-  if (!model && !diagrams.length) return null;
-  const landing = model ? LANDING_LABEL[model.arch.topology.landing] : null;
-  const tab = (key: typeof view, label: string, icon: ReactNode) => (
-    <button
-      role="tab"
-      aria-selected={view === key}
-      onClick={() => {
-        setView(key);
-        setHover(null);
-      }}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors",
-        view === key
-          ? "bg-foreground text-background"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {icon} {label}
-    </button>
-  );
+  const landing = LANDING_LABEL[model.arch.topology.landing];
   return (
     <section className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <Heading
-          id="how-it-works"
-          kicker="How it works"
-          title="Architecture, step by step"
-          sub={
-            view === "diagram"
-              ? "The project's own diagram, with the flow in numbered steps."
-              : `${landing?.title ?? ""}. Every service as the platform deploys it; the numbers match the steps.`
-          }
-        />
-        <div
-          role="tablist"
-          aria-label="Diagram"
-          className="flex gap-1 rounded-full border border-border bg-muted/40 p-1"
-        >
-          {diagrams.length > 0 &&
-            tab("diagram", "Architecture diagram", <BookOpen className="size-3.5" />)}
-          {model &&
-            tab("interactive", "Interactive architecture", <Network className="size-3.5" />)}
-        </div>
-      </div>
-
+      <Heading
+        id="how-it-works"
+        kicker="How it works"
+        title="Architecture, step by step"
+        sub={`${landing.title}. Drawn from the solution's code, as the platform deploys it; the numbers match the steps.`}
+      />
       <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-        {view === "diagram" && diagrams.length > 0 ? (
-          <div className="space-y-3 bg-muted/20 p-4">
-            {diagrams.length > 1 && (
-              <div className="flex flex-wrap gap-1.5">
-                {diagrams.map((d, i) => (
+        <div className="bg-muted/20">
+          {models.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
+              <span className="text-[11.5px] text-muted-foreground">Delivery model</span>
+              <div role="tablist" aria-label="Delivery model" className="flex flex-wrap gap-1">
+                {models.map((m) => (
                   <button
-                    key={d.url}
-                    onClick={() => setDiagram(i)}
+                    key={m.id}
+                    role="tab"
+                    aria-selected={m.id === model.id}
+                    onClick={() => {
+                      setModelId(m.id);
+                      setHover(null);
+                    }}
                     className={cn(
-                      "rounded-full border px-3 py-1 text-[12px] font-medium",
-                      diagram === i
+                      "rounded-full border px-2.5 py-0.5 text-[11.5px] font-medium transition-colors",
+                      m.id === model.id
                         ? "border-primary bg-primary/10 text-primary"
                         : "border-border bg-card text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {d.title}
+                    {m.name}
                   </button>
                 ))}
               </div>
-            )}
-            <Diagram d={diagrams[Math.min(diagram, diagrams.length - 1)]!} />
-          </div>
-        ) : model ? (
-          <div className="bg-muted/20">
-            {models.length > 1 && (
-              <div className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5">
-                <span className="text-[11.5px] text-muted-foreground">Delivery model</span>
-                <div role="tablist" aria-label="Delivery model" className="flex flex-wrap gap-1">
-                  {models.map((m) => (
-                    <button
-                      key={m.id}
-                      role="tab"
-                      aria-selected={m.id === model.id}
-                      onClick={() => {
-                        setModelId(m.id);
-                        setHover(null);
-                      }}
-                      className={cn(
-                        "rounded-full border px-2.5 py-0.5 text-[11.5px] font-medium transition-colors",
-                        m.id === model.id
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border bg-card text-muted-foreground hover:text-foreground",
-                      )}
-                    >
-                      {m.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            <div className="flex justify-center overflow-x-auto p-4">
-              <ArchitectureCanvas
-                selected={model.arch.selected}
-                topology={model.arch.topology}
-                markers={stepMarkers(steps)}
-                highlight={hover !== null ? steps[hover]?.services : null}
-              />
             </div>
+          )}
+          <div className="flex justify-center overflow-x-auto p-4">
+            <ArchitectureCanvas
+              selected={model.arch.selected}
+              topology={model.arch.topology}
+              markers={stepMarkers(steps)}
+              highlight={hover !== null ? steps[hover]?.services : null}
+            />
           </div>
-        ) : null}
+        </div>
         <div className="border-t border-border p-3">
           <Steps steps={steps} hover={hover} onHover={setHover} />
         </div>
         <p className="border-t border-border bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground">
           {story?.steps?.length
-            ? `Steps from the ${story.source.replace(/^Project /, "project ")}; services as the platform maps them from the code.`
-            : `Generated from ${model?.name ?? "the offering"}${model?.version ? ` v${model.version}` : ""}'s reviewed architecture, so it matches what gets deployed.`}
+            ? `Steps from the ${story.source.replace(/^Project /, "project ").replace(/ and (architecture )?diagrams?$/, "")}; architecture drawn from ${model.name}${model.version ? ` v${model.version}` : ""}'s code.`
+            : `Generated from ${model.name}${model.version ? ` v${model.version}` : ""}'s reviewed architecture, so it matches what gets deployed.`}
         </p>
       </div>
     </section>
