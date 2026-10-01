@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cloud Delivery for Microsoft field teams — Stop rebuilding the same PoC</title>
+    <meta
+      name="description"
+      content="Cloud Delivery turns proven Azure architectures, demos and solution accelerators into reusable offerings that SEs, CSAs, SSPs and partners can deploy again and again across customers."
+    />
+    <meta property="og:title" content="Cloud Delivery — Stop rebuilding the same PoC" />
+    <meta
+      property="og:description"
+      content="Build the proof once. Package it. Deploy it again. Reusable, versioned offerings from proven Azure accelerators."
+    />
+    <meta property="og:type" content="website" />
+    <link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="../styles.css?v=10" />
+    <link rel="stylesheet" href="field.css?v=1" />
+    <script src="../config.js"></script>
+  </head>
+  <body>
+    <header class="nav">
+      <div class="wrap">
+        <a class="brand" href="#top"><img src="../favicon.svg" alt="" />Cloud Delivery</a>
+        <span class="nav-tag">For Microsoft field teams</span>
+        <nav class="nav-links">
+          <a href="#why">Why</a>
+          <a href="#motions">Motions</a>
+          <a href="#platform">How it works</a>
+          <a href="#catalog">Catalog</a>
+          <a href="#value">Value</a>
+        </nav>
+        <div class="nav-cta">
+          <a class="btn btn-ghost" href="../">For software companies</a>
+          <a class="btn btn-primary" data-link="console" data-path="products" href="#">Open the live demo</a>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <!-- HERO -->
+      <section class="hero f-hero">
+        <div class="wrap hero-grid">
+          <div class="hero-copy">
+            <p class="eyebrow on-dark">For SEs, CSAs, SSPs and partners</p>
+            <h1>
+              Stop rebuilding<br />
+              <span class="accent">the same PoC.</span>
+            </h1>
+            <p class="lede">
+              Cloud Delivery turns proven Azure architectures, demos and solution accelerators into
+              reusable offerings you can deploy again and again, across customers.
+            </p>
+            <p class="f-mantra">
+              <span>Build the proof once.</span><span>Package it.</span><span>Deploy it again.</span>
+            </p>
+            <div class="hero-cta">
+              <a class="btn btn-primary btn-lg" data-link="console" data-path="products" href="#"
+                >Explore accelerators <i data-lucide="arrow-right"></i
+              ></a>
+              <a class="btn btn-on-dark btn-lg" data-link="console" data-path="offerings" href="#"
+                ><i data-lucide="package-plus"></i>Create an offering</a
+              >
+            </div>
+            <p class="hero-note">
+              The live demo runs real Microsoft accelerators. Nothing to install, nothing to sign up for.
+            </p>
+          </div>
+
+          <div class="fan" aria-label="One accelerator deployed into many customer environments">
+            <div class="def">
+              <p class="def-k">Accelerator → offering</p>
+              <p class="def-name">Multi-Agent Custom Automation Engine</p>
+              <div class="def-svc">
+                <span class="svc s-ai">Foundry Agent Service</span><span class="svc s-ai">AI Search</span
+                ><span class="svc s-cmp">Container Apps</span><span class="svc s-data">Cosmos DB</span>
+              </div>
+              <p class="def-v">v2026.9.28 · <b>pinned to 9ac63ab</b> · Bicep + azd</p>
+            </div>
+            <svg class="fan-lines" viewBox="0 0 70 300" preserveAspectRatio="none" aria-hidden="true">
+              <path d="M0 150 C 35 150, 35 36, 70 36" />
+              <path d="M0 150 C 35 150, 35 112, 70 112" />
+              <path d="M0 150 C 35 150, 35 188, 70 188" />
+              <path d="M0 150 C 35 150, 35 264, 70 264" />
+            </svg>
+            <ul class="installs">
+              <li class="inst f-env" data-at="0">
+                <b>Contoso Energy</b><span>Live demo · Microsoft sandbox</span><em class="ver">queued</em>
+              </li>
+              <li class="inst f-env" data-at="1">
+                <b>Fabrikam Oil &amp; Gas</b><span>PoC · customer subscription</span
+                ><em class="ver">queued</em>
+              </li>
+              <li class="inst f-env" data-at="2">
+                <b>Northwind Utilities</b><span>Workshop · resource group</span><em class="ver">queued</em>
+              </li>
+              <li class="inst f-env" data-at="3">
+                <b>Tailspin Midstream</b><span>Production · their landing zone</span
+                ><em class="ver">queued</em>
+              </li>
+            </ul>
+            <p class="fan-status" aria-live="polite">Same offering, four environments</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- WHO -->
+      <section class="f-roles">
+        <div class="wrap f-roles-grid">
+          <div>
+            <i data-lucide="presentation"></i>
+            <h3>Solution Engineers</h3>
+            <p>Show it working in the customer's context, not on slides. Stand up a real environment in the meeting.</p>
+          </div>
+          <div>
+            <i data-lucide="drafting-compass"></i>
+            <h3>Cloud Solution Architects</h3>
+            <p>Start every engagement from a known-good, reviewed baseline, and hand over something deployable.</p>
+          </div>
+          <div>
+            <i data-lucide="trending-up"></i>
+            <h3>Specialists (SSPs)</h3>
+            <p>Move from interest to PoC to consumption on one path, and see which assets actually land.</p>
+          </div>
+          <div>
+            <i data-lucide="handshake"></i>
+            <h3>Partners</h3>
+            <p>Publish what you've built into the same lifecycle, and deliver it the same way every time.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- WHY -->
+      <section id="why">
+        <div class="wrap">
+          <div class="f-split">
+            <div>
+              <p class="eyebrow">The pattern</p>
+              <h2>From one customer engagement to a reusable asset.</h2>
+            </div>
+            <div class="f-story">
+              <p>Most engagements follow the same pattern.</p>
+              <ol>
+                <li>You find a use case.</li>
+                <li>You design the architecture.</li>
+                <li>You build the infrastructure.</li>
+                <li>You get the demo working.</li>
+                <li>You prove the value.</li>
+              </ol>
+              <p class="f-turn">Then the next customer arrives — <b>and you start over.</b></p>
+              <p>Cloud Delivery changes that.</p>
+            </div>
+          </div>
+
+          <p class="f-flow-title"><span>Solve once</span><i data-lucide="arrow-right"></i><span>Package once</span><i data-lucide="arrow-right"></i><span>Deploy many times</span></p>
+          <ol class="f-flow">
+            <li>
+              <span class="f-flow-n">01</span>
+              <i data-lucide="flask-conical"></i>
+              <h3>PoC / Demo</h3>
+              <p>Prove the idea fast, on a known architecture and a sample workload.</p>
+            </li>
+            <li>
+              <span class="f-flow-n">02</span>
+              <i data-lucide="package"></i>
+              <h3>Accelerator</h3>
+              <p>Capture the architecture, Terraform or Bicep, app code, workflow, docs and configuration.</p>
+            </li>
+            <li>
+              <span class="f-flow-n">03</span>
+              <i data-lucide="layers"></i>
+              <h3>Offering</h3>
+              <p>Define how it's delivered into a customer environment, and review it once.</p>
+            </li>
+            <li>
+              <span class="f-flow-n">04</span>
+              <i data-lucide="rocket"></i>
+              <h3>Deploy</h3>
+              <p>Into a sandbox, a Microsoft environment, a customer subscription or a landing zone.</p>
+            </li>
+            <li>
+              <span class="f-flow-n">05</span>
+              <i data-lucide="radar"></i>
+              <h3>Estate</h3>
+              <p>Know what was deployed, where, which version is running, and what needs to change.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- PROVEN -->
+      <section class="how">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">Start with something proven</p>
+            <h2>Everything an engagement needs, kept together.</h2>
+            <p class="sub">
+              Microsoft gives you trusted, reusable assets. Cloud Delivery keeps each one whole, and adds
+              the piece that's usually missing.
+            </p>
+          </div>
+          <div class="f-cards">
+            <article>
+              <i data-lucide="network"></i>
+              <h3>Proven architecture</h3>
+              <p>Reference architectures and patterns as the starting point, with the project's own diagrams.</p>
+            </article>
+            <article>
+              <i data-lucide="code-xml"></i>
+              <h3>Ready-to-use code</h3>
+              <p>Application code, Terraform, Bicep, pipelines, scripts and sample data, pinned to a commit.</p>
+            </article>
+            <article>
+              <i data-lucide="list-checks"></i>
+              <h3>Step-by-step guidance</h3>
+              <p>Prerequisites, configuration, deployment, validation and handoff, alongside the code.</p>
+            </article>
+            <article>
+              <i data-lucide="users"></i>
+              <h3>Role-based experience</h3>
+              <p>Sellers, architects, engineers, partners and delivery teams each get the part they need.</p>
+            </article>
+            <article>
+              <i data-lucide="presentation"></i>
+              <h3>Storytelling assets</h3>
+              <p>Diagrams, scenarios, outcomes and the numbered "how it works" stay with the solution.</p>
+            </article>
+            <article class="f-key">
+              <span class="f-key-tag">The missing piece</span>
+              <i data-lucide="repeat"></i>
+              <h3>Repeatable deployment</h3>
+              <p>
+                The asset becomes a versioned offering that deploys the same way across customers and
+                environments.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- MOTIONS -->
+      <section id="motions">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">One platform. Different engagement motions.</p>
+            <h2>However the conversation starts, it ends deployable.</h2>
+          </div>
+          <div class="f-motions">
+            <article>
+              <p class="f-m-k"><i data-lucide="zap"></i>Rapid PoCs</p>
+              <h3>From customer question to working environment, without a week of plumbing.</h3>
+              <p class="f-chain"><span>Scope</span><span>Deploy</span><span>Validate</span><span>Decide</span></p>
+              <p>Start from a reusable baseline, tailor the customer-specific pieces, test the hypothesis, and leave with a clear next decision.</p>
+            </article>
+            <article>
+              <p class="f-m-k"><i data-lucide="monitor-play"></i>Live demos</p>
+              <h3>Real environments instead of architecture slides.</h3>
+              <p>Predefined infrastructure, sample data and demo flows, so engineers spend the meeting on the customer's problem, not on setup.</p>
+            </article>
+            <article>
+              <p class="f-m-k"><i data-lucide="package-check"></i>Solution accelerators</p>
+              <h3>Successful patterns, packaged for the next team.</h3>
+              <p class="f-tags"><span>Architecture</span><span>Infrastructure as code</span><span>Application code</span><span>Documentation</span><span>Customer inputs</span><span>Validation steps</span></p>
+              <p>All treated as one reusable product.</p>
+            </article>
+            <article>
+              <p class="f-m-k"><i data-lucide="pencil-ruler"></i>Workshops</p>
+              <h3>End the workshop with a deployable baseline, not another deck.</h3>
+              <p>Start with the customer problem, move into architecture and design, and finish with something running in their subscription.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ABSTRACTION -->
+      <section class="landing f-abstract">
+        <div class="wrap">
+          <div class="landing-grid f-abstract-grid">
+            <div>
+              <p class="eyebrow on-dark">The abstraction is the product</p>
+              <h2>Infrastructure is an implementation detail.</h2>
+              <p class="sub on-dark">
+                Terraform, Bicep, ARM, GitHub Actions, landing zones, subscriptions, policy and networking all
+                still exist. Cloud Delivery sits above them, and maps your intent onto Azure.
+              </p>
+              <div class="f-quote">
+                <p class="f-q-old">“Which Terraform module do I run?”</p>
+                <i data-lucide="arrow-down"></i>
+                <p class="f-q-new">“Deploy this offering for this customer.”</p>
+              </div>
+            </div>
+            <div class="f-stack" aria-label="What you work with, above what the platform handles">
+              <p class="f-stack-k">What you work with</p>
+              <div class="f-stack-top">
+                <span>Product</span><i data-lucide="chevron-right"></i><span>Offering</span><i data-lucide="chevron-right"></i><span>Customer</span><i data-lucide="chevron-right"></i><span>Environment</span><i data-lucide="chevron-right"></i><span>Version</span>
+              </div>
+              <div class="f-stack-mid"><img src="../favicon.svg" alt="" /> Cloud Delivery maps it</div>
+              <p class="f-stack-k">What it handles for you</p>
+              <div class="f-stack-bottom">
+                <span>Terraform</span><span>Bicep</span><span>ARM</span><span>azd</span><span>GitHub Actions</span><span>Azure DevOps</span><span>Landing zones</span><span>Subscriptions</span><span>Policy</span><span>Identity &amp; RBAC</span><span>Networking</span><span>Private endpoints</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- EXECUTABLE -->
+      <section>
+        <div class="wrap">
+          <div class="f-exec">
+            <p class="f-exec-line"><span>Architecture diagrams</span> explain the pattern.</p>
+            <p class="f-exec-line"><span>Code</span> proves the pattern.</p>
+            <p class="f-exec-line f-exec-key"><span>Cloud Delivery</span> makes the pattern repeatable.</p>
+          </div>
+          <ol class="f-pipe">
+            <li><i data-lucide="book-open"></i>Reference architecture</li>
+            <li><i data-lucide="code-xml"></i>Code</li>
+            <li><i data-lucide="layers"></i>Offering</li>
+            <li class="on"><i data-lucide="rocket"></i>Customer deployment</li>
+          </ol>
+          <div class="duo f-duo">
+            <figure class="shot">
+              <img src="shots/solution-how.jpg" alt="How it works: the accelerator's own architecture diagram with numbered steps" loading="lazy" />
+              <figcaption>Every accelerator explains itself: its own diagram, and the flow in numbered steps.</figcaption>
+            </figure>
+            <figure class="shot">
+              <img src="shots/solution-interactive.jpg" alt="Interactive architecture of a delivery model, numbered to match the steps" loading="lazy" />
+              <figcaption>The same steps on the architecture the platform actually deploys, per delivery model.</figcaption>
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- LIFECYCLE -->
+      <section id="platform" class="how">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">From architecture to running environment</p>
+            <h2>Foundation → Product → Offering → Install → Release → Estate</h2>
+          </div>
+          <div class="f-life">
+            <div class="f-life-tabs" role="tablist" aria-label="Lifecycle">
+              <button role="tab" class="on" data-tab="foundation"><b>01</b>Foundation</button>
+              <button role="tab" data-tab="product"><b>02</b>Product</button>
+              <button role="tab" data-tab="offering"><b>03</b>Offering</button>
+              <button role="tab" data-tab="install"><b>04</b>Install</button>
+              <button role="tab" data-tab="release"><b>05</b>Release</button>
+              <button role="tab" data-tab="estate"><b>06</b>Estate</button>
+            </div>
+            <div class="f-life-pane" data-pane="foundation">
+              <div>
+                <h3>Foundation</h3>
+                <p>Understand where the workload can run: subscriptions, landing zones, identity, networking, policy and governance. Design an Azure landing zone from Microsoft's library, see real traffic paths, then deploy it.</p>
+              </div>
+              <figure class="shot"><img src="shots/landing-zone.jpg" alt="Landing zone designer" loading="lazy" /></figure>
+            </div>
+            <div class="f-life-pane" data-pane="product" hidden>
+              <div>
+                <h3>Product</h3>
+                <p>Capture the reusable workload: architecture, code, documentation and value. Import a GitHub repo and it's pinned, inspected and mapped to Azure services, then reviewed before anyone can deploy it.</p>
+              </div>
+              <figure class="shot"><img src="shots/catalog.jpg" alt="Solution catalog" loading="lazy" /></figure>
+            </div>
+            <div class="f-life-pane" data-pane="offering" hidden>
+              <div>
+                <h3>Offering</h3>
+                <p>Define how it's deployed: architecture choices, SKUs, regions, networking, dependencies and the inputs each customer provides. One product can have several delivery models.</p>
+              </div>
+              <figure class="shot"><img src="shots/solution-interactive.jpg" alt="Offering architecture" loading="lazy" /></figure>
+            </div>
+            <div class="f-life-pane" data-pane="install" hidden>
+              <div>
+                <h3>Install</h3>
+                <p>Deploy the offering into a real environment through repeatable infrastructure and pipelines. The customer gets their own repository, and onboarding is a pull request.</p>
+              </div>
+              <figure class="shot"><img src="shots/onboard.jpg" alt="Onboarding a customer" loading="lazy" /></figure>
+            </div>
+            <div class="f-life-pane" data-pane="release" hidden>
+              <div>
+                <h3>Release</h3>
+                <p>Version the solution and move customers forward safely, ring by ring. Every install gets a plan that waits for approval, so nothing upgrades silently.</p>
+              </div>
+              <figure class="shot"><img src="shots/releases.jpg" alt="Releases and rollouts" loading="lazy" /></figure>
+            </div>
+            <div class="f-life-pane" data-pane="estate" hidden>
+              <div>
+                <h3>Estate</h3>
+                <p>See what's deployed, where it runs, which version it's on, and what needs attention, across every customer.</p>
+              </div>
+              <figure class="shot"><img src="shots/estate.jpg" alt="Installed base" loading="lazy" /></figure>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BESPOKE -->
+      <section>
+        <div class="wrap">
+          <div class="f-split">
+            <div>
+              <p class="eyebrow">Customer-specific, without becoming customer-bespoke</p>
+              <h2>Same product. Different customer. Same delivery path.</h2>
+              <p class="sub">
+                A reusable accelerator shouldn't mean every customer gets an identical environment, and
+                customizing shouldn't mean rebuilding. Cloud Delivery keeps the reusable product apart from each
+                customer's configuration, so every customer is an instance of the pattern, not a new
+                engineering project.
+              </p>
+            </div>
+            <div class="f-bespoke" aria-label="One product, configured per customer">
+              <div class="f-b-product">
+                <p class="def-k">Product · v2026.9.16</p>
+                <p class="def-name">Real-Time Intelligence for Operations</p>
+                <p class="f-b-sub">Event Hubs · Fabric Eventhouse · Activator · Data Agent</p>
+              </div>
+              <div class="f-b-configs">
+                <div><b>Fabrikam Oil &amp; Gas</b><dl><dt>Runs in</dt><dd>Customer subscription</dd><dt>Region</dt><dd>West Europe</dd><dt>Sources</dt><dd>Compressor telemetry</dd></dl></div>
+                <div><b>Tailspin Midstream</b><dl><dt>Runs in</dt><dd>Their landing zone</dd><dt>Region</dt><dd>East US 2</dd><dt>Sources</dt><dd>Pipeline SCADA</dd></dl></div>
+                <div><b>Contoso Energy</b><dl><dt>Runs in</dt><dd>Microsoft sandbox</dd><dt>Region</dt><dd>Sweden Central</dd><dt>Sources</dt><dd>Simulator</dd></dl></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- CATALOG -->
+      <section id="catalog" class="how">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">Use the right starting point</p>
+            <h2>Real accelerators, ready to deploy.</h2>
+            <p class="sub">
+              Every one is a Microsoft open-source project with deployable code, imported at a pinned commit and
+              reviewed. Where an accelerator was built for another industry, its page says so, and shows how it
+              adapts to energy.
+            </p>
+          </div>
+          <div class="f-cats">
+            <article>
+              <i data-lucide="bot"></i><h3>AI &amp; Agents</h3>
+              <p>Agent and AI application patterns on Microsoft Foundry.</p>
+              <ul><li>Multi-Agent Custom Automation Engine</li><li>Content Processing</li><li>Conversation Knowledge Mining</li><li>Chat with Your Data</li></ul>
+            </article>
+            <article>
+              <i data-lucide="activity"></i><h3>Data &amp; Analytics</h3>
+              <p>Fabric foundations, live telemetry and operational intelligence.</p>
+              <ul><li>Real-Time Intelligence for Operations</li><li>Unified Data Foundation with Fabric</li><li>Agentic Apps on a Unified Data Foundation</li></ul>
+            </article>
+            <article>
+              <i data-lucide="drill"></i><h3>Industry Solutions</h3>
+              <p>Energy and subsurface patterns on OSDU and Azure Data Manager for Energy.</p>
+              <ul><li>OSDU Developer Platform</li><li>ADME Experience Lab</li><li>OSDU on AKS Automatic</li></ul>
+            </article>
+            <article>
+              <i data-lucide="landmark"></i><h3>Infrastructure</h3>
+              <p>Landing zones, networking, identity and governance, from Microsoft's Azure Landing Zones library.</p>
+              <ul><li>Design, assess and deploy a landing zone</li><li>Traffic flows, policy and access, checked</li></ul>
+            </article>
+            <article>
+              <i data-lucide="refresh-cw"></i><h3>Application Modernization</h3>
+              <p>Bring your own baseline: point at a Terraform, Bicep or ARM repo and it's inspected, mapped and reviewed.</p>
+              <ul><li>Same review, same delivery path</li></ul>
+            </article>
+            <article>
+              <i data-lucide="handshake"></i><h3>Partner Accelerators</h3>
+              <p>Partners publish what they've built into the same lifecycle, with owners and trust levels.</p>
+              <ul><li>Submit a GitHub repo to publish</li></ul>
+            </article>
+          </div>
+          <div class="f-page">
+            <figure class="shot">
+              <img src="shots/solution-hero.jpg" alt="An accelerator page" loading="lazy" />
+            </figure>
+            <div>
+              <h3>Every accelerator page answers the questions a customer asks first.</h3>
+              <ul class="ticks">
+                <li>What it solves, and who it's for</li>
+                <li>The architecture, with the flow in numbered steps</li>
+                <li>What gets deployed, mapped from the code</li>
+                <li>Prerequisites, and the caveats worth knowing</li>
+                <li>How the project deploys itself, e.g. <span class="mono">azd up</span></li>
+                <li>The delivery models on offer, and a one-click path to deploy</li>
+              </ul>
+              <a class="btn btn-primary" data-link="console" data-path="products" href="#">Browse the catalog <i data-lucide="arrow-right"></i></a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VALUE -->
+      <section id="value">
+        <div class="wrap">
+          <div class="head">
+            <p class="eyebrow">Move from proof to consumption</p>
+            <h2>The goal isn't another successful demo.</h2>
+            <p class="sub">
+              A successful engagement shouldn't disappear into somebody's GitHub repo. Cloud Delivery captures
+              what worked, and makes it the starting point for the next customer.
+            </p>
+          </div>
+          <ol class="f-path">
+            <li>Customer interest</li><li>Demo</li><li>PoC</li><li>Deployment</li><li class="on">Consumption</li><li class="on">Expansion</li>
+          </ol>
+          <div class="f-outcomes">
+            <div><i data-lucide="timer"></i><b>Shorter time to a working environment</b></div>
+            <div><i data-lucide="copy-x"></i><b>Less duplicated engineering</b></div>
+            <div><i data-lucide="badge-check"></i><b>A consistent customer experience</b></div>
+            <div><i data-lucide="hand-helping"></i><b>Easier handoff to partners and delivery teams</b></div>
+            <div><i data-lucide="trending-up"></i><b>A clearer path from PoC to Azure consumption</b></div>
+            <div><i data-lucide="radar"></i><b>An installed base you can see and manage</b></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- LEARN -->
+      <section class="how f-learn">
+        <div class="wrap">
+          <div class="f-split">
+            <div>
+              <p class="eyebrow">Build once. Learn every time.</p>
+              <h2>The catalog becomes a feedback loop, not a file share.</h2>
+              <p class="sub">Every deployment makes the accelerator better, because you can finally see what happens after the demo.</p>
+            </div>
+            <div class="f-qs">
+              <p>Which accelerators are actually used?</p>
+              <p>Which turn into customer deployments?</p>
+              <p>How long does a deployment take?</p>
+              <p>Which versions are customers running?</p>
+              <p>Which assets drive Azure consumption?</p>
+              <p>Where do teams keep customizing the same thing?</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="close">
+        <div class="wrap">
+          <p class="eyebrow on-dark center">Start with an existing accelerator, or package the one you've built</p>
+          <h2>Turn your next PoC into the starting point<br />for the next ten customers.</h2>
+          <div class="hero-cta center">
+            <a class="btn btn-primary btn-lg" data-link="console" data-path="products" href="#">Explore accelerators <i data-lucide="arrow-right"></i></a>
+            <a class="btn btn-on-dark btn-lg" data-link="console" data-path="products?submit=true" href="#"><i data-lucide="upload"></i>Publish an accelerator</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <div class="wrap">
+        <span>Cloud Delivery for Microsoft field teams. Accelerators are Microsoft open-source projects; Cloud Delivery packages and delivers them, it doesn't replace their guidance.</span>
+        <span><a href="../">For software companies →</a></span>
+      </div>
+    </footer>
+
+    <script src="https://unpkg.com/lucide@0.575.0/dist/umd/lucide.min.js"></script>
+    <script>
+      const cfg = window.CLOUD_DELIVERY || {};
+      document.querySelectorAll("[data-link]").forEach((a) => {
+        const base = { console: cfg.consoleUrl, deploy: cfg.deployUrl, repo: cfg.repoUrl }[a.dataset.link];
+        if (base) a.href = a.dataset.path ? new URL(a.dataset.path, base).toString() : base;
+      });
+
+      // Hero: one offering lands in four environments, one after another, then holds.
+      const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const envs = [...document.querySelectorAll(".f-env")];
+      const status = document.querySelector(".fan-status");
+      const states = ["queued", "deploying", "live"];
+      let tick = 0;
+      const render = () => {
+        envs.forEach((li) => {
+          const at = Number(li.dataset.at);
+          const s = tick > at * 2 + 1 ? "live" : tick > at * 2 ? "deploying" : "queued";
+          li.dataset.state = s === "queued" ? "old" : s;
+          li.querySelector(".ver").textContent = s;
+        });
+        const live = envs.filter((li) => li.dataset.state === "live").length;
+        status.textContent = live === envs.length ? "Same offering, four environments, one path" : `Deploying… ${live} of ${envs.length} live`;
+      };
+      if (reduce) {
+        tick = 99;
+        render();
+      } else {
+        render();
+        setInterval(() => {
+          tick = tick > envs.length * 2 + 4 ? 0 : tick + 1;
+          render();
+        }, 900);
+      }
+
+      // Lifecycle tabs.
+      document.querySelectorAll(".f-life-tabs button").forEach((b) =>
+        b.addEventListener("click", () => {
+          document.querySelectorAll(".f-life-tabs button").forEach((x) => {
+            x.classList.toggle("on", x === b);
+            x.setAttribute("aria-selected", String(x === b));
+          });
+          document.querySelectorAll(".f-life-pane").forEach((p) => (p.hidden = p.dataset.pane !== b.dataset.tab));
+        }),
+      );
+      // Screenshots open full size.
+      document.querySelectorAll(".shot img").forEach((img) => {
+        img.title = "Open full size";
+        img.addEventListener("click", () => window.open(img.src, "_blank", "noopener"));
+      });
+      if (window.lucide) window.lucide.createIcons();
+    </script>
+  </body>
+</html>

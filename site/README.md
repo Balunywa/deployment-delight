@@ -3,11 +3,15 @@
 A standalone static page (HTML + CSS, no build step) that explains the product and links to a live console.
 It is deployed separately from the console so ISV installs of the product never show marketing.
 
-- `index.html`, `styles.css` — the page
+- `index.html`, `styles.css` — the page for software companies (ISVs)
+- `field/` — the page for Microsoft field teams (SEs, CSAs, SSPs, partners): `field/index.html`, `field/field.css`
+  (builds on `../styles.css`) and `field/shots/` (real screenshots of the console). Same config, same live demo.
 - `config.js` — where the buttons point (`consoleUrl`, `repoUrl`); set per environment
 - `staticwebapp.config.json` — Azure Static Web Apps settings
 
-Live at **https://balunywa.github.io/deployment-delight/** — `.github/workflows/pages.yml` publishes `site/` to GitHub Pages on every change.
+Live at **https://balunywa.github.io/deployment-delight/** (software companies) and
+**https://balunywa.github.io/deployment-delight/field/** (Microsoft field teams). `.github/workflows/pages.yml` publishes
+`site/` (both pages) to GitHub Pages on every change.
 
 Preview locally:
 
