@@ -399,12 +399,15 @@ async function prepare(
     if (!data.principals[p]) throw new Error(`Enter the Microsoft Entra object ID for ${p}.`);
     vars[p] = data.principals[p];
   }
-  // Groups and placements made above already exist in Azure; Terraform adopts them instead of creating.
-  // Importing an address that is already in state is a no-op, so the pipeline (remote state) keeps them all.
+  // Groups and placements that already exist in Azure (made above, by an earlier run, or by hand) are adopted
+  // instead of created. Importing an address already in state is a no-op, so the pipeline keeps them all.
   const imports: { to: string; id: string }[] = [];
   for (const g of deployedGroups(f.library_ref, answers)) {
     const to = `module.alz.azapi_resource.management_groups_level_${g.level}[${JSON.stringify(g.id)}]`;
-    if (precreated.has(g.id) && !inState.has(to))
+    if (
+      !inState.has(to) &&
+      (precreated.has(g.id) || (await arm.managementGroupExists(g.id).catch(() => false)))
+    )
       imports.push({
         to,
         id: `/providers/Microsoft.Management/managementGroups/${g.id}?api-version=2023-04-01`,
