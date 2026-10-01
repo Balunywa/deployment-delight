@@ -291,6 +291,7 @@ async function ensureIdentity(
   location: string,
   tags: Record<string, string>,
   subject: string,
+  ref: string,
 ) {
   const id = `/subscriptions/${sub}/resourceGroups/${rg}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${name}`;
   const r = await armOk<{ properties: { clientId: string; principalId: string } }>(
@@ -298,7 +299,10 @@ async function ensureIdentity(
     `${id}?api-version=2023-01-31`,
     { location, tags },
   );
-  await armOk("PUT", `${id}/federatedIdentityCredentials/github?api-version=2023-01-31`, {
+  // One credential per template release: main keeps working on the previous tag until the next merge moves it.
+  // ("github" is the v2 credential's name from before credentials were named per release.)
+  const credential = ref === "v2" ? "github" : `github-${ref.replace(/[^A-Za-z0-9-]/g, "-")}`;
+  await armOk("PUT", `${id}/federatedIdentityCredentials/${credential}?api-version=2023-01-31`, {
     properties: {
       issuer: "https://token.actions.githubusercontent.com",
       subject,
@@ -395,7 +399,7 @@ export async function connectPipeline(opts: {
   ] as const) {
     const name = `id-${spec.repository.name}-${env}`;
     log(`Identity ${name}: trusts ${repo} environment "${env}" running lz.yml@${p.templatesRef}.`);
-    const id = await ensureIdentity(sub, rg, name, location, tags, subject(env));
+    const id = await ensureIdentity(sub, rg, name, location, tags, subject(env), p.templatesRef);
     await assignRole(root, role, id.principalId, log);
     await assignRole(storage.containerScope, ROLE.blobContributor, id.principalId, log);
     identities[env] = {

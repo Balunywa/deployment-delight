@@ -131,6 +131,23 @@ export async function listSubscriptions(): Promise<SubscriptionInfo[]> {
   );
 }
 
+/** "Enabled", or "Warned" / "PastDue" / "Disabled" / "Deleted": anything but Enabled is read-only. */
+export async function subscriptionState(subscriptionId: string) {
+  const r = await arm<{ state?: string }>(
+    "GET",
+    `/subscriptions/${subscriptionId}?api-version=2022-12-01`,
+  );
+  return r.status === 200 ? (r.data.state ?? "Unknown") : r.status === 404 ? "NotFound" : "Unknown";
+}
+
+export const SUBSCRIPTION_STATE: Record<string, string> = {
+  Warned: "cancelled, read-only until it's deleted",
+  PastDue: "past due, read-only",
+  Disabled: "disabled, read-only",
+  Deleted: "deleted",
+  NotFound: "not found",
+};
+
 export type BillingScope = { id: string; name: string; kind: "mca" | "ea" };
 
 /** Where new subscriptions can be billed: MCA invoice sections and EA enrollment accounts the identity can see. */

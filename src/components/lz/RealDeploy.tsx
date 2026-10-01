@@ -115,8 +115,8 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       const spare = r.billingScopes.length
         ? []
         : [...r.subscriptions]
-            // Only near-empty subscriptions: landing zone policies apply to whatever is already there.
-            .filter((s) => s.resourceGroups <= 2)
+            // Only usable, near-empty subscriptions: landing zone policies apply to whatever is already there.
+            .filter((s) => s.state === "Enabled" && s.resourceGroups <= 2)
             .sort((a, b) => a.resourceGroups - b.resourceGroups)
             .map((s) => s.id);
       const used = new Set(
@@ -125,7 +125,12 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
       for (const t of r.targets) {
         if (next[t.key]) continue;
         const existing = r.deployment.targets?.[t.key as keyof typeof r.deployment.targets];
-        const pick = existing ?? spare.find((id) => !used.has(id));
+        // A cancelled or disabled subscription is read-only: never default to it.
+        const usable = (id?: string) => {
+          const state = r.subscriptions.find((s) => s.id === id)?.state;
+          return !!id && (state === undefined || state === "Enabled");
+        };
+        const pick = (usable(existing) ? existing : undefined) ?? spare.find((id) => !used.has(id));
         if (pick) used.add(pick);
         next[t.key] = pick ? { mode: "existing", subscriptionId: pick } : { mode: "new" };
       }
@@ -186,11 +191,14 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
     c.mode === "existing" ? [c.subscriptionId] : [],
   );
   const duplicate = picked.length !== new Set(picked).size;
+  const readOnly = r.subscriptions.filter((s) => picked.includes(s.id) && s.state !== "Enabled");
   // Say exactly why Plan is off, instead of a silent grey button.
   const blockers = [
     dirty && "Save the design first.",
     blocking && "Fix the failed checks above.",
     busy && "A run is in progress.",
+    readOnly.length > 0 &&
+      `${readOnly.map((s) => s.name).join(", ")} ${readOnly.length === 1 ? "is" : "are"} cancelled or disabled (read-only). Pick another subscription.`,
     duplicate &&
       "Each platform subscription must be different — a subscription can only sit in one management group.",
     needsScope &&
@@ -373,9 +381,13 @@ export function RealDeploy({ foundationId, dirty }: { foundationId: string; dirt
                         {r.billingScopes.length ? "" : " — needs a billing scope"}
                       </SelectItem>
                       {r.subscriptions.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.name} · {s.id.slice(0, 8)}… · {s.resourceGroups} resource group
-                          {s.resourceGroups === 1 ? "" : "s"}
+                        <SelectItem key={s.id} value={s.id} disabled={s.state !== "Enabled"}>
+                          {s.name} · {s.id.slice(0, 8)}… ·{" "}
+                          {s.state === "Enabled"
+                            ? `${s.resourceGroups} resource group${s.resourceGroups === 1 ? "" : "s"}`
+                            : s.state === "Warned"
+                              ? "cancelled, read-only"
+                              : `${s.state.toLowerCase()}, read-only`}
                         </SelectItem>
                       ))}
                     </SelectContent>

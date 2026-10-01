@@ -23,6 +23,8 @@ const gh = (s: string, p: Platform) =>
     .replaceAll("__ORG__", p.org)
     .replaceAll("__REF__", p.templatesRef)
     .replaceAll("__TF__", TF_VERSION)
+    // An explicit bash shell runs with -eo pipefail, so "terraform … | tee" fails when Terraform does.
+    .replace(/^permissions: \{\}$/m, "permissions: {}\ndefaults:\n  run:\n    shell: bash")
     .replace(/^\n/, "");
 
 const TERRAFORM_ENV = `

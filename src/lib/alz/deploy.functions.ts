@@ -178,6 +178,20 @@ export const getDeployReadiness = createServerFn({ method: "POST" })
             },
       );
     }
+    const unusable = Object.entries(f.deployment?.targets ?? {}).flatMap(([key, id]) => {
+      const s = subscriptions.find((x) => x.id === id);
+      return s && s.state !== "Enabled" ? [{ key, s }] : [];
+    });
+    if (unusable.length)
+      checks.push({
+        id: "subscriptions",
+        level: "warn",
+        title: `${unusable.map((u) => `${u.key[0]!.toUpperCase()}${u.key.slice(1)}`).join(", ")} subscription${unusable.length === 1 ? " is" : "s are"} read-only`,
+        detail: unusable
+          .map((u) => `${u.s.name} (${u.s.id}): ${arm.SUBSCRIPTION_STATE[u.s.state] ?? u.s.state}.`)
+          .join(" ")
+          .concat(" Pick another subscription below; nothing can be deployed into it."),
+      });
     if (f.library_ref !== LATEST_REF)
       checks.push({
         id: "library",
@@ -382,6 +396,11 @@ async function prepare(
         { id: f.id },
       );
     } else if (t.choice?.mode === "existing") targets[t.key] = t.choice.subscriptionId;
+    const state = await arm.subscriptionState(targets[t.key]!);
+    if (state !== "Enabled" && state !== "Unknown")
+      throw new Error(
+        `The ${t.label} subscription ${targets[t.key]} is ${arm.SUBSCRIPTION_STATE[state] ?? state}. Nothing can be deployed into it: pick another subscription for ${t.label}.`,
+      );
     await arm.registerProviders(targets[t.key]!, log);
   }
   deployment.targets = targets;
@@ -535,16 +554,34 @@ async function runInPipeline(
 ) {
   const pipeline = await import("./pipeline.server");
   const deployment: Deployment = { ...(f.deployment ?? {}) };
-  const conn = deployment.pipeline!;
+  let conn = deployment.pipeline!;
+  const units = await import("../delivery/units.server");
+  const platform = units.platformFromEnv();
+  if (conn.templates !== `${platform.org}/${platform.templatesRepo}@${platform.templatesRef}`) {
+    // New pipeline template release: identities must trust it before the pull request's run can sign in.
+    r.log(`Moving to pipeline templates ${platform.templatesRef}…`);
+    const unit = await units.ensureUnit(db, { foundation_id: f.id });
+    const arm = await import("./arm.server");
+    conn = {
+      ...(await pipeline.connectPipeline({
+        spec: unit!.spec,
+        platform,
+        tenantId: (await arm.whoAmI()).tenantId,
+        log: r.log,
+      })),
+      pr: conn.pr ?? null,
+    };
+    deployment.pipeline = conn;
+    await db.update("foundations", { deployment }, { id: f.id });
+  }
   const base = { repo: conn.repo, approval: conn.approval } as const;
   let t: import("./pipeline.server").PipelineRun;
   if (data.action === "plan") {
     const prep = await prepare(db, f, answers, data, deployment, r.log, new Set());
     await pipeline.setSubscription(conn, prep.targets.management!);
-    const units = await import("../delivery/units.server");
     const unit = await units.ensureUnit(db, { foundation_id: f.id });
     if (!unit) throw new Error("This landing zone has no delivery unit.");
-    const files = pipeline.repoFiles(unit.spec, units.platformFromEnv(), {
+    const files = pipeline.repoFiles(unit.spec, platform, {
       tenantId: conn.tenantId,
       managementGroupId: answers.intermediateRootId,
       libraryRef: f.library_ref,
