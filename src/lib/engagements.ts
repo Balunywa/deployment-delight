@@ -165,6 +165,10 @@ export type Brief = {
   baseline?: Metric[];
   /** Internal only: never in the customer recap. */
   internal?: string;
+  /** Our side: who leads (SE), who takes it to production (CSA), who owns the commercial side (SSP). */
+  team?: { se?: string; csa?: string; ssp?: string };
+  /** When the SE handed it to the CSA, recorded by handOff. */
+  handoff?: { to: string; by: string; at: string; note: string };
 };
 export type ReadinessMap = Partial<Record<ConceptKey, { status: Readiness; note: string }>>;
 export type MapItem = { concept: ConceptKey; products: string[]; note: string };

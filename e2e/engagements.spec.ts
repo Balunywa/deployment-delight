@@ -170,12 +170,9 @@ test.describe.serial("engagements", () => {
     await expect(page.getByText(/competing tool/)).toHaveCount(0);
     await expect(page.getByText(/Competitive pressure/)).toHaveCount(0);
 
-    // Prove: the chosen accelerator deploys from the catalog; the decision is audited.
+    // Prove: with no customer linked, there's nowhere to deploy it yet; the decision is still audited.
     await open(page, `/engagements/${id}?tab=prove`);
-    await expect(page.getByRole("link", { name: /Deploy a PoC/ })).toHaveAttribute(
-      "href",
-      /\/onboard\?product=33333333-3333-4333-8333-100000000012/,
-    );
+    await expect(page.getByText(/Link this engagement to a customer in Prep/)).toBeVisible();
     await page.getByLabel("Decision note").fill("Agree definitions first, then a proof.");
     await page.getByRole("button", { name: "Iterate on the PoC" }).click();
     await expect(page.getByText("Decision recorded.")).toBeVisible();

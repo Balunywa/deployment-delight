@@ -28,6 +28,9 @@ export type EngagementInstall = {
   version: string | null;
   monthly_cost_estimate: number | null;
   created_at: string;
+  /** The latest run for this environment, if any. */
+  deployment_id: string | null;
+  deployment_status: string | null;
 };
 
 /** What Cloud Delivery already knows about the account, for meeting prep. */
@@ -63,9 +66,12 @@ export const getEngagement = createServerFn({ method: "GET" })
     const [installs, customer, foundation, connections, others] = await Promise.all([
       db.query<EngagementInstall>(
         `select en.id, en.name, en.environment_type, en.status, o.product_id, o.name as offering_name, v.version,
-           en.monthly_cost_estimate::float8 as monthly_cost_estimate, en.created_at
+           en.monthly_cost_estimate::float8 as monthly_cost_estimate, en.created_at,
+           d.id as deployment_id, d.status as deployment_status
          from public.environments en join public.offerings o on o.id = en.offering_id
          left join public.offering_versions v on v.id = en.actual_offering_version_id
+         left join lateral (select id, status from public.deployments where environment_id = en.id
+           order by requested_at desc nulls last limit 1) d on true
          where en.customer_id = $1 order by en.created_at desc`,
         [e.customer_id],
       ),
@@ -197,6 +203,7 @@ const concept = z.enum(["workflows", "context", "modernize", "data", "governance
 const iso = z.string().max(40);
 const patchSchema = z.object({
   name: z.string().trim().min(3).max(160).optional(),
+  customer_id: z.string().uuid().optional(),
   stage: z
     .enum(["understand", "explore", "illustrate", "validate", "agree", "prove", "decided"])
     .optional(),
@@ -215,6 +222,13 @@ const patchSchema = z.object({
       success: z.string().max(1000).optional(),
       constraints: z.string().max(1000).optional(),
       internal: z.string().max(4000).optional(),
+      team: z
+        .object({
+          se: z.string().max(120).optional(),
+          csa: z.string().max(120).optional(),
+          ssp: z.string().max(120).optional(),
+        })
+        .optional(),
       stakeholders: z
         .array(
           z.object({
@@ -393,6 +407,19 @@ export const saveEngagement = createServerFn({ method: "POST" })
       [data.id, ORG_ID],
     );
     const { decision, realization, ...rest } = data.patch;
+    // The handoff is only ever recorded by handOff.
+    if (rest.brief) {
+      const current = await db.one<{ brief: Engagement["brief"] }>(
+        "select brief from public.engagements where id = $1",
+        [data.id],
+      );
+      rest.brief = {
+        ...rest.brief,
+        ...(current.brief.handoff ? { handoff: current.brief.handoff } : {}),
+      };
+    }
+    if (rest.customer_id && before.customer_id && rest.customer_id !== before.customer_id)
+      throw new Error("This engagement is already linked to a customer.");
     const values: Record<string, unknown> = { ...rest, updated_at: new Date().toISOString() };
     // The owner's confirmation is only ever set by confirmValue; edits never overwrite it.
     if (realization)
@@ -480,6 +507,187 @@ export const confirmValue = createServerFn({ method: "POST" })
     });
     return { ok: true };
   });
+
+/** The SE hands the engagement to the CSA who takes it to production. Recorded and audited. */
+export const handOff = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        to: z.string().trim().min(2).max(120),
+        note: z.string().trim().max(1000).default(""),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await import("./db.server");
+    const user = (await import("./identity.server")).currentUser();
+    const e = await loadEngagement(data.id);
+    const handoff = { to: data.to, by: user.name, at: new Date().toISOString(), note: data.note };
+    await db.update(
+      "engagements",
+      {
+        brief: { ...e.brief, team: { ...e.brief.team, csa: data.to }, handoff },
+        updated_at: handoff.at,
+      } as never,
+      { id: e.id },
+    );
+    await db.insert("audit_events", {
+      organization_id: ORG_ID,
+      customer_id: e.customer_id,
+      actor_name: user.name,
+      event_type: "engagement.handed_off",
+      resource_type: "engagement",
+      resource_id: e.id,
+      new_value: { to: data.to } as never,
+      result: "success",
+      metadata_json: {} as never,
+    });
+    return { ok: true };
+  });
+
+/** Something waiting on the seller or the CSA, across every engagement. */
+export type WorkItem = {
+  key: string;
+  kind: "action" | "run" | "checkpoint" | "handoff" | "untested";
+  title: string;
+  detail: string;
+  engagementId: string;
+  engagement: string;
+  tab: "conversation" | "prove" | "handoff" | "realize";
+  deploymentId?: string;
+  /** ISO date it's due, when it has one. */
+  due?: string;
+  overdue: boolean;
+};
+
+const RUN_WAITING: Record<string, string> = {
+  AWAITING_PLAN_APPROVAL: "Plan waiting for review",
+  AWAITING_APPROVAL: "Waiting for security approval",
+  QUEUED: "Approved, ready to run",
+  VALIDATION_FAILED: "Preflight failed",
+  FAILED: "Run failed",
+};
+
+export const listWork = createServerFn({ method: "GET" }).handler(async (): Promise<WorkItem[]> => {
+  const db = await import("./db.server");
+  const all = await db.query<Engagement>(
+    `${SELECT} where e.organization_id = $1 and e.stage <> 'decided'`,
+    [ORG_ID],
+  );
+  const runs = await db.query<{
+    engagement_id: string;
+    env_name: string;
+    customer: string;
+    deployment_id: string;
+    status: string;
+    environment_type: string;
+  }>(
+    `select en.configuration_json->'engagement'->>'id' as engagement_id, en.name as env_name, c.name as customer,
+       d.id as deployment_id, d.status, en.environment_type
+     from public.environments en join public.customers c on c.id = en.customer_id
+     join lateral (select id, status from public.deployments where environment_id = en.id
+       order by requested_at desc nulls last limit 1) d on true
+     where en.configuration_json ? 'engagement'`,
+  );
+  const prod = await db.query<{ customer_id: string; product_id: string; created_at: string }>(
+    `select en.customer_id, o.product_id, min(en.created_at) as created_at from public.environments en
+     join public.offerings o on o.id = en.offering_id
+     where en.environment_type = 'production' and en.actual_offering_version_id is not null
+     group by 1, 2`,
+  );
+  const now = Date.now();
+  const soon = now + 7 * 864e5;
+  const items: WorkItem[] = [];
+  for (const e of all) {
+    const base = { engagementId: e.id, engagement: e.name };
+    for (const a of e.actions) {
+      if (a.done || !a.due) continue;
+      const t = new Date(a.due).getTime();
+      if (t > soon) continue;
+      items.push({
+        ...base,
+        key: `a-${a.id}`,
+        kind: "action",
+        title: a.text,
+        detail: `${a.owner || "No owner"} · ${e.customer_name ?? "No customer"}`,
+        tab: "conversation",
+        due: a.due,
+        overdue: t < now - 864e5,
+      });
+    }
+    for (const r of runs.filter((x) => x.engagement_id === e.id && RUN_WAITING[x.status]))
+      items.push({
+        ...base,
+        key: `r-${r.deployment_id}`,
+        kind: "run",
+        title: `${RUN_WAITING[r.status]}: ${r.env_name} for ${r.customer}`,
+        detail: r.environment_type === "production" ? "Production" : "Proof",
+        tab: r.environment_type === "production" ? "realize" : "prove",
+        deploymentId: r.deployment_id,
+        overdue: r.status === "FAILED" || r.status === "VALIDATION_FAILED",
+      });
+    if (e.stage === "prove" && !e.decision) {
+      const open = e.findings.filter((f) => f.kind === "hypothesis").length;
+      if (open)
+        items.push({
+          ...base,
+          key: `u-${e.id}`,
+          kind: "untested",
+          title: `${open} ${open === 1 ? "hypothesis" : "hypotheses"} not yet tested with the customer`,
+          detail: "Test them before the proof decision",
+          tab: "conversation",
+          overdue: false,
+        });
+    }
+    if (e.decision?.choice === "scale" && !e.brief.handoff)
+      items.push({
+        ...base,
+        key: `h-${e.id}`,
+        kind: "handoff",
+        title: "Scaling with no CSA handoff recorded",
+        detail: e.brief.team?.csa
+          ? `Hand it to ${e.brief.team.csa}`
+          : "Name the CSA and hand it off",
+        tab: "handoff",
+        overdue: false,
+      });
+    if (e.stage === "realize" && e.customer_id) {
+      const chosen = new Set(e.solution_map.flatMap((m) => m.products));
+      const since = prod
+        .filter((p) => p.customer_id === e.customer_id && chosen.has(p.product_id))
+        .map((p) => new Date(p.created_at).getTime())
+        .sort()[0];
+      if (since) {
+        const measures = measuresOf(e);
+        for (const [k, label, days] of [
+          ["d30", "30-day", 30],
+          ["d60", "60-day", 60],
+          ["d90", "90-day", 90],
+        ] as const) {
+          const due = since + days * 864e5;
+          if (due > soon) break;
+          if (measures.some((m) => m[k].trim())) continue;
+          items.push({
+            ...base,
+            key: `c-${e.id}-${k}`,
+            kind: "checkpoint",
+            title: `${label} value measures due`,
+            detail: `${e.customer_name ?? ""} · ask the owner for their numbers`,
+            tab: "realize",
+            due: new Date(due).toISOString().slice(0, 10),
+            overdue: due < now,
+          });
+          break;
+        }
+      }
+    }
+  }
+  return items.sort(
+    (a, b) =>
+      Number(b.overdue) - Number(a.overdue) || (a.due ?? "9999").localeCompare(b.due ?? "9999"),
+  );
+});
 
 /* ------------------------------------------------------------------------------------ Foundry assist */
 

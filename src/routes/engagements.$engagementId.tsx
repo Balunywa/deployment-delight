@@ -63,6 +63,12 @@ function EngagementPage() {
     name: p.name,
     description: p.description,
     outcome: (p as { outcome?: string | null }).outcome ?? null,
+    offerings: p.offerings.map((o) => ({
+      id: o.id,
+      name: o.name,
+      offering_type: o.offering_type,
+      version: o.version,
+    })),
   }));
   const tab: Tab = search.tab ?? "conversation";
   const go = (t: Tab) => void navigate({ search: { tab: t } });
@@ -83,7 +89,7 @@ function EngagementPage() {
           if (message) toast.success(message);
           void queryClient.invalidateQueries({ queryKey: ["engagements"] });
           void queryClient.invalidateQueries({ queryKey: [...key, "recap"] });
-          if ("decision" in patch || "results" in patch)
+          if ("decision" in patch || "results" in patch || "customer_id" in patch)
             void queryClient.invalidateQueries({ queryKey: key });
         },
         onError: (err: Error) => {
@@ -125,6 +131,12 @@ function EngagementPage() {
             {e.owner_name && (
               <span className="inline-flex items-center gap-1">
                 <UserRound className="size-3.5" /> {e.owner_name}
+              </span>
+            )}
+            {e.brief.team?.csa && (
+              <span>
+                CSA {e.brief.team.csa}
+                {e.brief.handoff ? " (handed off)" : ""}
               </span>
             )}
             <span>Updated {relative(e.updated_at)}</span>

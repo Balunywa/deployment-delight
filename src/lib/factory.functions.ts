@@ -174,8 +174,19 @@ export const createDeployment = createServerFn({ method: "POST" })
       })
       .parse(d),
   )
-  .handler(async ({ data }) => {
-    const db = await admin();
+  .handler(async ({ data }) =>
+    planDeployment(await admin(), data.environmentId, data.deploymentType, data.requestedBy),
+  );
+
+/** Validate and plan a run for an environment; production waits for security approval, the rest for a plan review. */
+async function planDeployment(
+  db: Db,
+  environmentId: string,
+  deploymentType: string,
+  requestedBy: string,
+) {
+  {
+    const data = { environmentId, deploymentType, requestedBy };
     const { environment, ctx, version } = await loadContext(
       db,
       data.environmentId,
@@ -250,6 +261,103 @@ export const createDeployment = createServerFn({ method: "POST" })
     });
 
     return { deploymentId: deployment.id, status: state, preflight, plan };
+  }
+}
+
+/**
+ * Deploy an engagement's chosen solution for its customer: a proof (one development environment) or production.
+ * Uses the customer's existing record and Azure connection, the same plan → approve → run path as every other
+ * install, and remembers which engagement asked for it.
+ */
+export const deployForEngagement = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        engagementId: z.string().uuid(),
+        offeringId: z.string().uuid(),
+        kind: z.enum(["proof", "production"]),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await admin();
+    const user = (await import("./identity.server")).currentUser();
+    const e = await db.maybeOne<{
+      id: string;
+      name: string;
+      customer_id: string | null;
+      solution_map: { products: string[] }[];
+    }>(
+      "select id, name, customer_id, solution_map from public.engagements where id = $1 and organization_id = $2",
+      [data.engagementId, ORG_ID],
+    );
+    if (!e) throw new Error("Engagement not found.");
+    if (!e.customer_id)
+      throw new Error(
+        "Link this engagement to a customer first (Prep), so it deploys to their Azure.",
+      );
+    const offering = await db.maybeOne<Tables<"offerings">>(
+      `select o.* from public.offerings o join public.products p on p.id = o.product_id
+       where o.id = $1 and p.organization_id = $2`,
+      [data.offeringId, ORG_ID],
+    );
+    if (!offering) throw new Error("That offering no longer exists.");
+    if (!e.solution_map.some((m) => m.products.includes(offering.product_id)))
+      throw new Error("Choose this solution for the proof in Fit & gap first.");
+    const published = (
+      await db.query<{ id: string; version: string }>(
+        "select id, version from public.offering_versions where offering_id = $1 and status = 'published'",
+        [offering.id],
+      )
+    ).sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
+    if (!published) throw new Error("This offering has no published release to deploy.");
+    const connection = await db.maybeOne<{ status: string }>(
+      "select status from public.customer_connections where customer_id = $1 order by created_at desc limit 1",
+      [e.customer_id],
+    );
+    if (connection?.status !== "validated")
+      throw new Error(
+        "There's no validated access to this customer's Azure yet. Send them the access link from their customer page first.",
+      );
+
+    const type = data.kind === "production" ? "production" : "development";
+    const existing = await db.maybeOne<Tables<"environments">>(
+      `select * from public.environments where customer_id = $1 and offering_id = $2 and environment_type = $3`,
+      [e.customer_id, offering.id, type],
+    );
+    if (existing?.actual_offering_version_id)
+      throw new Error(`${existing.name} is already running for this customer.`);
+    const cost = Number(offering.estimated_monthly_cost_low ?? 0);
+    const environment =
+      existing ??
+      (await db.insert<Tables<"environments">>("environments", {
+        customer_id: e.customer_id,
+        offering_id: offering.id,
+        desired_offering_version_id: published.id,
+        actual_offering_version_id: null,
+        name: data.kind === "proof" ? "PROOF" : "PROD",
+        environment_type: type,
+        region: "eastus2",
+        deployment_boundary: offering.deployment_boundary,
+        status: "pending_deployment",
+        compliance_score: 0,
+        monthly_cost_estimate: data.kind === "production" ? cost : Math.round(cost * 0.25),
+        configuration_json: {
+          network: { mode: "dedicated-spoke", privateEndpoints: true, publicAccess: false },
+          engagement: { id: e.id, name: e.name, kind: data.kind },
+        },
+      }));
+    await audit(db, {
+      event_type:
+        data.kind === "proof" ? "engagement.proof_requested" : "engagement.production_requested",
+      actor_name: user.name,
+      customer_id: e.customer_id,
+      environment_id: environment.id,
+      resource_type: "engagement",
+      resource_id: e.id,
+      new_value: { offering: offering.name, version: published.version },
+    });
+    return planDeployment(db, environment.id, "initial", user.name);
   });
 
 export const decideApproval = createServerFn({ method: "POST" })

@@ -145,6 +145,10 @@ function DeploymentRun() {
     return () => clearTimeout(t);
   }, [replay, steps.length]);
 
+  // Runs requested from an engagement remember it, so the seller can go back to where they were.
+  const engagement = env?.configuration_json?.["engagement"] as
+    { id: string; name: string; kind: "proof" | "production" } | undefined;
+
   if (deployment.isLoading) return <EmptyState title="Loading run…" />;
   if (!d || !env || !arch) return <EmptyState title="Run not found." />;
 
@@ -268,6 +272,20 @@ function DeploymentRun() {
           >
             {env.customers.name}
           </Link>
+          {engagement && (
+            <>
+              {" "}
+              ·{" "}
+              <Link
+                to="/engagements/$engagementId"
+                params={{ engagementId: engagement.id }}
+                search={{ tab: engagement.kind === "production" ? "realize" : "prove" }}
+                className="font-medium text-primary hover:underline"
+              >
+                {engagement.kind === "production" ? "Production" : "Proof"} for “{engagement.name}”
+              </Link>
+            </>
+          )}
         </p>
         <div className="mt-0.5 flex flex-wrap items-start justify-between gap-3">
           <div>

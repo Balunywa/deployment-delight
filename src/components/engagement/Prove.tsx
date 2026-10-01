@@ -1,6 +1,6 @@
 /* Prove: deploy the chosen accelerators as a proof, measure against the baseline, and record the decision. */
 import { Link } from "@tanstack/react-router";
-import { Rocket, ScrollText } from "lucide-react";
+import { ScrollText } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { Engagement, Result } from "@/lib/engagements";
 import type { EngagementInstall } from "@/lib/engagements.functions";
+
+import { DeployStatus } from "./Deploy";
 import { cn } from "@/lib/utils";
 
 export type CatalogProduct = {
@@ -15,6 +17,7 @@ export type CatalogProduct = {
   name: string;
   description: string | null;
   outcome: string | null;
+  offerings: { id: string; name: string; offering_type: string; version: string | null }[];
 };
 export type Save = (patch: Record<string, unknown>) => void;
 
@@ -89,43 +92,29 @@ export function ProveView({
   return (
     <div className="space-y-5">
       <Card
-        title="Prove it with a PoC"
-        sub="Deploy the accelerators chosen in Fit &amp; gap from their pinned releases, into a sandbox or the customer's subscription."
+        title="Prove it"
+        sub={`Deploy the solutions chosen in Fit & gap for ${e.customer_name ?? "the customer"}, from their pinned releases.`}
       >
         {mapped.length ? (
           <ul className="grid gap-3 md:grid-cols-2">
-            {mapped.map((p) => {
-              const running = installs.filter((i) => i.product_id === p.id);
-              return (
-                <li key={p.id} className="rounded-lg border border-border p-4">
-                  <div className="flex items-start justify-between gap-2">
-                    <Link
-                      to="/products/$productId"
-                      params={{ productId: p.id }}
-                      className="text-[13.5px] font-semibold hover:text-primary"
-                    >
-                      {p.name}
-                    </Link>
-                    <Button asChild size="sm">
-                      <Link to="/onboard" search={{ product: p.id }}>
-                        <Rocket className="size-3.5" /> Deploy a PoC
-                      </Link>
-                    </Button>
-                  </div>
+            {mapped.map((p) => (
+              <li key={p.id} className="rounded-lg border border-border p-4">
+                <Link
+                  to="/products/$productId"
+                  params={{ productId: p.id }}
+                  className="text-[13.5px] font-semibold hover:text-primary"
+                >
+                  {p.name}
+                </Link>
+                {e.customer_id ? (
+                  <DeployStatus e={e} product={p} installs={installs} kind="proof" />
+                ) : (
                   <p className="mt-2 text-[12px] text-muted-foreground">
-                    {running.length
-                      ? running
-                          .map(
-                            (r) => `${r.name} · ${r.status}${r.version ? ` · v${r.version}` : ""}`,
-                          )
-                          .join(" — ")
-                      : e.customer_name
-                        ? `Not deployed for ${e.customer_name} yet.`
-                        : "Not deployed yet."}
+                    Link this engagement to a customer in Prep to deploy it to their Azure.
                   </p>
-                </li>
-              );
-            })}
+                )}
+              </li>
+            ))}
           </ul>
         ) : (
           <p className="text-[12.5px] text-muted-foreground">

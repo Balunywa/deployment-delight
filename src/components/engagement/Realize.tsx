@@ -35,6 +35,7 @@ import { type EngagementInstall, confirmValue } from "@/lib/engagements.function
 import { cn } from "@/lib/utils";
 
 import type { Apply } from "./Conversation";
+import { DeployStatus } from "./Deploy";
 import { Card, type CatalogProduct } from "./Prove";
 
 const day = (s: string) =>
@@ -170,38 +171,23 @@ export function RealizeView({
               <ul className="grid gap-3 md:grid-cols-2">
                 {chosen.map((id) => {
                   const p = products.find((x) => x.id === id);
-                  const all = installs.filter((i) => i.product_id === id);
-                  const live = all.filter((i) => i.environment_type === "production");
                   return (
                     <li key={id} className="rounded-lg border border-border p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-[13.5px] font-semibold">{p?.name ?? "Solution"}</span>
-                        {live.length ? (
-                          <Pill tone="success">
-                            <Server className="size-3" /> In production
-                          </Pill>
-                        ) : (
-                          <Pill>{all.length ? "Not in production" : "Not deployed"}</Pill>
-                        )}
-                      </div>
-                      <p className="mt-2 text-[12px] text-muted-foreground">
-                        {live.length
-                          ? live
-                              .map(
-                                (r) =>
-                                  `${r.name}${r.version ? ` · v${r.version}` : ""} · ${r.status} · since ${day(r.created_at)}`,
-                              )
-                              .join(" — ")
-                          : all.length
-                            ? `Deployed to ${[...new Set(all.map((a) => a.environment_type))].join(", ")} only.`
-                            : `Not deployed for ${e.customer_name ?? "this customer"} yet.`}
-                      </p>
-                      {!live.length && (
-                        <Button asChild size="sm" variant="outline" className="mt-3">
-                          <Link to="/onboard" search={{ product: id }}>
-                            <Rocket className="size-3.5" /> Deploy to production
-                          </Link>
-                        </Button>
+                      <span className="text-[13.5px] font-semibold">{p?.name ?? "Solution"}</span>
+                      {p && (
+                        <DeployStatus
+                          e={e}
+                          product={p}
+                          installs={installs}
+                          kind="production"
+                          blocked={
+                            !e.customer_id
+                              ? "Link the engagement to a customer first."
+                              : !scaled
+                                ? "After the decision to scale it."
+                                : undefined
+                          }
+                        />
                       )}
                     </li>
                   );

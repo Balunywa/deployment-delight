@@ -5,6 +5,7 @@ import {
   getEngagement,
   getRecap,
   listEngagements,
+  listWork,
 } from "@/lib/engagements.functions";
 
 import {
@@ -117,6 +118,10 @@ export const recapQuery = (id: string) =>
     queryKey: ["engagement", id, "recap"],
     queryFn: () => getRecap({ data: { id } }),
   });
+export const workQuery = queryOptions({
+  queryKey: ["engagements", "work"],
+  queryFn: () => listWork(),
+});
 export const assistStatusQuery = queryOptions({
   queryKey: ["assist-status"],
   queryFn: () => getAssistStatus(),

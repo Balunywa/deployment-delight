@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { NeedsYou } from "@/components/engagement/NeedsYou";
 import { StageDots } from "@/components/engagement/StageDots";
 import { STAGES, progressOf } from "@/lib/engagements";
 import { createEngagement } from "@/lib/engagements.functions";
@@ -31,13 +32,17 @@ import { relative } from "@/lib/format";
 import { customersQuery, engagementsQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/engagements/")({
+  validateSearch: (s: Record<string, unknown>): { new?: string } =>
+    typeof s["new"] === "string" ? { new: s["new"] } : {},
   head: () => ({ meta: [{ title: "Engagements · Cloud Delivery" }] }),
   component: Engagements,
 });
 
 function Engagements() {
   const list = useQuery(engagementsQuery);
-  const [open, setOpen] = useState(false);
+  const search = Route.useSearch();
+  // Started from a customer's page: open with that customer chosen.
+  const [open, setOpen] = useState(!!search.new);
   const items = list.data ?? [];
   return (
     <div className="mx-auto max-w-6xl">
@@ -50,6 +55,8 @@ function Engagements() {
           </Button>
         }
       />
+
+      <NeedsYou className="mb-5" />
 
       <ol className="mb-6 grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
         {STAGES.map((s, i) => (
@@ -112,7 +119,7 @@ function Engagements() {
           })}
         </div>
       )}
-      <NewEngagement open={open} onOpenChange={setOpen} />
+      <NewEngagement open={open} onOpenChange={setOpen} customer={search.new} />
     </div>
   );
 }
@@ -120,15 +127,17 @@ function Engagements() {
 function NewEngagement({
   open,
   onOpenChange,
+  customer,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
+  customer?: string | undefined;
 }) {
   const customers = useQuery(customersQuery);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
-  const [customerId, setCustomerId] = useState<string>("none");
+  const [customerId, setCustomerId] = useState<string>(customer ?? "none");
   const create = useMutation({
     mutationFn: useServerFn(createEngagement),
     onSuccess: (r: { id: string }) => {

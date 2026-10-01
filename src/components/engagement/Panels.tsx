@@ -2,7 +2,7 @@
  * Around the conversation: Prep (before the meeting), Fit & gap (what the answers point to, and what stands in
  * the way), Recap (what the customer sees) and Handoff (what the CSA and delivery team inherit, internal only).
  */
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
@@ -53,8 +53,9 @@ import {
   type AccountContext,
   type EngagementInstall,
   assistEngagement,
+  handOff,
 } from "@/lib/engagements.functions";
-import { assistStatusQuery, recapQuery } from "@/lib/queries";
+import { assistStatusQuery, customersQuery, recapQuery } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 import type { Apply, Focus } from "./Conversation";
@@ -162,10 +163,7 @@ export function PrepView({
               </div>
             </dl>
           ) : (
-            <p className="text-[12.5px] text-muted-foreground">
-              Not a customer in Cloud Delivery yet, so there's nothing on record. Prep from the
-              account team's notes.
-            </p>
+            <LinkCustomer e={e} apply={apply} />
           )}
         </Card>
 
@@ -264,6 +262,8 @@ export function PrepView({
           )}
         </Card>
 
+        <TeamCard e={e} apply={apply} />
+
         <Card title="Who's in the room" sub="And what each of them will listen for.">
           {people.length > 0 && (
             <ul className="space-y-2.5">
@@ -329,6 +329,84 @@ export function PrepView({
         </Card>
       </div>
     </div>
+  );
+}
+
+function LinkCustomer({ e, apply }: { e: Engagement; apply: Apply }) {
+  const customers = useQuery(customersQuery);
+  const [pick, setPick] = useState("");
+  return (
+    <div className="space-y-2.5">
+      <p className="text-[12.5px] text-muted-foreground">
+        Not linked to a customer, so there's nothing on record, and nothing can be deployed to their
+        Azure. Link it when they're in Cloud Delivery.
+      </p>
+      <div className="flex gap-2">
+        <Select value={pick} onValueChange={setPick}>
+          <SelectTrigger className="h-9 max-w-xs" aria-label="Customer to link">
+            <SelectValue placeholder="Choose the customer" />
+          </SelectTrigger>
+          <SelectContent>
+            {(customers.data ?? []).map((c) => (
+              <SelectItem key={c.id} value={c.id}>
+                {c.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button
+          variant="outline"
+          disabled={!pick}
+          onClick={() => apply({ customer_id: pick }, "Linked to the customer.")}
+        >
+          Link
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function TeamCard({ e, apply }: { e: Engagement; apply: Apply }) {
+  const [team, setTeam] = useState({
+    se: e.brief.team?.se ?? e.owner_name ?? "",
+    csa: e.brief.team?.csa ?? "",
+    ssp: e.brief.team?.ssp ?? "",
+  });
+  const roles = [
+    ["se", "Solution engineer", "Leads the conversation and the proof"],
+    ["csa", "Cloud solution architect", "Takes it to production"],
+    ["ssp", "Specialist seller", "Owns the commercial side"],
+  ] as const;
+  const changed = roles.some(
+    ([k]) => team[k] !== (e.brief.team?.[k] ?? (k === "se" ? (e.owner_name ?? "") : "")),
+  );
+  return (
+    <Card title="Our team" sub="Who does what on our side, so the handoff has a name on it.">
+      <div className="space-y-2">
+        {roles.map(([k, label, hint]) => (
+          <label key={k} className="block">
+            <span className="text-[12px] font-medium">{label}</span>
+            <span className="ml-1.5 text-[11px] text-muted-foreground">{hint}</span>
+            <Input
+              className="mt-1 h-8 text-[12.5px]"
+              aria-label={label}
+              placeholder="Name"
+              value={team[k]}
+              onChange={(ev) => setTeam({ ...team, [k]: ev.target.value })}
+            />
+          </label>
+        ))}
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-3"
+        disabled={!changed}
+        onClick={() => apply({ brief: { ...e.brief, team } }, "Team saved.")}
+      >
+        Save team
+      </Button>
+    </Card>
   );
 }
 
@@ -595,6 +673,66 @@ export function RecapView({ e }: { e: Engagement }) {
 
 /* ---------------------------------------------------------------------------------------- handoff */
 
+function HandOffCard({ e }: { e: Engagement }) {
+  const queryClient = useQueryClient();
+  const [to, setTo] = useState(e.brief.team?.csa ?? "");
+  const [note, setNote] = useState("");
+  const hand = useMutation({
+    mutationFn: useServerFn(handOff),
+    onSuccess: async () => {
+      toast.success(`Handed off to ${to}. Recorded in the audit log.`);
+      await queryClient.invalidateQueries({ queryKey: ["engagement", e.id] });
+      void queryClient.invalidateQueries({ queryKey: ["engagements"] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const h = e.brief.handoff;
+  const open = e.findings.filter((f) => f.kind === "hypothesis" || f.kind === "unknown").length;
+  return (
+    <Card
+      title={h ? `Handed off to ${h.to}` : "Hand it to the CSA"}
+      sub={
+        h
+          ? `By ${h.by} on ${new Date(h.at).toLocaleDateString()}. They take it to production; you stay on the account.`
+          : "When the proof is agreed, the CSA takes it to production. They inherit everything on this page."
+      }
+    >
+      {h ? (
+        h.note && <p className="text-[12.5px] text-muted-foreground italic">“{h.note}”</p>
+      ) : (
+        <div className="grid gap-2 md:grid-cols-[220px_1fr_auto]">
+          <Input
+            className="h-9"
+            aria-label="CSA"
+            placeholder="CSA name"
+            value={to}
+            onChange={(ev) => setTo(ev.target.value)}
+          />
+          <Input
+            className="h-9"
+            aria-label="Handoff note"
+            placeholder="Anything they must know first"
+            value={note}
+            onChange={(ev) => setNote(ev.target.value)}
+          />
+          <Button
+            disabled={to.trim().length < 2 || hand.isPending}
+            onClick={() => hand.mutate({ data: { id: e.id, to, note } })}
+          >
+            Hand off
+          </Button>
+        </div>
+      )}
+      {!h && open > 0 && (
+        <p className="mt-2 text-[12px] text-muted-foreground">
+          {open} {open === 1 ? "hypothesis or unknown is" : "hypotheses and unknowns are"} still
+          open. They go with it; nothing is lost.
+        </p>
+      )}
+    </Card>
+  );
+}
+
 function handoffText(e: Engagement, products: CatalogProduct[]) {
   const b = e.brief;
   const name = (id: string) => products.find((p) => p.id === id)?.name ?? id;
@@ -607,6 +745,7 @@ function handoffText(e: Engagement, products: CatalogProduct[]) {
     `Outcome: ${b.outcome ?? "not captured"}`,
     `Workflow: ${b.workflow ?? "not captured"}`,
     `Owner: ${b.owner ?? "not named"}`,
+    `Team: SE ${b.team?.se ?? "—"}, CSA ${b.team?.csa ?? "—"}, SSP ${b.team?.ssp ?? "—"}`,
     `Why now: ${b.whyNow ?? "not captured"}`,
     "",
     "Chosen for the proof:",
@@ -669,6 +808,8 @@ export function HandoffView({
           <ClipboardCopy className="size-3.5" /> Copy handoff
         </Button>
       </div>
+
+      <HandOffCard e={e} />
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">

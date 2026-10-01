@@ -35,6 +35,7 @@ import { auditQuery, customerQuery } from "@/lib/queries";
 import { productOf } from "@/lib/product-catalog";
 import { useFleet } from "@/lib/use-fleet";
 import { UnitCard } from "@/components/delivery/UnitCard";
+import { CustomerEngagements } from "@/components/engagement/CustomerEngagements";
 import { CustomerDelivery } from "@/components/onboarding/CustomerDelivery";
 
 export const Route = createFileRoute("/customers/$customerId")({
@@ -310,6 +311,8 @@ function CustomerDetail() {
           hint="All environments · list-price estimate"
         />
       </div>
+
+      <CustomerEngagements customerId={customerId} />
 
       <Tabs defaultValue="architecture">
         <TabsList className="flex-wrap">

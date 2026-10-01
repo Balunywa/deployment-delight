@@ -14,6 +14,7 @@ import {
 import { type ReactNode } from "react";
 
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
+import { NeedsYou } from "@/components/engagement/NeedsYou";
 import { StageDots } from "@/components/engagement/StageDots";
 import { progressOf } from "@/lib/engagements";
 import { GridLegend, InstallGrid, OnboardingPipeline } from "@/components/Fleet";
@@ -102,6 +103,7 @@ function Home() {
         </dl>
       </div>
 
+      <NeedsYou className="mb-5" limit={5} />
       <EngagementsPanel />
 
       <section className="mb-5 overflow-hidden rounded-md border border-border bg-card">

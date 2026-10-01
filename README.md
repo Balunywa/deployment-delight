@@ -77,6 +77,13 @@ Either way, it's the same product setup, the same deployment process and the sam
    approved by the MSX team and only runs in Microsoft's corporate tenant. The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
    suggests next questions and hypotheses from the presenter's notes and drafts the follow-up email; it can only
    suggest existing questions, and nothing is added until the presenter accepts it. See `src/lib/conversation.ts`.
+   It's connected end to end for the people doing the work: an engagement starts from the customer's page and
+   shows there; the proof and then production deploy into that **existing** customer through the same plan →
+   approve → run path as every install (where it runs is suggested from what the customer confirmed, and the run
+   links back to the engagement); Prep names the team (SE, CSA, SSP) and the SE hands off to the CSA, audited;
+   and **Needs you** (on Home and Engagements) lists what's waiting: actions due, runs to review or approve,
+   hypotheses untested before a decision, handoffs, and 30/60/90-day value checkpoints. `e2e/journey.spec.ts`
+   walks the whole thing through the UI.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.
