@@ -1,4 +1,14 @@
-import { ArrowRight, CircleMinus, CirclePlus, PenLine, RotateCcw } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  CircleMinus,
+  CirclePlus,
+  GitCompare,
+  PenLine,
+  Radar,
+  Rocket,
+  RotateCcw,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { AlzLibrary, Answers } from "@/lib/alz/engine";
@@ -23,53 +33,88 @@ export function StepBar({
     ["review", "Review changes"],
     ["deploy", "Deploy"],
   ];
+  const icons = { assessment: Radar, design: PenLine, review: GitCompare, deploy: Rocket } as const;
   return (
-    <ol className="flex flex-wrap items-stretch gap-1">
-      {steps.map(([id, label], i) => (
-        <li key={id} className="flex items-center gap-1">
-          {i > 0 && <ArrowRight className="size-3.5 text-muted-foreground/60" />}
-          <button
-            onClick={() => onGo(id)}
-            className={cn(
-              "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors",
-              view === id
-                ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                : "border-border bg-card hover:border-border-strong",
+    <ol className="flex flex-wrap items-stretch rounded-lg border border-border bg-card p-1 shadow-sm">
+      {steps.map(([id, label], i) => {
+        const active = view === id;
+        const done = status[id].tone === "success";
+        const Icon = icons[id];
+        return (
+          <li key={id} className="flex items-center">
+            {i > 0 && (
+              <span
+                aria-hidden
+                className={cn(
+                  "mx-0.5 h-0.5 w-5 rounded-full",
+                  status[steps[i - 1]![0]].tone === "success" ? "bg-success/60" : "bg-border",
+                )}
+              />
             )}
-          >
-            <span
+            <button
+              onClick={() => onGo(id)}
               className={cn(
-                "grid size-5 place-items-center rounded-full text-[11px] font-semibold",
-                view === id
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
+                "group flex items-center gap-2.5 rounded-md px-3 py-1.5 text-left transition-all",
+                active ? "bg-primary/[0.07] ring-1 ring-primary/40" : "hover:bg-muted/70",
               )}
             >
-              {i + 1}
-            </span>
-            <span>
-              <span className="block text-[12.5px] font-medium">
-                {label}
-                {id === "assessment" && (
-                  <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
-                )}
-              </span>
+              <span className="sr-only">{i + 1}</span>
               <span
                 className={cn(
-                  "block text-[10.5px]",
-                  status[id].tone === "warning"
-                    ? "text-warning"
-                    : status[id].tone === "success"
-                      ? "text-success"
-                      : "text-muted-foreground",
+                  "grid size-7 shrink-0 place-items-center rounded-full transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : done
+                      ? "bg-success/12 text-success"
+                      : "bg-muted text-muted-foreground group-hover:text-foreground",
                 )}
               >
-                {status[id].text}
+                {done && !active ? (
+                  <Check className="size-3.5" strokeWidth={3} />
+                ) : (
+                  <Icon className="size-3.5" />
+                )}
               </span>
-            </span>
-          </button>
-        </li>
-      ))}
+              <span className="leading-tight">
+                <span
+                  className={cn(
+                    "block text-[12.5px] font-semibold",
+                    active ? "text-foreground" : "text-foreground/85",
+                  )}
+                >
+                  {label}
+                  {id === "assessment" && (
+                    <span className="ml-1 font-normal text-muted-foreground">(optional)</span>
+                  )}
+                </span>
+                <span
+                  className={cn(
+                    "mt-0.5 flex items-center gap-1 text-[10.5px]",
+                    status[id].tone === "warning"
+                      ? "text-warning"
+                      : status[id].tone === "success"
+                        ? "text-success"
+                        : "text-muted-foreground",
+                  )}
+                >
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "size-1.5 rounded-full",
+                      status[id].tone === "warning"
+                        ? "bg-warning"
+                        : status[id].tone === "success"
+                          ? "bg-success"
+                          : "bg-muted-foreground/40",
+                    )}
+                  />
+                  {status[id].text}
+                </span>
+              </span>
+            </button>
+          </li>
+        );
+      })}
     </ol>
   );
 }

@@ -4,7 +4,21 @@
  */
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowRight, Check, CircleAlert, Radar, RefreshCw, Sparkles, X } from "lucide-react";
+import {
+  Activity,
+  ArrowRight,
+  Check,
+  CircleAlert,
+  FolderTree,
+  KeyRound,
+  Network,
+  Radar,
+  RefreshCw,
+  ScrollText,
+  ShieldCheck,
+  Sparkles,
+  X,
+} from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -94,8 +108,11 @@ export function AssessmentView({
 
   if (!snapshot || !a)
     return (
-      <div className="mx-auto max-w-2xl rounded-md border border-border bg-card p-6">
-        <h2 className="text-[16px] font-semibold">Assess an existing tenant</h2>
+      <div className="mx-auto max-w-2xl rounded-lg border border-border bg-gradient-to-br from-card to-primary/[0.04] p-7 shadow-sm">
+        <span className="mb-3 grid size-10 place-items-center rounded-lg bg-primary/10 text-primary">
+          <Radar className="size-5" />
+        </span>
+        <h2 className="text-[18px] font-semibold tracking-tight">Assess an existing tenant</h2>
         <p className="mt-1 text-[13px] text-muted-foreground">
           Reads the tenant with Azure Resource Graph — management groups, subscriptions, policy and
           role assignments, networks and platform resources — and maps it onto the Azure landing
@@ -119,11 +136,11 @@ export function AssessmentView({
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0 space-y-4">
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-card p-4">
-          <div className="flex items-center gap-4">
+        <section className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-gradient-to-br from-card via-card to-primary/[0.04] p-5 shadow-sm">
+          <div className="flex items-center gap-5">
             <Score value={a.overall} />
             <div>
-              <p className="text-[15px] font-semibold">
+              <p className="text-[17px] font-semibold tracking-tight">
                 Aligned with the Azure landing zone standard
               </p>
               <p className="text-[12px] text-muted-foreground">
@@ -149,21 +166,31 @@ export function AssessmentView({
               </Button>
             )}
           </div>
-          <div className="grid w-full grid-cols-3 gap-2 lg:grid-cols-6">
-            {a.scores.map((s) => (
-              <div key={s.area} className="rounded-md border border-border px-2.5 py-2">
-                <p className="truncate text-[11px] text-muted-foreground">{s.area}</p>
-                <div className="mt-1 flex items-center gap-2">
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+          <div className="grid w-full grid-cols-2 gap-2.5 md:grid-cols-3 2xl:grid-cols-6">
+            {a.scores.map((s) => {
+              const Icon = AREA_ICON[s.area] ?? FolderTree;
+              const issues = a.gaps.filter((g) => g.area === s.area).length;
+              return (
+                <div key={s.area} className="rounded-lg border border-border bg-card px-3 py-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="grid size-6 place-items-center rounded-md bg-muted text-muted-foreground">
+                      <Icon className="size-3.5" />
+                    </span>
+                    <p className="min-w-0 flex-1 truncate text-[11.5px] font-medium">{s.area}</p>
+                  </div>
+                  <p className="mt-1.5 text-[18px] leading-none font-semibold">{s.score}%</p>
+                  <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn("h-full rounded-full", tone(s.score))}
                       style={{ width: `${s.score}%` }}
                     />
                   </div>
-                  <span className="font-mono text-[11.5px]">{s.score}%</span>
+                  <p className="mt-1 text-[10.5px] text-muted-foreground">
+                    {issues ? `${issues} finding${issues === 1 ? "" : "s"}` : "No findings"}
+                  </p>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
@@ -173,7 +200,17 @@ export function AssessmentView({
         >
           <ul className="divide-y divide-border">
             {a.gaps.map((g, i) => (
-              <li key={i} className="flex items-start gap-3 px-4 py-2.5">
+              <li
+                key={i}
+                className={cn(
+                  "flex items-start gap-3 border-l-[3px] px-4 py-3",
+                  g.severity === "high"
+                    ? "border-l-danger"
+                    : g.severity === "medium"
+                      ? "border-l-warning"
+                      : "border-l-border",
+                )}
+              >
                 <Pill
                   tone={
                     g.severity === "high"
@@ -190,7 +227,10 @@ export function AssessmentView({
                     {g.title} <span className="font-normal text-muted-foreground">· {g.area}</span>
                   </p>
                   <p className="text-[12px] text-muted-foreground">{g.detail}</p>
-                  <p className="mt-0.5 text-[12px]">→ {g.fix}</p>
+                  <p className="mt-1 flex items-start gap-1 text-[12px] text-foreground/90">
+                    <ArrowRight className="mt-0.5 size-3.5 shrink-0 text-primary" />
+                    {g.fix}
+                  </p>
                 </div>
                 {managed && onUseDesign && g.patch && (
                   <Button
@@ -324,28 +364,47 @@ const LABELS: Record<string, string> = {
 const tone = (n: number) => (n >= 75 ? "bg-success" : n >= 45 ? "bg-warning" : "bg-danger");
 
 function Score({ value }: { value: number }) {
-  const r = 26;
+  const r = 40;
   const c = 2 * Math.PI * r;
+  const color = value >= 75 ? "var(--success)" : value >= 45 ? "var(--warning)" : "var(--danger)";
   return (
-    <svg width="68" height="68" viewBox="0 0 68 68" aria-label={`${value}% aligned`}>
-      <circle cx="34" cy="34" r={r} fill="none" stroke="var(--muted)" strokeWidth="7" />
+    <svg
+      width="104"
+      height="104"
+      viewBox="0 0 104 104"
+      aria-label={`${value}% aligned`}
+      className="shrink-0"
+    >
+      <circle cx="52" cy="52" r={r} fill="none" stroke="var(--muted)" strokeWidth="9" />
       <circle
-        cx="34"
-        cy="34"
+        cx="52"
+        cy="52"
         r={r}
         fill="none"
-        stroke={value >= 75 ? "var(--success)" : value >= 45 ? "var(--warning)" : "var(--danger)"}
-        strokeWidth="7"
+        stroke={color}
+        strokeWidth="9"
         strokeDasharray={`${(value / 100) * c} ${c}`}
         strokeLinecap="round"
-        transform="rotate(-90 34 34)"
+        transform="rotate(-90 52 52)"
       />
-      <text x="34" y="39" textAnchor="middle" fontSize="15" fontWeight="700" fill="currentColor">
+      <text x="52" y="54" textAnchor="middle" fontSize="24" fontWeight="700" fill="currentColor">
         {value}%
+      </text>
+      <text x="52" y="71" textAnchor="middle" fontSize="10" fill="var(--muted-foreground)">
+        aligned
       </text>
     </svg>
   );
 }
+
+const AREA_ICON: Record<string, typeof FolderTree> = {
+  "Resource organization": FolderTree,
+  Policy: ScrollText,
+  Network: Network,
+  Management: Activity,
+  Security: ShieldCheck,
+  "Identity and access": KeyRound,
+};
 
 function Card({
   title,
@@ -357,9 +416,9 @@ function Card({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-md border border-border bg-card">
-      <header className="border-b border-border px-4 py-2.5">
-        <h3 className="text-[13px] font-semibold">{title}</h3>
+    <section className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
+      <header className="border-b border-border px-4 py-3">
+        <h3 className="text-[13.5px] font-semibold">{title}</h3>
         {subtitle && <p className="text-[11.5px] text-muted-foreground">{subtitle}</p>}
       </header>
       {children}

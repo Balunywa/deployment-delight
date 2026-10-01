@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ArrowRight, Minus, Plus, RefreshCw } from "lucide-react";
+import {
+  ArrowRight,
+  FileCode2,
+  Minus,
+  Plus,
+  RefreshCw,
+  ShieldCheck,
+  Tag,
+  Waypoints,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -52,6 +61,13 @@ export const Route = createFileRoute("/foundations/$foundationId")({
   head: () => ({ meta: [{ title: "Landing zone · Cloud Delivery" }] }),
   component: FoundationDetail,
 });
+
+const TAB_ICON: Partial<Record<View, typeof Waypoints>> = {
+  traffic: Waypoints,
+  policies: ShieldCheck,
+  version: Tag,
+  iac: FileCode2,
+};
 
 function FoundationDetail() {
   const { foundationId } = Route.useParams();
@@ -163,7 +179,7 @@ function FoundationDetail() {
 
   return (
     <div className="-mx-4 -my-6 lg:-mx-8">
-      <div className="border-b border-border bg-card px-4 pt-4 lg:px-6">
+      <div className="border-b border-border bg-gradient-to-b from-card to-muted/40 px-4 pt-4 lg:px-6">
         <p className="text-xs text-muted-foreground">
           <Link to="/foundations" className="hover:underline">
             Landing zones
@@ -171,7 +187,7 @@ function FoundationDetail() {
           / {f.customers?.name ?? "Your hosting tenant"}
         </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-2">
-          <h1 className="text-[20px] font-semibold">{f.name}</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight">{f.name}</h1>
           {managed ? (
             <>
               <Pill tone="neutral">
@@ -227,21 +243,25 @@ function FoundationDetail() {
                 !dirty && <span className="text-[12px] text-success">Up to date with Azure</span>
               )}
             </div>
-            <div className="flex items-center gap-3 text-[12.5px]">
-              {tabs.map(([id, label]) => (
-                <button
-                  key={id}
-                  onClick={() => navigate({ search: { view: id } })}
-                  className={cn(
-                    "hover:text-foreground",
-                    view === id
-                      ? "font-medium text-foreground underline underline-offset-4"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  {label}
-                </button>
-              ))}
+            <div className="flex items-center gap-0.5 rounded-lg border border-border bg-card p-1 text-[12.5px] shadow-sm">
+              {tabs.map(([id, label]) => {
+                const Icon = TAB_ICON[id];
+                return (
+                  <button
+                    key={id}
+                    onClick={() => navigate({ search: { view: id } })}
+                    className={cn(
+                      "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors",
+                      view === id
+                        ? "bg-primary/10 font-semibold text-primary"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground",
+                    )}
+                  >
+                    {Icon && <Icon className="size-3.5" aria-hidden />}
+                    {label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
