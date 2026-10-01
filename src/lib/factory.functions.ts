@@ -5,6 +5,7 @@ import { demoProvider, demoPipelineProvider } from "./engine/demo-provider.serve
 import { assertTransition, type DeploymentState, type ProviderContext } from "./engine/types";
 import type { Tables } from "./db-types";
 import { fromManifest, toManifest } from "./architecture";
+import { monthlyEstimate } from "./catalog";
 import {
   DEFAULT_DELIVERY,
   customerRepoOf,
@@ -24,6 +25,24 @@ async function admin() {
 }
 
 type Db = Awaited<ReturnType<typeof admin>>;
+
+/** List-price estimate of one install from the release's SKUs, the same figure onboarding shows. */
+async function installEstimate(
+  db: Db,
+  offering: Tables<"offerings">,
+  versionId: string,
+  production: boolean,
+) {
+  const v = await db.maybeOne<{ manifest_json: unknown }>(
+    "select manifest_json from public.offering_versions where id = $1",
+    [versionId],
+  );
+  const fromSkus = v
+    ? monthlyEstimate(fromManifest(offering, v.manifest_json).selected, production ? "prod" : "dev")
+    : 0;
+  const stored = Number(offering.estimated_monthly_cost_low ?? 0);
+  return Math.round(fromSkus || (production ? stored : stored * 0.25));
+}
 
 async function audit(
   db: Db,
@@ -327,7 +346,7 @@ export const deployForEngagement = createServerFn({ method: "POST" })
     );
     if (existing?.actual_offering_version_id)
       throw new Error(`${existing.name} is already running for this customer.`);
-    const cost = Number(offering.estimated_monthly_cost_low ?? 0);
+    const estimate = await installEstimate(db, offering, published.id, data.kind === "production");
     const environment =
       existing ??
       (await db.insert<Tables<"environments">>("environments", {
@@ -341,7 +360,7 @@ export const deployForEngagement = createServerFn({ method: "POST" })
         deployment_boundary: offering.deployment_boundary,
         status: "pending_deployment",
         compliance_score: 0,
-        monthly_cost_estimate: data.kind === "production" ? cost : Math.round(cost * 0.25),
+        monthly_cost_estimate: estimate,
         configuration_json: {
           network: { mode: "dedicated-spoke", privateEndpoints: true, publicAccess: false },
           engagement: { id: e.id, name: e.name, kind: data.kind },
@@ -1306,7 +1325,10 @@ export const onboardCustomer = createServerFn({ method: "POST" })
       },
     });
 
-    const costPerEnv = Number(offering.estimated_monthly_cost_low ?? 0);
+    const [prodCost, devCost] = await Promise.all([
+      installEstimate(db, offering, published.id, true),
+      installEstimate(db, offering, published.id, false),
+    ]);
     const delivery = data.delivery ?? DEFAULT_DELIVERY;
     const environments = await db.insertMany<Tables<"environments">>(
       "environments",
@@ -1331,7 +1353,7 @@ export const onboardCustomer = createServerFn({ method: "POST" })
           deployment_boundary: offering.deployment_boundary,
           status: "pending_deployment",
           compliance_score: 0,
-          monthly_cost_estimate: type === "production" ? costPerEnv : Math.round(costPerEnv * 0.25),
+          monthly_cost_estimate: type === "production" ? prodCost : devCost,
           configuration_json: {
             network: data.network,
             observability: data.observability,

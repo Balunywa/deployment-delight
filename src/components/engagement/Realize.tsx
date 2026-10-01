@@ -405,10 +405,15 @@ export function RealizeView({
             <div>
               <p className="text-[11.5px] text-muted-foreground">Estimated Azure run cost</p>
               <p className="mt-0.5 text-[20px] font-bold tracking-tight">
-                {prod.length ? `$${cost.toLocaleString()}/month` : "Nothing in production"}
+                {!prod.length
+                  ? "Nothing in production"
+                  : cost
+                    ? `$${cost.toLocaleString()}/month`
+                    : "No estimate"}
               </p>
               <p className="text-[11px] text-muted-foreground">
-                The installs' own estimates. Actual consumption is in MSX and Cost Management.
+                List prices of the release's SKUs, not a bill. Actual consumption is in MSX and Cost
+                Management.
               </p>
             </div>
 
