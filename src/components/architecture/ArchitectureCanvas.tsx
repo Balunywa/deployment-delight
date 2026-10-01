@@ -25,6 +25,10 @@ type Props = {
   /** Per-node status overlay, e.g. during a deployment run. */
   status?: Record<string, "pending" | "running" | "succeeded" | "failed">;
   compact?: boolean;
+  /** Numbered badges, e.g. the "how it works" step each service belongs to. */
+  markers?: Record<string, number>;
+  /** Services to emphasise; the rest dim. */
+  highlight?: string[] | null | undefined;
 };
 
 const LANES: { zone: Zone; label: string; empty: string }[] = [
@@ -46,6 +50,8 @@ export function ArchitectureCanvas({
   installName,
   status,
   compact,
+  markers,
+  highlight,
 }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const [paths, setPaths] = useState<Path[]>([]);
@@ -167,8 +173,17 @@ export function ArchitectureCanvas({
           st === "succeeded" && "border-success/60",
           st === "failed" && "border-danger ring-2 ring-danger/20",
           st === "pending" && "opacity-60",
+          highlight?.length &&
+            (highlight.includes(id)
+              ? "border-primary ring-2 ring-primary/25"
+              : "opacity-35 transition-opacity"),
         )}
       >
+        {markers?.[id] !== undefined && (
+          <span className="absolute -top-2 -left-2 grid size-5 place-items-center rounded-full bg-primary text-[10.5px] font-bold text-primary-foreground ring-2 ring-card">
+            {markers[id]}
+          </span>
+        )}
         <ServiceIcon id={id} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-[12px] leading-tight font-semibold">
@@ -315,6 +330,8 @@ export function ArchitectureCanvas({
                   }
                   icon="network-spoke"
                   nodeId="network-spoke"
+                  marker={markers?.["network-spoke"]}
+                  highlighted={!!highlight?.includes("network-spoke")}
                   focused={focus === "network-spoke"}
                   onClick={() => onFocus?.("network-spoke")}
                   inner
@@ -383,7 +400,11 @@ function Boundary({
   focused,
   onClick,
   tone,
+  marker,
+  highlighted,
 }: {
+  marker?: number | undefined;
+  highlighted?: boolean | undefined;
   title: string;
   subtitle?: string;
   children: ReactNode;
@@ -408,7 +429,7 @@ function Boundary({
         tone === "network"
           ? "border-cat-networking/40 bg-cat-networking/[0.03]"
           : !dashed && "border-border-strong/70",
-        focused && "ring-2 ring-primary/25",
+        (focused || highlighted) && "ring-2 ring-primary/25",
       )}
     >
       <header
@@ -419,6 +440,11 @@ function Boundary({
         }}
         className={cn("mb-2.5 flex items-center gap-2", onClick && "cursor-pointer")}
       >
+        {marker !== undefined && (
+          <span className="grid size-5 shrink-0 place-items-center rounded-full bg-primary text-[10.5px] font-bold text-primary-foreground">
+            {marker}
+          </span>
+        )}
         {icon && <ServiceIcon id={icon} size="sm" />}
         <div className="min-w-0">
           <p className="font-mono text-[11px] leading-tight font-semibold text-foreground">

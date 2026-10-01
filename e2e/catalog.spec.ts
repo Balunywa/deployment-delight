@@ -58,6 +58,26 @@ test.describe.serial("solution catalog", () => {
     await expect(page.getByText("E2E Tester · CSA")).toBeVisible();
   });
 
+  test("a solution explains itself: benefits, how it works on the architecture, how to deploy @readonly", async ({
+    page,
+  }) => {
+    await open(page, "/products/22222222-2222-2222-2222-222222222221");
+    await loaded(page);
+    await expect(page.locator("#benefits article")).toHaveCount(3);
+    const how = page.locator("#how-it-works");
+    // Steps are numbered on the diagram and follow the selected delivery model's real architecture.
+    await expect(how.locator("ol > li").first()).toContainText("1");
+    await expect(how.locator('[data-node="aks"]')).toBeVisible();
+    await how.getByRole("tab", { name: "Enterprise Private" }).click();
+    await expect(how.getByText("Traffic arrives through the customer's hub")).toBeVisible();
+    await expect(how.locator('[data-node="hub"]')).toContainText("1");
+    await how.getByRole("tab", { name: "Hosted by GridWorks" }).click();
+    await expect(how.getByText("Users sign in", { exact: true })).toBeVisible();
+    const deploy = page.locator("#deploy");
+    await expect(deploy.getByRole("link", { name: /^Deploy .+ v\d/ }).first()).toBeVisible();
+    await expect(deploy.getByText("What the customer provides")).toBeVisible();
+  });
+
   test("submit a solution from GitHub through the wizard", async ({ page }) => {
     await open(page, "/products");
     await page.getByRole("button", { name: "Submit a solution" }).click();

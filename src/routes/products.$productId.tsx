@@ -20,6 +20,13 @@ import { toast } from "sonner";
 
 import { ServiceIcon } from "@/components/architecture/ServiceIcon";
 import { MaturityBadge, OwnerAvatar } from "@/components/catalog/Badges";
+import {
+  Benefits,
+  DeployWithConfidence,
+  HowItWorks,
+  SectionNav,
+  type StoryModel,
+} from "@/components/catalog/SolutionStory";
 import { UnitCard } from "@/components/delivery/UnitCard";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
@@ -31,10 +38,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { sourceFromManifest } from "@/lib/architecture";
+import { fromManifest, sourceFromManifest } from "@/lib/architecture";
 import { SERVICE_BY_ID } from "@/lib/catalog";
 import { relative, shortDate } from "@/lib/format";
 import { modelOf } from "@/lib/product-catalog";
+import { benefits } from "@/lib/solution-story";
 import { currentUserQuery, solutionQuery } from "@/lib/queries";
 import {
   IAC_LABEL,
@@ -136,6 +144,24 @@ function SolutionPage() {
     importChecks.filter((c) => c.level === "blocking"),
   );
   const deployable = latest.find((x) => x.published);
+  const models: StoryModel[] = latest
+    .filter(({ manifest }) => Array.isArray(manifest["modules"]))
+    .map(({ o, published, newest, manifest }) => ({
+      id: o.id,
+      name: modelOf(o.name),
+      version: (published ?? newest)?.version ?? null,
+      published: !!published,
+      arch: fromManifest(o, manifest),
+    }));
+  const story = benefits({
+    product: p,
+    services,
+    models: latest.map(({ o }) => ({
+      name: modelOf(o.name),
+      runsIn: runsIn(o.offering_type),
+      installs: o.installs,
+    })),
+  });
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
@@ -146,7 +172,10 @@ function SolutionPage() {
         <ArrowLeft className="size-3.5" /> Solution catalog
       </Link>
 
-      <header className="flex flex-wrap items-start justify-between gap-4">
+      <header
+        id="overview"
+        className="flex scroll-mt-20 flex-wrap items-start justify-between gap-4"
+      >
         <div className="min-w-0 max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-[24px] leading-tight font-bold">{p.name}</h1>
@@ -194,9 +223,14 @@ function SolutionPage() {
         </div>
       </header>
 
+      <SectionNav />
+
       <div className="grid gap-5 lg:grid-cols-[1fr_320px]">
         <div className="min-w-0 space-y-5">
+          <Benefits items={story} />
+          <HowItWorks models={models} productName={p.name} />
           <Section
+            id="models"
             title="Delivery models"
             sub="Each is a versioned offering with its own architecture review. Customers are deployed to a published version."
           >
@@ -275,6 +309,16 @@ function SolutionPage() {
               </ul>
             </Section>
           )}
+
+          <DeployWithConfidence
+            productId={p.id}
+            models={models}
+            source={
+              source
+                ? { repository: source.repository, iac: IAC_LABEL[source.iac] ?? source.iac }
+                : null
+            }
+          />
 
           <Section title="What it's built from" sub="Azure services across its delivery models.">
             <div className="flex flex-wrap gap-1.5">
@@ -630,16 +674,18 @@ function OwnersCard({
 }
 
 function Section({
+  id,
   title,
   sub,
   children,
 }: {
+  id?: string;
   title: string;
   sub?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-md border bg-card p-4">
+    <section id={id} className="scroll-mt-20 rounded-md border bg-card p-4">
       <h2 className="text-sm font-semibold">{title}</h2>
       {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
       <div className="mt-3">{children}</div>

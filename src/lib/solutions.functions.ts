@@ -138,6 +138,9 @@ export type SolutionDetail = {
     id: string;
     name: string;
     offering_type: string;
+    network_profile: string | null;
+    deployment_boundary: string | null;
+    supported_regions: string[] | null;
     installs: number;
     customers: number;
     versions: {
@@ -161,6 +164,8 @@ export const getSolution = createServerFn({ method: "GET" })
          'product', to_jsonb(p),
          'offerings', coalesce((select jsonb_agg(jsonb_build_object(
              'id', o.id, 'name', o.name, 'offering_type', o.offering_type,
+             'network_profile', o.network_profile, 'deployment_boundary', o.deployment_boundary,
+             'supported_regions', o.supported_regions,
              'installs', (select count(*) from public.environments e where e.offering_id = o.id),
              'customers', (select count(distinct e.customer_id) from public.environments e where e.offering_id = o.id),
              'versions', coalesce((select jsonb_agg(jsonb_build_object('id', v.id, 'version', v.version, 'status', v.status,
