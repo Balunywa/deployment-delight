@@ -53,8 +53,8 @@ Either way, it's the same product setup, the same deployment process and the sam
      `db/seed/0005_product_catalog.sql` and upserts into a migration you name (latest:
      `0010_catalog_stories.sql`). Customers start with no installs.
    - **Solution pages** follow a solutions-library layout. A hero comes first, then the overview and benefits.
-     "How it works" shows the project's own diagram with numbered steps, and the interactive architecture of each
-     delivery model numbered to match. Then come the business scenario, caveats to read before deploying, and how
+     "How it works" shows the architecture Cloud Delivery draws from the solution's code, per delivery model,
+     with the flow in numbered steps on it. Then come the business scenario, caveats to read before deploying, and how
      to deploy, including the project's own command. Catalog cards open the solution page.
 0. **Listen before you solution (Engagements).** SEs, CSAs and SSPs start with the customer's problem, not a
    product. **Listen** captures the workflow, the problem, the outcome, why now, the accountable owner, the
