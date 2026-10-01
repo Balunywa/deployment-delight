@@ -9,6 +9,7 @@ import { StageDots } from "@/components/engagement/StageDots";
 import { type Apply, Conversation, type Focus } from "@/components/engagement/Conversation";
 import { FitGapView, HandoffView, PrepView, RecapView } from "@/components/engagement/Panels";
 import { type CatalogProduct, ProveView } from "@/components/engagement/Prove";
+import { RealizeView } from "@/components/engagement/Realize";
 import { EmptyState, Pill } from "@/components/Primitives";
 import { Button } from "@/components/ui/button";
 import { advance } from "@/lib/conversation";
@@ -25,6 +26,7 @@ const TABS = [
   { key: "recap", title: "Customer recap" },
   { key: "handoff", title: "Handoff" },
   { key: "prove", title: "Prove" },
+  { key: "realize", title: "Realize value" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
@@ -130,7 +132,9 @@ function EngagementPage() {
         </div>
         <div className="flex items-center gap-3">
           <StageDots e={e} />
-          {e.decision ? (
+          {e.realization.confirmed ? (
+            <Pill tone="success">Value realized</Pill>
+          ) : e.decision ? (
             <Pill tone={e.decision.choice === "stop" ? "neutral" : "success"}>
               Decided: {e.decision.choice}
             </Pill>
@@ -208,12 +212,26 @@ function EngagementPage() {
                 ...patch,
                 ...(patch["decision"] ? {} : advance(e, "prove")),
               } as Partial<Engagement>,
-              "decision" in patch ? "Decision recorded." : "Saved.",
+              "decision" in patch
+                ? (patch["decision"] as { choice?: string } | null)?.choice === "scale"
+                  ? "Decision recorded. Next: realize the value."
+                  : "Decision recorded."
+                : "Saved.",
             )
           }
           saving={save.isPending}
           products={products}
           installs={installs}
+        />
+      )}
+      {tab === "realize" && (
+        <RealizeView
+          key={e.updated_at}
+          e={e}
+          products={products}
+          installs={installs}
+          apply={apply}
+          onProve={() => go("prove")}
         />
       )}
     </div>

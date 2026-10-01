@@ -2,13 +2,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
 import { CARDS, CARD_BY_ID, productNumber } from "./conversation";
-import type { Engagement } from "./engagements";
+import { type Engagement, latestOf, measuresOf } from "./engagements";
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
 const SELECT = `select e.id, e.name, e.stage, e.owner_name, e.customer_id, c.name as customer_name, e.brief,
   e.readiness, e.solution_map, e.results, e.decision, e.sessions, e.trail, e.findings, e.actions,
-  e.created_at, e.updated_at
+  e.realization, e.created_at, e.updated_at
   from public.engagements e left join public.customers c on c.id = e.customer_id`;
 
 export const listEngagements = createServerFn({ method: "GET" }).handler(async () => {
@@ -26,6 +26,8 @@ export type EngagementInstall = {
   product_id: string;
   offering_name: string;
   version: string | null;
+  monthly_cost_estimate: number | null;
+  created_at: string;
 };
 
 /** What Cloud Delivery already knows about the account, for meeting prep. */
@@ -60,7 +62,8 @@ export const getEngagement = createServerFn({ method: "GET" })
       };
     const [installs, customer, foundation, connections, others] = await Promise.all([
       db.query<EngagementInstall>(
-        `select en.id, en.name, en.environment_type, en.status, o.product_id, o.name as offering_name, v.version
+        `select en.id, en.name, en.environment_type, en.status, o.product_id, o.name as offering_name, v.version,
+           en.monthly_cost_estimate::float8 as monthly_cost_estimate, en.created_at
          from public.environments en join public.offerings o on o.id = en.offering_id
          left join public.offering_versions v on v.id = en.actual_offering_version_id
          where en.customer_id = $1 order by en.created_at desc`,
@@ -110,6 +113,18 @@ export type Recap = {
   actions: { text: string; owner: string; due: string; done: boolean }[];
   shown: { id: string; name: string; outcome: string | null }[];
   sessions: { title: string; at: string }[];
+  /** The customer's own measures: baseline, target and the latest value. */
+  results: {
+    metric: string;
+    unit: string;
+    baseline: string;
+    target: string;
+    latest: string;
+    when: string;
+  }[];
+  /** Chosen solutions running in the customer's production. */
+  production: string[];
+  valueConfirmed: { by: string; note: string; at: string } | null;
 };
 
 export const getRecap = createServerFn({ method: "GET" })
@@ -128,8 +143,33 @@ export const getRecap = createServerFn({ method: "GET" })
           [shownIds],
         )
       : [];
+    const chosen = [...new Set(e.solution_map.flatMap((m) => m.products))];
+    const production = chosen.length
+      ? await db.query<{ name: string }>(
+          `select distinct p.name from public.environments en
+           join public.offerings o on o.id = en.offering_id join public.products p on p.id = o.product_id
+           where en.customer_id = $1 and en.environment_type = 'production' and o.product_id = any($2::uuid[])`,
+          [e.customer_id, chosen],
+        )
+      : [];
     const b = e.brief;
+    const c = e.realization.confirmed;
     return {
+      results: measuresOf(e)
+        .filter((m) => m.metric.trim())
+        .map((m) => {
+          const l = latestOf(m);
+          return {
+            metric: m.metric,
+            unit: m.unit,
+            baseline: m.baseline,
+            target: m.target,
+            latest: l?.value ?? "",
+            when: l?.when ?? "",
+          };
+        }),
+      production: production.map((p) => p.name),
+      valueConfirmed: c ? { by: c.by, note: c.note, at: c.at } : null,
       name: e.name,
       customer: e.customer_name,
       owner: b.owner ?? null,
@@ -249,6 +289,43 @@ const patchSchema = z.object({
     )
     .max(200)
     .optional(),
+  realization: z
+    .object({
+      measures: z
+        .array(
+          z.object({
+            metric: z.string().max(200),
+            unit: z.string().max(30),
+            baseline: z.string().max(60),
+            target: z.string().max(60),
+            proof: z.string().max(60),
+            d30: z.string().max(60),
+            d60: z.string().max(60),
+            d90: z.string().max(60),
+          }),
+        )
+        .max(12)
+        .optional(),
+      adoption: z.string().max(1000).optional(),
+      msx: z
+        .object({
+          // Only https links are stored, so nothing else can end up in an href.
+          opportunity: z
+            .union([z.literal(""), z.string().url().startsWith("https://").max(600)])
+            .optional(),
+          milestones: z
+            .array(
+              z.object({
+                title: z.string().trim().min(1).max(200),
+                url: z.string().url().startsWith("https://").max(600),
+              }),
+            )
+            .max(20)
+            .optional(),
+        })
+        .optional(),
+    })
+    .optional(),
   actions: z
     .array(
       z.object({
@@ -307,12 +384,23 @@ export const saveEngagement = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const db = await import("./db.server");
     const user = (await import("./identity.server")).currentUser();
-    const before = await db.one<{ stage: string; customer_id: string | null }>(
-      "select stage, customer_id from public.engagements where id = $1 and organization_id = $2",
+    const before = await db.one<{
+      stage: string;
+      customer_id: string | null;
+      realization: Engagement["realization"];
+    }>(
+      "select stage, customer_id, realization from public.engagements where id = $1 and organization_id = $2",
       [data.id, ORG_ID],
     );
-    const { decision, ...rest } = data.patch;
+    const { decision, realization, ...rest } = data.patch;
     const values: Record<string, unknown> = { ...rest, updated_at: new Date().toISOString() };
+    // The owner's confirmation is only ever set by confirmValue; edits never overwrite it.
+    if (realization)
+      values["realization"] = {
+        ...before.realization,
+        ...realization,
+        confirmed: before.realization.confirmed ?? null,
+      };
     // Arrays would otherwise be sent as Postgres arrays; these columns are jsonb.
     for (const k of [
       "solution_map",
@@ -327,7 +415,8 @@ export const saveEngagement = createServerFn({ method: "POST" })
       values["decision"] = decision
         ? { ...decision, by: user.name, at: new Date().toISOString() }
         : null;
-      if (decision) values["stage"] = "decided";
+      // Scaling it moves the engagement on to realizing the value; anything else ends here.
+      if (decision) values["stage"] = decision.choice === "scale" ? "realize" : "decided";
     }
     await db.update("engagements", values as never, { id: data.id });
     const stage = (values["stage"] as string | undefined) ?? before.stage;
@@ -343,6 +432,52 @@ export const saveEngagement = createServerFn({ method: "POST" })
         result: "success",
         metadata_json: {} as never,
       });
+    return { ok: true };
+  });
+
+/** The business owner confirms the value was realized. Recorded by the presenter, with both names, and audited. */
+export const confirmValue = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) =>
+    z
+      .object({
+        id: z.string().uuid(),
+        by: z.string().trim().min(2).max(200),
+        note: z.string().trim().max(1000).default(""),
+      })
+      .parse(d),
+  )
+  .handler(async ({ data }) => {
+    const db = await import("./db.server");
+    const user = (await import("./identity.server")).currentUser();
+    const e = await loadEngagement(data.id);
+    if (e.stage !== "realize")
+      throw new Error("Value is confirmed after the proof is scaled to production.");
+    const confirmed = {
+      by: data.by,
+      note: data.note,
+      at: new Date().toISOString(),
+      recordedBy: user.name,
+    };
+    await db.update(
+      "engagements",
+      {
+        realization: { ...e.realization, confirmed },
+        stage: "decided",
+        updated_at: confirmed.at,
+      } as never,
+      { id: e.id },
+    );
+    await db.insert("audit_events", {
+      organization_id: ORG_ID,
+      customer_id: e.customer_id,
+      actor_name: user.name,
+      event_type: "engagement.value_confirmed",
+      resource_type: "engagement",
+      resource_id: e.id,
+      new_value: { by: data.by } as never,
+      result: "success",
+      metadata_json: {} as never,
+    });
     return { ok: true };
   });
 
@@ -425,6 +560,13 @@ export const assistEngagement = createServerFn({ method: "POST" })
           .filter((f) => !recap || f.kind === "confirmed" || f.kind === "unknown")
           .map((f) => ({ kind: f.kind, text: f.text, quote: f.quote })),
         actions: e.actions.map(({ text, owner, due }) => ({ text, owner, due })),
+        // The customer's own measures in production, and the owner's confirmation. No commercial data.
+        value: {
+          measures: measuresOf(e).filter((m) => m.metric.trim()),
+          adoption: e.realization.adoption ?? "",
+          confirmedBy: e.realization.confirmed?.by ?? null,
+          ownerSaid: e.realization.confirmed?.note ?? null,
+        },
       },
       cards: recap
         ? []
@@ -442,7 +584,7 @@ export const assistEngagement = createServerFn({ method: "POST" })
       presenterNotes: data.notes,
     };
     const task = recap
-      ? `Draft a short follow-up email from the presenter to the customer. Use ONLY confirmed findings (as "what we heard"), unknown findings (as "what we still need to find out") and the agreed actions with owners and dates. No hypotheses, no internal notes, no product pitch. Return JSON {"recap": "..."}.`
+      ? `Draft a short follow-up email from the presenter to the customer. Use ONLY confirmed findings (as "what we heard"), unknown findings (as "what we still need to find out") and the agreed actions with owners and dates. If engagement.value has measures with values at 30, 60 or 90 days, lead with what it is delivering against the baseline, using exactly those numbers and units, and the owner's confirmation if present. No hypotheses, no internal notes, no MSX, cost or consumption, no product pitch, no numbers that aren't in the context. Return JSON {"recap": "..."}.`
       : `From the presenter's notes and the conversation so far, suggest what to ask next and what might be going on. Return JSON {"suggestions":[{"card":"<card id>","because":"..."}], "hypotheses":[{"text":"...","because":"..."}], "listenFor":"one sentence on what to listen for next"}. At most 3 suggestions and 3 hypotheses. Hypotheses must not repeat existing findings.`;
     const raw = await chat(
       [

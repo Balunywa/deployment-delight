@@ -51,7 +51,7 @@ function Engagements() {
         }
       />
 
-      <ol className="mb-6 grid gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      <ol className="mb-6 grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
         {STAGES.map((s, i) => (
           <li key={s.key} className="rounded-xl border border-border bg-card px-3.5 py-3">
             <p className="font-mono text-[11px] text-muted-foreground">0{i + 1}</p>

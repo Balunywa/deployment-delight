@@ -9,7 +9,7 @@ export type ConceptKey =
 export type Readiness = "ready" | "partial" | "blocker" | "not-needed" | "unknown";
 export type Audience = "executive" | "technical" | "internal";
 export type Stage =
-  "understand" | "explore" | "illustrate" | "validate" | "agree" | "prove" | "decided";
+  "understand" | "explore" | "illustrate" | "validate" | "agree" | "prove" | "realize" | "decided";
 
 export type Concept = {
   key: ConceptKey;
@@ -143,6 +143,7 @@ export const STAGES: { key: Exclude<Stage, "decided">; title: string; sub: strin
   { key: "validate", title: "Validate", sub: "Test the hypotheses with the customer" },
   { key: "agree", title: "Agree", sub: "Owned next steps, with dates" },
   { key: "prove", title: "Prove", sub: "Deploy, measure, decide" },
+  { key: "realize", title: "Realize", sub: "In production, measured, confirmed" },
 ];
 
 export type Stakeholder = { name: string; role: string; audience: Audience };
@@ -208,6 +209,54 @@ export type Finding = {
 };
 export type Action = { id: string; text: string; owner: string; due: string; done: boolean };
 
+/** A customer measure tracked from the baseline through the proof to 30, 60 and 90 days in production. */
+export type ValueMeasure = {
+  metric: string;
+  unit: string;
+  baseline: string;
+  target: string;
+  proof: string;
+  d30: string;
+  d60: string;
+  d90: string;
+};
+export const CHECKPOINTS = [
+  ["d30", "30 days"],
+  ["d60", "60 days"],
+  ["d90", "90 days"],
+] as const;
+export type Realization = {
+  measures?: ValueMeasure[];
+  /** Who uses it, in the customer's words. */
+  adoption?: string;
+  /** The business owner's confirmation, recorded by the presenter. */
+  confirmed?: { by: string; note: string; at: string; recordedBy: string } | null;
+  /** Internal only: where the work is tracked in MSX. Pasted links; never sent to the customer recap. */
+  msx?: { opportunity?: string; milestones?: { title: string; url: string }[] };
+};
+
+/** The measures to track: what's been saved, else the proof's results. */
+export function measuresOf(e: Pick<Engagement, "realization" | "results">): ValueMeasure[] {
+  if (e.realization.measures?.length) return e.realization.measures;
+  return e.results.map((r) => ({
+    metric: r.metric,
+    unit: r.unit,
+    baseline: r.baseline,
+    target: r.target,
+    proof: r.measured,
+    d30: "",
+    d60: "",
+    d90: "",
+  }));
+}
+
+/** The most recent value a customer measure has, and when it was taken. */
+export function latestOf(m: ValueMeasure): { value: string; when: string } | null {
+  for (const [k, label] of [...CHECKPOINTS].reverse())
+    if (m[k].trim()) return { value: m[k], when: label };
+  return m.proof.trim() ? { value: m.proof, when: "the proof" } : null;
+}
+
 export type Engagement = {
   id: string;
   name: string;
@@ -224,6 +273,7 @@ export type Engagement = {
   trail: Turn[];
   findings: Finding[];
   actions: Action[];
+  realization: Realization;
   created_at: string;
   updated_at: string;
 };
@@ -236,18 +286,24 @@ export function progressOf(e: Engagement) {
   const current = stageIndex(e.stage);
   const count = (k: FindingKind) => e.findings.filter((f) => f.kind === k).length;
   const asked = e.trail.filter((t) => !t.parked && !t.card.startsWith("show:")).length;
-  const next =
-    e.stage === "decided"
+  const checkpoints = measuresOf(e).length
+    ? CHECKPOINTS.filter(([k]) => measuresOf(e).some((m) => m[k].trim())).length
+    : 0;
+  const next = e.realization.confirmed
+    ? "Value realized"
+    : e.stage === "decided"
       ? `Decided: ${e.decision?.choice ?? ""}`
-      : !asked
-        ? "Not started"
-        : [
-            `${asked} asked`,
-            `${count("confirmed")} confirmed`,
-            count("hypothesis") ? `${count("hypothesis")} to test` : "",
-            e.actions.length ? `${e.actions.filter((a) => !a.done).length} actions open` : "",
-          ]
-            .filter(Boolean)
-            .join(" · ");
+      : e.stage === "realize"
+        ? `Realizing value · ${checkpoints} of 3 checkpoints`
+        : !asked
+          ? "Not started"
+          : [
+              `${asked} asked`,
+              `${count("confirmed")} confirmed`,
+              count("hypothesis") ? `${count("hypothesis")} to test` : "",
+              e.actions.length ? `${e.actions.filter((a) => !a.done).length} actions open` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ");
   return { current, next };
 }

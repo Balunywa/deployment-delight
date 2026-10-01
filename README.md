@@ -69,7 +69,12 @@ Either way, it's the same product setup, the same deployment process and the sam
    means, can it act safely), a **customer recap** at `/recap/<id>` that is built server-side from confirmed
    findings and agreed actions only, an internal **handoff** for the CSA with the full reasoning trail, and
    **Prove** (deploy a proof from the catalog, measure against the baseline, record the decision in the audit
-   log). The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
+   log), then **Realize value** once it's scaled: what's actually running in production (from the installed
+   base), the customer's measures at 30, 60 and 90 days against the baseline, and the business owner's
+   confirmation, which closes the engagement and is audited. The recap becomes the value report. Kept apart and
+   internal: the MSX opportunity and milestone links (pasted, https only), the installs' estimated run cost, and
+   a milestone update to paste into MSX. Live MSX sync is deliberately off; it needs an app registration
+   approved by the MSX team and only runs in Microsoft's corporate tenant. The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
    suggests next questions and hypotheses from the presenter's notes and drafts the follow-up email; it can only
    suggest existing questions, and nothing is added until the presenter accepts it. See `src/lib/conversation.ts`.
 1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and

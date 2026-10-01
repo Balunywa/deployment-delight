@@ -2,7 +2,16 @@
  * The customer-safe recap. It renders only what getRecap returns, and getRecap never sends hypotheses, presenter
  * notes, fit scoring or internal notes: they aren't hidden here, they were never sent.
  */
-import { CalendarDays, Check, CircleHelp, MessageSquareQuote, Target } from "lucide-react";
+import {
+  BadgeCheck,
+  CalendarDays,
+  Check,
+  CircleHelp,
+  MessageSquareQuote,
+  Server,
+  Target,
+  TrendingUp,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 import type { Recap } from "@/lib/engagements.functions";
@@ -42,6 +51,11 @@ export function RecapDocument({ recap: r, className }: { recap: Recap; className
           {r.customer ?? "Recap"}
         </p>
         <h1 className="mt-2 text-[28px] leading-tight font-bold tracking-tight">{r.name}</h1>
+        {r.valueConfirmed && (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-success/10 px-2.5 py-1 text-[12px] font-semibold text-success">
+            <BadgeCheck className="size-3.5" /> Value realized
+          </p>
+        )}
         {last && (
           <p className="mt-2 text-[13px] text-muted-foreground">
             After{" "}
@@ -123,6 +137,59 @@ export function RecapDocument({ recap: r, className }: { recap: Recap; className
               </li>
             ))}
           </ul>
+        </Section>
+      )}
+
+      {(r.production.length > 0 || r.results.some((x) => x.latest)) && (
+        <Section icon={<TrendingUp className="size-4" />} title="What it's delivering">
+          {r.production.length > 0 && (
+            <p className="mb-4 flex items-center gap-2 text-[14px]">
+              <Server className="size-4 text-success" /> In production: {r.production.join(", ")}
+            </p>
+          )}
+          {r.results.length > 0 && (
+            <table className="w-full text-left text-[14px]">
+              <thead className="text-[12px] text-muted-foreground">
+                <tr>
+                  <th className="pb-2 font-medium">Measure</th>
+                  <th className="pb-2 font-medium">Before</th>
+                  <th className="pb-2 font-medium">Target</th>
+                  <th className="pb-2 font-medium">Now</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {r.results.map((m) => (
+                  <tr key={m.metric}>
+                    <td className="py-2.5 pr-4">
+                      {m.metric}
+                      {m.unit && <span className="text-muted-foreground"> ({m.unit})</span>}
+                    </td>
+                    <td className="py-2.5 pr-4">{m.baseline || "Not measured"}</td>
+                    <td className="py-2.5 pr-4">{m.target || "—"}</td>
+                    <td className="py-2.5 font-semibold">
+                      {m.latest || "Not measured yet"}
+                      {m.when && (
+                        <span className="block text-[12px] font-normal text-muted-foreground">
+                          at {m.when}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {r.valueConfirmed && (
+            <p className="mt-4 rounded-lg border border-success/30 bg-success/5 px-4 py-3 text-[14px]">
+              <BadgeCheck className="mr-1.5 inline size-4 text-success" />
+              Confirmed by {r.valueConfirmed.by} on {date(r.valueConfirmed.at)}
+              {r.valueConfirmed.note && (
+                <span className="mt-1 block text-[13px] text-muted-foreground italic">
+                  “{r.valueConfirmed.note}”
+                </span>
+              )}
+            </p>
+          )}
         </Section>
       )}
 
