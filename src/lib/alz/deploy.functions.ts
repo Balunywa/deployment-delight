@@ -284,6 +284,14 @@ async function beginRun(
   targets = {},
 ) {
   if (running.has(f.id)) throw new Error("A run is already in progress for this landing zone.");
+  await resumePipelineRuns(
+    db,
+    f.id,
+    await db.query<DeployRun>(
+      "select id, action, status, started_by, summary, log, created_at, finished_at from public.foundation_runs where foundation_id = $1 and status = 'running'",
+      [f.id],
+    ),
+  );
   const active = await db.maybeOne(
     "select id from public.foundation_runs where foundation_id = $1 and status = 'running' and created_at > now() - interval '3 hours'",
     [f.id],
@@ -771,6 +779,24 @@ export type DeployRun = {
 async function resumePipelineRuns(db: Db, foundationId: string, rows: DeployRun[]) {
   for (const row of rows) {
     const t = (row.summary as { pipeline?: PipelineRun } | null)?.pipeline;
+    if (row.status === "running" && !t && !running.has(foundationId)) {
+      // In-app Terraform and connect runs die with the process; say so instead of blocking new runs for hours.
+      const note = `${new Date().toISOString().slice(11, 19)}  Interrupted: the app restarted while this run was in progress. Start it again.\n`;
+      await db.update(
+        "foundation_runs",
+        {
+          status: "failed",
+          log: row.log + note,
+          summary: { error: "Interrupted by an app restart." },
+          finished_at: new Date().toISOString(),
+        },
+        { id: row.id },
+      );
+      row.status = "failed";
+      row.log += note;
+      row.summary = { error: "Interrupted by an app restart." };
+      continue;
+    }
     if (
       row.status !== "running" ||
       !t ||
