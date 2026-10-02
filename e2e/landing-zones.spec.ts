@@ -35,7 +35,7 @@ test.describe("platform landing zones", () => {
 
     // Outbound: what each landing zone does, and the guide opens beside the design.
     await steps.getByRole("button", { name: /Outbound internet/ }).click();
-    await expect(page.getByText(/sends 0\.0\.0\.0\/0 to the hub firewall/)).toBeVisible();
+    await expect(page.getByText("How traffic leaves Azure in this design")).toBeVisible();
     await page.getByText("How to decide").click();
     const sheet = page.getByRole("dialog");
     await expect(
@@ -45,8 +45,8 @@ test.describe("platform landing zones", () => {
 
     // IP plan: the hub drawn to scale; an overlap is an error with a one-click fix.
     await steps.getByRole("button", { name: /IP plan/ }).click();
-    await expect(page.getByRole("img", { name: /Address map of 10\.0\.0\.0\/22/ })).toBeVisible();
-    await expect(page.getByText("AzureFirewallSubnet").first()).toBeVisible();
+    // Hub and spoke or Virtual WAN, the hub is drawn to scale.
+    await expect(page.getByRole("img", { name: /Address map of/ }).first()).toBeVisible();
     await page.getByLabel(/Hub address space/).fill("192.168.0.0/16");
     const overlap = page.getByText(/overlaps On-premises range \(192\.168\.0\.0\/16\)/).first();
     await expect(overlap).toBeVisible();

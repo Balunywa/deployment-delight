@@ -14,6 +14,7 @@ import {
   type HubUtilization,
   checkIpPlan,
   cidrOverlaps,
+  intToIpv4,
   ipPlan,
   parseCidr,
 } from "@/lib/alz/ipplan";
@@ -83,7 +84,7 @@ export function IpPlanPanel({
       )}
 
       {plan.hubs.map((h) => (
-        <HubMap key={h.id} hub={h} />
+        <HubMap key={h.id} hub={h} vwan={answers.connectivity === "virtual_wan"} />
       ))}
 
       <section className="rounded-xl border border-border p-4">
@@ -286,11 +287,34 @@ function OnPrem({
 }
 
 /** The hub block drawn to scale: each subnet a slice where the module puts it, the rest free. */
-function HubMap({ hub }: { hub: HubUtilization }) {
+function HubMap({ hub, vwan }: { hub: HubUtilization; vwan: boolean }) {
   const block = parseCidr(hub.allocationCidr);
   if (!block.ok) return null;
-  const { start, addresses } = block.block;
-  const slices = hub.subnets
+  // Virtual WAN puts its subnets in a sidecar /22 next to the virtual hub's /22, so draw the span of both.
+  const ends = hub.subnets
+    .map((s) => parseCidr(s.cidr))
+    .filter((p) => p.ok)
+    .map((p) => (p.ok ? p.block : null)!);
+  const start = Math.min(block.block.start, ...ends.map((b) => b.start));
+  const end = Math.max(block.block.end, ...ends.map((b) => b.end));
+  const addresses = end - start + 1;
+  const parts = [
+    ...(vwan
+      ? [
+          {
+            key: "virtual-hub",
+            name: "Virtual hub (Microsoft-managed)",
+            cidr: hub.allocationCidr,
+            purpose:
+              "The secured virtual hub's own address prefix; Azure manages what's inside it.",
+            addresses: block.block.addresses,
+            usable: block.block.addresses,
+          },
+        ]
+      : []),
+    ...hub.subnets,
+  ];
+  const slices = parts
     .map((s, i) => {
       const p = parseCidr(s.cidr);
       return p.ok
@@ -312,14 +336,16 @@ function HubMap({ hub }: { hub: HubUtilization }) {
         <span className="flex items-center gap-2 text-[12px] text-muted-foreground">
           <span className="font-mono text-foreground">{hub.allocationCidr}</span> from{" "}
           <span className="font-mono">{hub.cidr}</span>
-          <Pill tone={hub.percentUsed > 85 ? "warning" : "neutral"}>
-            {Math.round(hub.percentUsed)}% allocated
-          </Pill>
+          {!vwan && (
+            <Pill tone={hub.percentUsed > 85 ? "warning" : "neutral"}>
+              {Math.round(hub.percentUsed)}% allocated
+            </Pill>
+          )}
         </span>
       </div>
       <div
         role="img"
-        aria-label={`Address map of ${hub.allocationCidr}`}
+        aria-label={`Address map of ${hub.label}`}
         className="relative mt-3 h-9 overflow-hidden rounded-md border border-border bg-[repeating-linear-gradient(135deg,transparent,transparent_6px,oklch(0.95_0_0)_6px,oklch(0.95_0_0)_12px)]"
       >
         {slices.map((s) => (
@@ -337,8 +363,12 @@ function HubMap({ hub }: { hub: HubUtilization }) {
         ))}
       </div>
       <div className="mt-1 flex justify-between font-mono text-[10.5px] text-muted-foreground">
-        <span>{block.block.address}</span>
-        <span>{hub.free.toLocaleString()} addresses free in the hub</span>
+        <span>{intToIpv4(start)}</span>
+        <span>
+          {vwan
+            ? `${addresses.toLocaleString()} addresses across the sidecar and virtual hub`
+            : `${hub.free.toLocaleString()} addresses free in the hub`}
+        </span>
       </div>
       <ul className="mt-3 grid gap-x-6 gap-y-1.5 text-[12px] md:grid-cols-2">
         {slices.map((s) => (
