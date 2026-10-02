@@ -19,6 +19,8 @@ import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
 import { TrafficSimulator } from "@/components/lz/TrafficSimulator";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
 import { GuidedDesign } from "@/components/lz/Guided";
+import { TrafficStory } from "@/components/lz/traffic/TrafficStory";
+import { alternativesFor } from "@/lib/alz/alternatives";
 import { ChangeBar, ReviewView, StepBar } from "@/components/lz/Flow";
 import { RealDeploy } from "@/components/lz/RealDeploy";
 import { describeChanges } from "@/lib/alz/changes";
@@ -55,12 +57,13 @@ type View =
 export const Route = createFileRoute("/foundations/$foundationId")({
   validateSearch: (
     s: Record<string, unknown>,
-  ): { view?: View; flow?: string; mode?: "guided" | "canvas" } => {
+  ): { view?: View; flow?: string; mode?: "guided" | "canvas"; lens?: "story" | "hops" } => {
     const v = s["view"];
     const flow = typeof s["flow"] === "string" ? { flow: s["flow"] } : {};
     const m = s["mode"];
-    const mode: { mode?: "guided" | "canvas" } =
+    const mode: { mode?: "guided" | "canvas"; lens?: "story" | "hops" } =
       m === "guided" || m === "canvas" ? { mode: m } : {};
+    if (s["lens"] === "story" || s["lens"] === "hops") mode.lens = s["lens"];
     if (v === "hierarchy" || v === "setup") return { view: "design", ...mode };
     return typeof v === "string" ? { view: v as View, ...flow, ...mode } : mode;
   },
@@ -86,6 +89,7 @@ function FoundationDetail() {
   const f = foundation.data;
   const saved = useMemo(() => withDefaults(f?.answers), [f]);
   const [answers, setAnswers] = useState<Answers>(saved);
+  const [compare, setCompare] = useState("");
   useEffect(() => setAnswers(saved), [saved]);
   const save = useMutation({
     mutationFn: useServerFn(saveFoundationAnswers),
@@ -110,6 +114,7 @@ function FoundationDetail() {
   const lib = libraryFor(f.library_ref);
   // New landing zones start guided; deployed ones open on the canvas, where everything is visible at once.
   const mode = search.mode ?? (f.status === "draft" ? "guided" : "canvas");
+  const lens = search.lens ?? (search.flow ? "hops" : "story");
   const current = managed ? answers : saved;
   const tree = hierarchy(lib, current);
   const placed = placementsFor(placements(customers.data ?? [], offerings.data ?? []), f);
@@ -395,28 +400,83 @@ function FoundationDetail() {
         )}
         {view === "traffic" && managed && (
           <div className="px-4 py-4 lg:px-8">
-            <div className="mb-3">
-              <h2 className="text-[15px] font-semibold">Traffic, end to end</h2>
-              <p className="text-[12.5px] text-muted-foreground">
-                A packet through the network this design deploys: every subnet's effective routes,
-                the route Azure picks, the NSG and firewall decisions, and the reply. Change the
-                design and the paths change.
-                {dirty && " Showing your unsaved design."}
-              </p>
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-[15px] font-semibold">Traffic, end to end</h2>
+                <p className="text-[12.5px] text-muted-foreground">
+                  Every path through the network this design deploys, computed from its route
+                  tables, NSGs and firewall: what works, what needs a rule, and what breaks.
+                  {dirty && " Showing your unsaved design."}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {lens === "story" && (
+                  <select
+                    aria-label="Compare with"
+                    className="h-8 rounded-md border border-input bg-background px-2 text-[12.5px]"
+                    value={compare}
+                    onChange={(e) => setCompare(e.target.value)}
+                  >
+                    <option value="">Compare with…</option>
+                    {alternativesFor(answers).map((x) => (
+                      <option key={x.id} value={x.id}>
+                        {x.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <div
+                  role="tablist"
+                  aria-label="Traffic view"
+                  className="inline-flex rounded-lg border border-border bg-card p-1 text-[12.5px] shadow-sm"
+                >
+                  {(
+                    [
+                      ["story", "Overview"],
+                      ["hops", "Hop by hop"],
+                    ] as const
+                  ).map(([l, label]) => (
+                    <button
+                      key={l}
+                      role="tab"
+                      aria-selected={lens === l}
+                      onClick={() => void navigate({ search: { view: "traffic", lens: l } })}
+                      className={cn(
+                        "rounded-md px-3 py-1.5 transition-colors",
+                        lens === l
+                          ? "bg-primary/10 font-semibold text-primary"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-            <TrafficSimulator
-              answers={answers}
-              spokes={spokesFor(
-                ["corp", "online", "local", "sandbox"].filter((g) =>
-                  tree.some((n) => n.libraryId === g),
-                ),
-                placed,
-              )}
-              extras={sceneExtras(answers, lib, tree)}
-              tree={tree}
-              initial={search.flow}
-              set={setAnswers ? (p) => setAnswers({ ...answers, ...p }) : undefined}
-            />
+            {lens === "story" ? (
+              <TrafficStory
+                input={{ lib, answers, placed }}
+                compareWith={alternativesFor(answers).find((x) => x.id === compare)}
+                onTrace={(id) =>
+                  void navigate({ search: { view: "traffic", lens: "hops", flow: id } })
+                }
+              />
+            ) : (
+              <TrafficSimulator
+                answers={answers}
+                spokes={spokesFor(
+                  ["corp", "online", "local", "sandbox"].filter((g) =>
+                    tree.some((n) => n.libraryId === g),
+                  ),
+                  placed,
+                )}
+                extras={sceneExtras(answers, lib, tree)}
+                tree={tree}
+                initial={search.flow}
+                set={setAnswers ? (p) => setAnswers({ ...answers, ...p }) : undefined}
+              />
+            )}
           </div>
         )}
         {view === "policies" && <PoliciesView tree={tree} />}

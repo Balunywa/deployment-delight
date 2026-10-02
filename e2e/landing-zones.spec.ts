@@ -62,9 +62,50 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText("Unsaved design changes")).toHaveCount(0);
   });
 
+  test("traffic overview: every path drawn from the routing model, stepped, compared and downloadable @readonly", async ({
+    page,
+  }) => {
+    await openZone(page, /GridWorks hosting tenant/);
+    await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    const picture = page.getByRole("img", { name: /^Traffic through this landing zone$/ });
+    await expect(picture).toBeVisible();
+    const categories = page.getByRole("group", { name: "Traffic categories" });
+    // Every category says whether it works in this design.
+    await expect(
+      categories.getByRole("button", { name: /A Corp workload calls the internet/ }),
+    ).toBeVisible();
+
+    // One kind of traffic at a time, like a walkthrough.
+    await page.getByRole("button", { name: "Step through" }).click();
+    await expect(page.getByText(/The pieces of this design/)).toBeVisible();
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await expect(page.getByText(/^1 of \d+$/)).toBeVisible();
+    await page.getByRole("button", { name: "All traffic" }).click();
+
+    // Side by side with an alternative, computed rather than drawn.
+    await page.getByLabel("Compare with").selectOption({ index: 1 });
+    await expect(
+      page.getByRole("img", { name: /Traffic through this landing zone: / }),
+    ).toHaveCount(2);
+
+    // Downloadable as a picture.
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "SVG" }).click();
+    expect((await download).suggestedFilename()).toMatch(/-traffic\.svg$/);
+
+    // And the same flow, hop by hop.
+    await page.getByRole("tab", { name: "Hop by hop" }).click();
+    await expect(page.getByRole("complementary", { name: "Traffic scenarios" })).toBeVisible();
+  });
+
   test("the design guide: every topic, with sources @readonly", async ({ page }) => {
     await open(page, "/foundations/guide/outbound-internet");
     await expect(page.getByRole("heading", { level: 1, name: /Outbound internet/ })).toBeVisible();
+    // The guide draws the reference design next to the alternative it discusses.
+    await expect(page.getByRole("heading", { name: "See the traffic" })).toBeVisible();
+    await expect(
+      page.getByRole("img", { name: /Traffic through this landing zone: / }),
+    ).toHaveCount(2);
     await expect(
       page.getByText(/new virtual networks default to private subnets/).first(),
     ).toBeVisible();
@@ -95,6 +136,7 @@ test.describe("platform landing zones", () => {
       .click();
     await map.getByText("Add a hub in a second region").click();
     await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    await page.getByRole("tab", { name: "Hop by hop" }).click();
     const scenarios = page.getByRole("complementary", { name: "Traffic scenarios" });
     const drawing = page.getByRole("img", { name: /Network topology/ });
 
@@ -328,6 +370,7 @@ test.describe("platform landing zones", () => {
   test("traffic simulator: a packet through the real routes, both ways", async ({ page }) => {
     await openZone(page, /Harbor Municipal Utility tenant/);
     await page.getByRole("button", { name: "Traffic flows", exact: true }).click();
+    await page.getByRole("tab", { name: "Hop by hop" }).click();
     const scenarios = page.getByRole("complementary", { name: "Traffic scenarios" });
     const verdict = page.locator("[data-verdict]");
     const hop = page.getByRole("region", { name: "Current hop" });

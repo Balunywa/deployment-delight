@@ -48,6 +48,7 @@ import type { Placement } from "@/lib/alz/placement";
 import { cn } from "@/lib/utils";
 
 import { GuideLink } from "./Guide";
+import { TrafficStory } from "./traffic/TrafficStory";
 import { IpPlanPanel } from "./IpPlan";
 
 type StepId =
@@ -308,6 +309,25 @@ export function GuidedDesign({
             )}
             {step === "hybrid" && <HybridStep a={answers} set={set} editable={editable} />}
             {step === "dns" && <DnsStep a={answers} set={set} editable={editable} />}
+            {(step === "edge" || step === "hybrid" || step === "dns") && (
+              <div>
+                <p className="mb-2 text-[12.5px] font-medium">
+                  What this choice does to the traffic, computed from the design
+                </p>
+                <TrafficStory
+                  compact
+                  input={{ lib, answers, placed }}
+                  only={
+                    step === "edge"
+                      ? ["egress", "telemetry"]
+                      : step === "hybrid"
+                        ? ["hybrid", "p2s"]
+                        : ["private-endpoint", "bastion"]
+                  }
+                  onTrace={() => onTraffic()}
+                />
+              </div>
+            )}
             {step === "ip" && (
               <IpPlanPanel answers={answers} lib={lib} set={editable ? set : undefined} />
             )}
