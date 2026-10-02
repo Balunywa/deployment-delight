@@ -298,7 +298,7 @@ export function trafficLayout(t: Topology, failure: Failure) {
     const rows = exists ? hubRows(hub) : [];
     const frameH = HEAD + Math.max(rows.length, 3) * (PART.h + GAP) + 8;
     const label = exists
-      ? `${t.mode === "vwan" ? "Virtual WAN hub" : "Hub VNet"} · ${hub === 1 ? t.regions.primary : t.regions.secondary}`
+      ? `${t.mode === "vwan" ? "Virtual hub" : "Hub VNet"} · ${hub === 1 ? t.regions.primary : t.regions.secondary}`
       : hub === 1
         ? "No central network"
         : "No hub in a second region";

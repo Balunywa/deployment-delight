@@ -679,7 +679,7 @@ export function architecture({
     154,
     {
       kind: "zone",
-      title: `${wan ? "Virtual WAN hub" : "Hub virtual network"} · ${a.primaryRegion}`,
+      title: `${wan ? "Virtual hub" : "Hub virtual network"} · ${a.primaryRegion}`,
       subtitle: wan
         ? fw
           ? "Secured hub · routing intent to the firewall"
@@ -763,7 +763,7 @@ export function architecture({
       154,
       {
         kind: "zone",
-        title: `${wan ? "Virtual WAN hub" : "Hub virtual network"} · ${a.secondaryRegion}`,
+        title: `${wan ? "Virtual hub" : "Hub virtual network"} · ${a.secondaryRegion}`,
         subtitle: "Second region · paired for resilience",
         tone: "vnet",
         zoneKind: "vnet",
