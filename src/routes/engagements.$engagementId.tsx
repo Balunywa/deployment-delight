@@ -6,6 +6,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { StageDots } from "@/components/engagement/StageDots";
+import { MsxLink } from "@/components/engagement/MsxLink";
 import { type Apply, Conversation, type Focus } from "@/components/engagement/Conversation";
 import { FitGapView, HandoffView, PrepView, RecapView } from "@/components/engagement/Panels";
 import { type CatalogProduct, ProveView } from "@/components/engagement/Prove";
@@ -139,6 +140,7 @@ function EngagementPage() {
                 {e.brief.handoff ? " (handed off)" : ""}
               </span>
             )}
+            <MsxLink e={e} />
             <span>Updated {relative(e.updated_at)}</span>
           </p>
         </div>

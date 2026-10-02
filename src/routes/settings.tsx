@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateBranding } from "@/lib/factory.functions";
+import { getMcpStatus } from "@/lib/msx.functions";
 import { modulesQuery, organizationQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/settings")({
@@ -129,6 +130,8 @@ function Settings() {
           </div>
         </Panel>
 
+        <CopilotPanel />
+
         <Panel title="Execution mode" description="The active mode is always shown in the header.">
           <div className="space-y-3 text-sm">
             <div className="rounded-md border border-warning/40 bg-warning/5 p-3">
@@ -194,5 +197,72 @@ function Settings() {
         </Panel>
       </div>
     </>
+  );
+}
+
+/** How an SE connects Copilot: Cloud Delivery's MCP server beside msx-mcp. The token is never shown here. */
+function CopilotPanel() {
+  const status = useServerFn(getMcpStatus);
+  const mcp = useQuery({ queryKey: ["mcp-status"], queryFn: () => status() });
+  // The origin is only known in the browser; set after hydration so server and client render the same.
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
+  const url = `${origin}/api/mcp`;
+  const config = JSON.stringify(
+    {
+      inputs: [
+        {
+          id: "cloud-delivery-token",
+          type: "promptString",
+          description: "Cloud Delivery MCP token",
+          password: true,
+        },
+      ],
+      servers: {
+        "cloud-delivery": {
+          type: "http",
+          url,
+          headers: { Authorization: "Bearer ${input:cloud-delivery-token}" },
+        },
+      },
+    },
+    null,
+    2,
+  );
+  return (
+    <Panel
+      title="Connect Copilot"
+      description="Use Cloud Delivery from Copilot in VS Code, beside msx-mcp."
+      actions={
+        mcp.data ? (
+          <Pill tone={mcp.data.on ? "success" : "neutral"}>{mcp.data.on ? "On" : "Off"}</Pill>
+        ) : null
+      }
+    >
+      <div className="space-y-3 text-sm">
+        <p className="text-muted-foreground">
+          msx-mcp reads and writes MSX as you; Cloud Delivery's MCP server records the customer by
+          TPID, its context, and engagements linked to an opportunity or proactive. Cloud Delivery
+          never holds MSX credentials, and nothing is written to MSX without you confirming it.
+        </p>
+        {mcp.data && !mcp.data.on && (
+          <p className="rounded-md border border-border bg-muted/40 p-2.5 text-[12.5px]">
+            Off on this deployment. An administrator turns it on by setting MCP_TOKEN in the app
+            settings.
+          </p>
+        )}
+        <div>
+          <Label className="text-xs">Add to .vscode/mcp.json, next to msx-mcp</Label>
+          <pre className="mt-1 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2.5 font-mono text-[11.5px]">
+            {config}
+          </pre>
+        </div>
+        <p className="text-[12.5px] text-muted-foreground">
+          Then ask Copilot to prep a customer by TPID. This repository's{" "}
+          <code className="font-mono">prep-customer</code> skill looks the account up in MSX,
+          records it here, and starts or links the engagement.
+        </p>
+      </div>
+    </Panel>
   );
 }

@@ -8,7 +8,8 @@ const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
 const SELECT = `select e.id, e.name, e.stage, e.owner_name, e.customer_id, c.name as customer_name, e.brief,
   e.readiness, e.solution_map, e.results, e.decision, e.sessions, e.trail, e.findings, e.actions,
-  e.realization, e.created_at, e.updated_at
+  e.realization, e.origin, e.msx_opportunity_id, e.msx_opportunity_name, c.tpid as customer_tpid,
+  e.created_at, e.updated_at
   from public.engagements e left join public.customers c on c.id = e.customer_id`;
 
 export const listEngagements = createServerFn({ method: "GET" }).handler(async () => {
@@ -362,35 +363,30 @@ export const createEngagement = createServerFn({ method: "POST" })
         customerId: z.string().uuid().nullable(),
         signals: z.array(z.enum(["pilots", "answers", "legacy", "data", "explore"])).max(5),
         words: z.string().trim().max(2000).default(""),
+        /** The MSX opportunity it's tracked under; absent for a proactive engagement. */
+        opportunityId: z.string().trim().max(64).optional(),
+        opportunityName: z.string().trim().max(200).optional(),
       })
       .parse(d),
   )
   .handler(async ({ data }) => {
     const db = await import("./db.server");
     const user = (await import("./identity.server")).currentUser();
-    const row = await db.insert<{ id: string }>("engagements", {
-      organization_id: ORG_ID,
-      customer_id: data.customerId,
+    const { startEngagement } = await import("./msx.server");
+    const r = await startEngagement({
       name: data.name,
-      owner_name: user.name,
-      stage: "understand",
-      brief: { signals: data.signals, words: data.words },
-      sessions: JSON.stringify([
-        { id: "s1", title: "First conversation", at: new Date().toISOString(), attendees: "" },
-      ]) as never,
+      customerId: data.customerId,
+      opportunityId: data.opportunityId,
+      opportunityName: data.opportunityName,
+      problem: data.words,
+      by: user.name,
     });
-    await db.insert("audit_events", {
-      organization_id: ORG_ID,
-      customer_id: data.customerId,
-      actor_name: user.name,
-      event_type: "engagement.started",
-      resource_type: "engagement",
-      resource_id: row.id,
-      new_value: { name: data.name } as never,
-      result: "success",
-      metadata_json: {} as never,
-    });
-    return { id: row.id };
+    if (r.created && data.signals.length)
+      await db.query("update public.engagements set brief = brief || $1::jsonb where id = $2", [
+        JSON.stringify({ signals: data.signals }),
+        r.engagement.id,
+      ]);
+    return { id: r.engagement.id, created: r.created };
   });
 
 export const saveEngagement = createServerFn({ method: "POST" })

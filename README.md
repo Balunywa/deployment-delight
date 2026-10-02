@@ -73,8 +73,18 @@ Either way, it's the same product setup, the same deployment process and the sam
    base), the customer's measures at 30, 60 and 90 days against the baseline, and the business owner's
    confirmation, which closes the engagement and is audited. The recap becomes the value report. Kept apart and
    internal: the MSX opportunity and milestone links (pasted, https only), the installs' estimated run cost, and
-   a milestone update to paste into MSX. Live MSX sync is deliberately off; it needs an app registration
-   approved by the MSX team and only runs in Microsoft's corporate tenant. The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
+   a milestone update for MSX.
+   **MSX through Copilot, not a sync:**
+   - **The link:** MSX stays the system of record. Customers carry their **TPID**, and each engagement is either
+     tracked under an **MSX opportunity** or **proactive** until it has one.
+   - **Customer profile:** "Find or add by TPID" opens or creates the profile. The profile holds context MSX
+     doesn't (meeting notes, emails, transcripts, a brief in your own words) for preparing the next conversation.
+   - **Copilot:** the app is also an MCP server (`/api/mcp`, Streamable HTTP, on when `MCP_TOKEN` is set). Copilot
+     can use it beside [msx-mcp](https://github.com/mcaps-microsoft/msx-mcp), which reads and writes MSX as the
+     signed-in user.
+   - **The skill:** `.github/skills/prep-customer` looks the account up in MSX by TPID, records it here, starts or
+     links the engagement, and posts the milestone update to MSX only after you confirm.
+   - **No MSX credentials:** Cloud Delivery never holds them. Settings → Connect Copilot has the `mcp.json` entry. The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
    suggests next questions and hypotheses from the presenter's notes and drafts the follow-up email; it can only
    suggest existing questions, and nothing is added until the presenter accepts it. See `src/lib/conversation.ts`.
    It's connected end to end for the people doing the work: an engagement starts from the customer's page and

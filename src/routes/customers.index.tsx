@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, Building2, Cloud, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { StageBadge } from "@/components/Fleet";
+import { FindCustomer } from "@/components/customer/FindCustomer";
 import { EmptyState } from "@/components/Primitives";
 import { Input } from "@/components/ui/input";
 import {
@@ -99,6 +100,7 @@ function Customers() {
   const { fleet, isLoading } = useFleet();
   const navigate = useNavigate();
   const [q, setQ] = useState("");
+  const [finding, setFinding] = useState(false);
   const [view, setView] = useState<View>("all");
   const [runsIn, setRunsIn] = useState("any");
   const [product, setProduct] = useState("any");
@@ -179,12 +181,21 @@ function Customers() {
             drives.
           </p>
         </div>
-        <Link
-          to="/onboard"
-          className="rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:opacity-90"
-        >
-          Onboard customer
-        </Link>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setFinding(true)}
+            className="rounded-sm border border-border bg-card px-3 py-1.5 text-[13px] font-medium hover:border-border-strong"
+          >
+            Find or add by TPID
+          </button>
+          <Link
+            to="/onboard"
+            className="rounded-sm bg-primary px-3 py-1.5 text-[13px] font-medium text-primary-foreground hover:opacity-90"
+          >
+            Onboard customer
+          </Link>
+        </div>
+        <FindCustomer open={finding} onOpenChange={setFinding} />
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">

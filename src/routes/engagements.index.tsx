@@ -30,6 +30,7 @@ import { STAGES, progressOf } from "@/lib/engagements";
 import { createEngagement } from "@/lib/engagements.functions";
 import { relative } from "@/lib/format";
 import { customersQuery, engagementsQuery } from "@/lib/queries";
+import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/engagements/")({
   validateSearch: (s: Record<string, unknown>): { new?: string } =>
@@ -95,6 +96,7 @@ function Engagements() {
                     </Link>
                     <p className="mt-0.5 line-clamp-1 text-[12px] text-muted-foreground">
                       {e.customer_name ?? "No customer yet"}
+                      {e.msx_opportunity_id ? ` · MSX ${e.msx_opportunity_id}` : " · Proactive"}
                       {e.brief.workflow ? ` · ${e.brief.workflow}` : ""}
                     </p>
                   </div>
@@ -138,12 +140,20 @@ function NewEngagement({
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [customerId, setCustomerId] = useState<string>(customer ?? "none");
+  const [origin, setOrigin] = useState<"opportunity" | "proactive">("proactive");
+  const [oppId, setOppId] = useState("");
+  const [oppName, setOppName] = useState("");
+  const oppOk = origin === "proactive" || /^[A-Za-z0-9][A-Za-z0-9-]{2,63}$/.test(oppId.trim());
   const create = useMutation({
     mutationFn: useServerFn(createEngagement),
-    onSuccess: (r: { id: string }) => {
+    onSuccess: (r: { id: string; created: boolean }) => {
       void queryClient.invalidateQueries({ queryKey: ["engagements"] });
       onOpenChange(false);
-      toast.success("Engagement started. Start with what they're trying to accomplish.");
+      toast.success(
+        r.created
+          ? "Engagement started. Start with what they're trying to accomplish."
+          : "That opportunity already has an engagement, so it's opened instead of a duplicate.",
+      );
       void navigate({ to: "/engagements/$engagementId", params: { engagementId: r.id } });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -185,13 +195,58 @@ function NewEngagement({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5">
+            <Label>Tracked in MSX</Label>
+            <div role="radiogroup" aria-label="Tracked in MSX" className="grid grid-cols-2 gap-1.5">
+              {(
+                [
+                  ["opportunity", "Under an opportunity", "A seller or specialist brought it in."],
+                  ["proactive", "Proactive", "No opportunity yet; link one later."],
+                ] as const
+              ).map(([k, t, b]) => (
+                <button
+                  key={k}
+                  role="radio"
+                  aria-checked={origin === k}
+                  onClick={() => setOrigin(k)}
+                  className={cn(
+                    "rounded-md border p-2 text-left",
+                    origin === k ? "border-primary bg-primary/5" : "border-border",
+                  )}
+                >
+                  <span className="block text-[12.5px] font-medium">{t}</span>
+                  <span className="block text-[11.5px] text-muted-foreground">{b}</span>
+                </button>
+              ))}
+            </div>
+            {origin === "opportunity" && (
+              <div className="grid grid-cols-[150px_1fr] gap-1.5">
+                <Input
+                  aria-label="Opportunity ID"
+                  placeholder="7-ABC123XYZ"
+                  value={oppId}
+                  onChange={(ev) => setOppId(ev.target.value)}
+                />
+                <Input
+                  aria-label="Opportunity name"
+                  placeholder="Opportunity name (optional)"
+                  value={oppName}
+                  onChange={(ev) => setOppName(ev.target.value)}
+                />
+              </div>
+            )}
+            <p className="text-[11.5px] text-muted-foreground">
+              Internal only. MSX stays the record; this keeps the link, and never shows it to the
+              customer.
+            </p>
+          </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button
-            disabled={name.trim().length < 3 || create.isPending}
+            disabled={name.trim().length < 3 || !oppOk || create.isPending}
             onClick={() =>
               create.mutate({
                 data: {
@@ -199,6 +254,12 @@ function NewEngagement({
                   customerId: customerId === "none" ? null : customerId,
                   signals: [],
                   words: "",
+                  ...(origin === "opportunity"
+                    ? {
+                        opportunityId: oppId.trim(),
+                        ...(oppName.trim() ? { opportunityName: oppName.trim() } : {}),
+                      }
+                    : {}),
                 },
               })
             }

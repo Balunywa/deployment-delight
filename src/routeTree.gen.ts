@@ -18,6 +18,7 @@ import { Route as OfferingsRouteImport } from './routes/offerings'
 import { Route as OnboardRouteImport } from './routes/onboard'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as UpgradesRouteImport } from './routes/upgrades'
+import { Route as ApiMcpRouteImport } from './routes/api.mcp'
 import { Route as ConnectCustomerIdRouteImport } from './routes/connect.$customerId'
 import { Route as CustomersIndexRouteImport } from './routes/customers.index'
 import { Route as CustomersCustomerIdRouteImport } from './routes/customers.$customerId'
@@ -80,6 +81,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const UpgradesRoute = UpgradesRouteImport.update({
   id: '/upgrades',
   path: '/upgrades',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiMcpRoute = ApiMcpRouteImport.update({
+  id: '/api/mcp',
+  path: '/api/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ConnectCustomerIdRoute = ConnectCustomerIdRouteImport.update({
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/onboard': typeof OnboardRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/delivery/$unitId': typeof DeliveryUnitIdRoute
@@ -212,6 +219,7 @@ export interface FileRoutesByTo {
   '/onboard': typeof OnboardRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/delivery/$unitId': typeof DeliveryUnitIdRoute
@@ -242,6 +250,7 @@ export interface FileRoutesById {
   '/onboard': typeof OnboardRoute
   '/settings': typeof SettingsRoute
   '/upgrades': typeof UpgradesRoute
+  '/api/mcp': typeof ApiMcpRoute
   '/connect/$customerId': typeof ConnectCustomerIdRoute
   '/customers/$customerId': typeof CustomersCustomerIdRoute
   '/delivery/$unitId': typeof DeliveryUnitIdRoute
@@ -273,6 +282,7 @@ export interface FileRouteTypes {
     | '/onboard'
     | '/settings'
     | '/upgrades'
+    | '/api/mcp'
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/delivery/$unitId'
@@ -302,6 +312,7 @@ export interface FileRouteTypes {
     | '/onboard'
     | '/settings'
     | '/upgrades'
+    | '/api/mcp'
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/delivery/$unitId'
@@ -331,6 +342,7 @@ export interface FileRouteTypes {
     | '/onboard'
     | '/settings'
     | '/upgrades'
+    | '/api/mcp'
     | '/connect/$customerId'
     | '/customers/$customerId'
     | '/delivery/$unitId'
@@ -361,6 +373,7 @@ export interface RootRouteChildren {
   OnboardRoute: typeof OnboardRoute
   SettingsRoute: typeof SettingsRoute
   UpgradesRoute: typeof UpgradesRoute
+  ApiMcpRoute: typeof ApiMcpRoute
   ConnectCustomerIdRoute: typeof ConnectCustomerIdRoute
   CustomersCustomerIdRoute: typeof CustomersCustomerIdRoute
   DeliveryUnitIdRoute: typeof DeliveryUnitIdRoute
@@ -444,6 +457,13 @@ declare module '@tanstack/react-router' {
       path: '/upgrades'
       fullPath: '/upgrades'
       preLoaderRoute: typeof UpgradesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/mcp': {
+      id: '/api/mcp'
+      path: '/api/mcp'
+      fullPath: '/api/mcp'
+      preLoaderRoute: typeof ApiMcpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/connect/$customerId': {
@@ -585,6 +605,7 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardRoute: OnboardRoute,
   SettingsRoute: SettingsRoute,
   UpgradesRoute: UpgradesRoute,
+  ApiMcpRoute: ApiMcpRoute,
   ConnectCustomerIdRoute: ConnectCustomerIdRoute,
   CustomersCustomerIdRoute: CustomersCustomerIdRoute,
   DeliveryUnitIdRoute: DeliveryUnitIdRoute,

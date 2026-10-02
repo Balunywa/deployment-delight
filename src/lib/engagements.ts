@@ -268,6 +268,11 @@ export type Engagement = {
   owner_name: string | null;
   customer_id: string | null;
   customer_name: string | null;
+  /** Internal: tracked under an MSX opportunity, or proactive (no opportunity yet). MSX stays the record. */
+  origin?: "opportunity" | "proactive";
+  msx_opportunity_id?: string | null;
+  msx_opportunity_name?: string | null;
+  customer_tpid?: string | null;
   brief: Brief;
   readiness: ReadinessMap;
   solution_map: MapItem[];
@@ -310,4 +315,66 @@ export function progressOf(e: Engagement) {
               .filter(Boolean)
               .join(" · ");
   return { current, next };
+}
+
+const day = (s: string) =>
+  new Date(s).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+
+/** The update to post on the MSX milestone: status, what's in production, results against the baseline, next steps. */
+export function milestoneUpdate(
+  e: Engagement,
+  name: (productId: string) => string,
+  running: { product_id: string; name: string; version: string | null; created_at: string }[],
+  measures: ValueMeasure[],
+) {
+  const c = e.realization.confirmed;
+  const status = c
+    ? `Value confirmed by ${c.by} on ${day(c.at)}`
+    : running.length
+      ? "In production; measuring value"
+      : e.decision?.choice === "scale"
+        ? "Scaling to production"
+        : "Proof in progress";
+  const open = e.actions.filter((a) => !a.done);
+  const unknowns = e.findings.filter((f) => f.kind === "unknown" || f.kind === "hypothesis");
+  return [
+    `Milestone update: ${e.name}${e.customer_name ? ` (${e.customer_name})` : ""}`,
+    `Status: ${status}`,
+    e.brief.outcome ? `Customer outcome: ${e.brief.outcome}` : "",
+    e.decision
+      ? `Decision: ${e.decision.choice}, by ${e.decision.by} on ${day(e.decision.at)}`
+      : "",
+    "",
+    "In production:",
+    ...(running.length
+      ? running.map(
+          (r) =>
+            `- ${name(r.product_id)}: ${r.name}${r.version ? ` v${r.version}` : ""}, since ${day(r.created_at)}`,
+        )
+      : ["- Not yet"]),
+    "",
+    "Results against the baseline (customer-measured):",
+    ...(measures.filter((m) => m.metric.trim()).length
+      ? measures
+          .filter((m) => m.metric.trim())
+          .map((m) => {
+            const l = latestOf(m);
+            return `- ${m.metric}${m.unit ? ` (${m.unit})` : ""}: ${m.baseline || "baseline not measured"} → ${l ? `${l.value}, at ${l.when}` : "not measured yet"}${m.target ? `; target ${m.target}` : ""}`;
+          })
+      : ["- No measures yet"]),
+    "",
+    "Open next steps:",
+    ...(open.length
+      ? open.map((a) => `- ${a.text} (${a.owner || "no owner"}, ${a.due || "no date"})`)
+      : ["- None"]),
+    unknowns.length
+      ? `\nOpen risks: ${unknowns.length} (${unknowns
+          .slice(0, 2)
+          .map((f) => f.text)
+          .join(" ")})`
+      : "",
+  ]
+    .filter((l, i, a) => !(l === "" && a[i - 1] === ""))
+    .join("\n")
+    .trim();
 }

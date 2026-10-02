@@ -30,6 +30,7 @@ import {
   type ValueMeasure,
   latestOf,
   measuresOf,
+  milestoneUpdate,
 } from "@/lib/engagements";
 import { type EngagementInstall, confirmValue } from "@/lib/engagements.functions";
 import { cn } from "@/lib/utils";
@@ -40,65 +41,6 @@ import { Card, type CatalogProduct } from "./Prove";
 
 const day = (s: string) =>
   new Date(s).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-
-function milestoneUpdate(
-  e: Engagement,
-  products: CatalogProduct[],
-  running: EngagementInstall[],
-  measures: ValueMeasure[],
-) {
-  const name = (id: string) => products.find((p) => p.id === id)?.name ?? "Solution";
-  const c = e.realization.confirmed;
-  const status = c
-    ? `Value confirmed by ${c.by} on ${day(c.at)}`
-    : running.length
-      ? "In production; measuring value"
-      : e.decision?.choice === "scale"
-        ? "Scaling to production"
-        : "Proof in progress";
-  const open = e.actions.filter((a) => !a.done);
-  const unknowns = e.findings.filter((f) => f.kind === "unknown" || f.kind === "hypothesis");
-  return [
-    `Milestone update: ${e.name}${e.customer_name ? ` (${e.customer_name})` : ""}`,
-    `Status: ${status}`,
-    e.brief.outcome ? `Customer outcome: ${e.brief.outcome}` : "",
-    e.decision
-      ? `Decision: ${e.decision.choice}, by ${e.decision.by} on ${day(e.decision.at)}`
-      : "",
-    "",
-    "In production:",
-    ...(running.length
-      ? running.map(
-          (r) =>
-            `- ${name(r.product_id)}: ${r.name}${r.version ? ` v${r.version}` : ""}, since ${day(r.created_at)}`,
-        )
-      : ["- Not yet"]),
-    "",
-    "Results against the baseline (customer-measured):",
-    ...(measures.filter((m) => m.metric.trim()).length
-      ? measures
-          .filter((m) => m.metric.trim())
-          .map((m) => {
-            const l = latestOf(m);
-            return `- ${m.metric}${m.unit ? ` (${m.unit})` : ""}: ${m.baseline || "baseline not measured"} → ${l ? `${l.value}, at ${l.when}` : "not measured yet"}${m.target ? `; target ${m.target}` : ""}`;
-          })
-      : ["- No measures yet"]),
-    "",
-    "Open next steps:",
-    ...(open.length
-      ? open.map((a) => `- ${a.text} (${a.owner || "no owner"}, ${a.due || "no date"})`)
-      : ["- None"]),
-    unknowns.length
-      ? `\nOpen risks: ${unknowns.length} (${unknowns
-          .slice(0, 2)
-          .map((f) => f.text)
-          .join(" ")})`
-      : "",
-  ]
-    .filter((l, i, a) => !(l === "" && a[i - 1] === ""))
-    .join("\n")
-    .trim();
-}
 
 export function RealizeView({
   e,
@@ -143,7 +85,12 @@ export function RealizeView({
     setMeasures((ms) => ms.map((m, j) => (j === i ? { ...m, [k]: v } : m)));
   const saveMsx = (patch: NonNullable<Engagement["realization"]["msx"]>, msg: string) =>
     apply({ realization: { ...e.realization, msx: { ...msx, ...patch } } }, msg);
-  const update = milestoneUpdate(e, products, prod, measuresOf(e));
+  const update = milestoneUpdate(
+    e,
+    (id) => products.find((p) => p.id === id)?.name ?? "Solution",
+    prod,
+    measuresOf(e),
+  );
 
   return (
     <div className="space-y-5">

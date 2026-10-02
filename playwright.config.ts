@@ -57,6 +57,8 @@ export default defineConfig({
             CATALOG_USER_EMAIL: "e2e.tester@example.com",
             CATALOG_USER_ROLE: "CSA",
             CATALOG_USER_TEAM: "Quality",
+            // Turns on the MCP endpoint for its tests; not a real secret.
+            MCP_TOKEN: "e2e-mcp-token",
             ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
           },
         },

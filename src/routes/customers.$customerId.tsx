@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
+import { CustomerProfileCard } from "@/components/customer/CustomerProfileCard";
 import { StageBadge, VersionCell } from "@/components/Fleet";
 import {
   Dot,
@@ -283,35 +284,41 @@ function CustomerDetail() {
         </div>
       </div>
 
-      <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Metric
-          label={`${env?.name ?? "Install"} release`}
-          value={env?.actual ? `v${env.actual.version}` : "—"}
-          hint={
-            env?.desired && env.desired.version !== env.actual?.version
-              ? `Target v${env.desired.version}`
-              : "On target release"
-          }
-        />
-        <Metric
-          label="Compliance"
-          value={`${env?.compliance_score ?? 0}%`}
-          tone={Number(env?.compliance_score ?? 0) === 100 ? "success" : "warning"}
-          hint="Evidence from the last run and scans"
-        />
-        <Metric
-          label="Open drift"
-          value={openDrift.length}
-          tone={openDrift.length ? "warning" : "success"}
-          hint={openDrift.length ? "Decide on the Drift tab" : "Matches desired state"}
-        />
-        <Metric
-          label="Customer's Azure bill (est.)"
-          value={currency(cost, { compact: true })}
-          hint="All environments · list-price estimate"
-        />
-      </div>
+      {/* Install metrics only mean something once something is installed. */}
+      {envs.length > 0 && (
+        <>
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Metric
+              label={`${env?.name ?? "Install"} release`}
+              value={env?.actual ? `v${env.actual.version}` : "—"}
+              hint={
+                env?.desired && env.desired.version !== env.actual?.version
+                  ? `Target v${env.desired.version}`
+                  : "On target release"
+              }
+            />
+            <Metric
+              label="Compliance"
+              value={`${env?.compliance_score ?? 0}%`}
+              tone={Number(env?.compliance_score ?? 0) === 100 ? "success" : "warning"}
+              hint="Evidence from the last run and scans"
+            />
+            <Metric
+              label="Open drift"
+              value={openDrift.length}
+              tone={openDrift.length ? "warning" : "success"}
+              hint={openDrift.length ? "Decide on the Drift tab" : "Matches desired state"}
+            />
+            <Metric
+              label="Customer's Azure bill (est.)"
+              value={currency(cost, { compact: true })}
+              hint="All environments · list-price estimate"
+            />
+          </div>
+        </>
+      )}
 
+      <CustomerProfileCard customerId={customerId} />
       <CustomerEngagements customerId={customerId} />
 
       <Tabs defaultValue="architecture">
