@@ -194,7 +194,7 @@ test.describe("platform landing zones", () => {
     await expect(page.locator("[data-verdict]")).toBeVisible();
   });
 
-  test("the list explains the three kinds of landing zone @readonly", async ({ page }) => {
+  test("the list explains the three kinds of landing zone (demo data)", async ({ page }) => {
     await open(page, "/foundations");
     await expect(page.getByRole("heading", { level: 1, name: "Landing zones" })).toBeVisible();
     for (const section of [
@@ -567,7 +567,7 @@ test.describe("platform landing zones", () => {
     await expect(page.getByText(/pinned to 2026\.08\.1/).first()).toBeVisible();
   });
 
-  test("a customer's own landing zone: assessment, placement and reference policies @readonly", async ({
+  test("a customer's own landing zone: assessment, placement and reference policies (demo data)", async ({
     page,
   }) => {
     await openZone(page, /Cascade Utilities landing zone/);
