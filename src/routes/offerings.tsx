@@ -1,7 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Check, GitBranch, Lock, Plus, Search, Sparkles } from "lucide-react";
+import {
+  Check,
+  Download,
+  FileSpreadsheet,
+  GitBranch,
+  Lock,
+  Plus,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -83,14 +92,40 @@ import {
   ReviewPanel,
 } from "@/components/onboarding/OfferingReview";
 import { cn } from "@/lib/utils";
+import { GuidedWorkload } from "@/components/offering/GuidedWorkload";
+import { ServiceWaf, WafFindings, WafScorecard } from "@/components/offering/WafReview";
+import { WorkloadStory } from "@/components/offering/WorkloadStory";
+import { designDocument, findingsCsv } from "@/lib/offering/design-doc";
+import { workloadFlows } from "@/lib/offering/flows";
+import { applyFix, review as reviewWaf } from "@/lib/waf";
 
-type View = "architecture" | "review" | "deploy" | "pipeline" | "iac" | "inputs" | "releases";
+/** Save text as a file in the browser. */
+function saveText(text: string, filename: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+type View =
+  | "architecture"
+  | "flows"
+  | "waf"
+  | "review"
+  | "deploy"
+  | "pipeline"
+  | "iac"
+  | "inputs"
+  | "releases";
 
 export const Route = createFileRoute("/offerings")({
   validateSearch: (
     s: Record<string, unknown>,
-  ): { offering?: string; view?: View; new?: boolean } => ({
+  ): { offering?: string; view?: View; new?: boolean; mode?: "guided" | "canvas" } => ({
     ...(typeof s["offering"] === "string" ? { offering: s["offering"] } : {}),
+    ...(s["mode"] === "guided" || s["mode"] === "canvas" ? { mode: s["mode"] } : {}),
     ...(typeof s["view"] === "string" ? { view: s["view"] as View } : {}),
     ...(s["new"] === true || s["new"] === "true" ? { new: true } : {}),
   }),
@@ -226,13 +261,20 @@ function Designer() {
     return <EmptyState title="Loading offerings…" />;
 
   const slug = slugOf(offering.name);
+  const waf = reviewWaf(arch);
+  const mode = search.mode ?? "canvas";
   const dirty = JSON.stringify(arch) !== JSON.stringify(loaded);
   const editable = base.status === "draft";
   const topology = arch.topology;
   const selected = arch.selected;
   const set = (next: Partial<Architecture>) => {
     const t = next.topology ?? topology;
-    setArch({ topology: t, selected: normalise(next.selected ?? selected, t) });
+    setArch({
+      ...arch,
+      ...(next.workload ? { workload: next.workload } : {}),
+      topology: t,
+      selected: normalise(next.selected ?? selected, t),
+    });
   };
   const toggle = (id: string) => {
     const def = SERVICE_BY_ID.get(id);
@@ -456,6 +498,8 @@ function Designer() {
             {(
               [
                 ["architecture", "Architecture"],
+                ["flows", "Flows"],
+                ["waf", `Well-Architected · ${waf.overall ?? "–"}`],
                 [
                   "review",
                   reviewState === "pass"
@@ -506,6 +550,53 @@ function Designer() {
       </div>
 
       {view === "architecture" && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-2 lg:px-6">
+          <div
+            role="tablist"
+            aria-label="Design mode"
+            className="inline-flex rounded-lg border border-border bg-background p-1 text-[12.5px]"
+          >
+            {(
+              [
+                ["guided", "Guided"],
+                ["canvas", "Canvas"],
+              ] as const
+            ).map(([m, label]) => (
+              <button
+                key={m}
+                role="tab"
+                aria-selected={mode === m}
+                onClick={() =>
+                  navigate({ search: (s) => ({ ...s, view: "architecture", mode: m }) })
+                }
+                className={cn(
+                  "rounded-md px-3 py-1",
+                  mode === m
+                    ? "bg-primary/10 font-semibold text-primary"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[12px] text-muted-foreground">
+            Guided walks a design session step by step; the canvas shows everything at once. Both
+            edit the same design.
+          </span>
+        </div>
+      )}
+      {view === "architecture" && mode === "guided" && (
+        <GuidedWorkload
+          name={offering.name}
+          arch={arch}
+          set={set}
+          onCanvas={() =>
+            navigate({ search: (s) => ({ ...s, view: "architecture", mode: "canvas" }) })
+          }
+        />
+      )}
+      {view === "architecture" && mode === "canvas" && (
         <div className="grid flex-1 grid-cols-1 lg:grid-cols-[240px_minmax(0,1fr)_300px]">
           {/* Palette */}
           <aside className="border-b border-border bg-card lg:border-r lg:border-b-0">
@@ -633,6 +724,65 @@ function Designer() {
           <aside className="border-t border-border bg-card lg:border-t-0 lg:border-l">
             <Inspector arch={arch} focus={focus} onChange={set} onToggle={toggle} />
           </aside>
+        </div>
+      )}
+
+      {view === "flows" && (
+        <div className="space-y-3 p-4 lg:p-6">
+          <div>
+            <h2 className="text-[15px] font-semibold">How this workload works, end to end</h2>
+            <p className="text-[12.5px] text-muted-foreground">
+              Traffic, identity, logging and deployment, computed from the design: private endpoints
+              and DNS, the roles each identity gets, where every diagnostic lands, and how the
+              pipeline ships it.
+              {dirty && " Your unsaved changes are drawn beside the saved release."}
+            </p>
+          </div>
+          <WorkloadStory
+            arch={arch}
+            compareWith={dirty && loaded ? { label: "Saved release", arch: loaded } : undefined}
+          />
+        </div>
+      )}
+
+      {view === "waf" && (
+        <div className="grid items-start gap-5 p-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:p-6">
+          <div className="space-y-4 lg:sticky lg:top-4">
+            <WafScorecard review={waf} />
+            <div className="flex flex-col gap-2">
+              <Button
+                onClick={() =>
+                  saveText(
+                    designDocument(offering.name, arch, waf, workloadFlows(arch, arch.workload)),
+                    `${slug}-design.md`,
+                    "text/markdown",
+                  )
+                }
+              >
+                <Download className="size-4" /> Download design document
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() =>
+                  saveText(findingsCsv(waf), `${slug}-well-architected.csv`, "text/csv")
+                }
+              >
+                <FileSpreadsheet className="size-4" /> Findings as CSV
+              </Button>
+              <Link
+                to="/well-architected"
+                className="text-center text-[12px] text-primary hover:underline"
+              >
+                Open the Well-Architected guide
+              </Link>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-border bg-card p-5">
+            <WafFindings
+              review={waf}
+              onFix={(f) => f.fix && set(applyFix(arch, f.fix, f.service))}
+            />
+          </div>
         </div>
       )}
 
@@ -1055,6 +1205,12 @@ function Inspector({
             ))}
           </div>
         )}
+
+        <ServiceWaf
+          service={def.id}
+          review={reviewWaf(arch)}
+          onFix={(f) => f.fix && onChange(applyFix(arch, f.fix, f.service))}
+        />
 
         {def.locked ? (
           <p className="mt-4 flex items-center gap-1.5 text-xs text-muted-foreground">

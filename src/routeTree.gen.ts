@@ -32,6 +32,8 @@ import { Route as FoundationsFoundationIdRouteImport } from './routes/foundation
 import { Route as ProductsIndexRouteImport } from './routes/products.index'
 import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
 import { Route as RecapEngagementIdRouteImport } from './routes/recap.$engagementId'
+import { Route as WellArchitectedIndexRouteImport } from './routes/well-architected.index'
+import { Route as WellArchitectedTopicRouteImport } from './routes/well-architected.$topic'
 import { Route as FoundationsGuideIndexRouteImport } from './routes/foundations.guide.index'
 import { Route as FoundationsGuideTopicRouteImport } from './routes/foundations.guide.$topic'
 
@@ -150,6 +152,16 @@ const RecapEngagementIdRoute = RecapEngagementIdRouteImport.update({
   path: '/recap/$engagementId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WellArchitectedIndexRoute = WellArchitectedIndexRouteImport.update({
+  id: '/well-architected/',
+  path: '/well-architected/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WellArchitectedTopicRoute = WellArchitectedTopicRouteImport.update({
+  id: '/well-architected/$topic',
+  path: '/well-architected/$topic',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const FoundationsGuideIndexRoute = FoundationsGuideIndexRouteImport.update({
   id: '/foundations/guide/',
   path: '/foundations/guide/',
@@ -179,12 +191,14 @@ export interface FileRoutesByFullPath {
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/recap/$engagementId': typeof RecapEngagementIdRoute
+  '/well-architected/$topic': typeof WellArchitectedTopicRoute
   '/customers/': typeof CustomersIndexRoute
   '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/engagements/': typeof EngagementsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/well-architected/': typeof WellArchitectedIndexRoute
   '/foundations/guide/$topic': typeof FoundationsGuideTopicRoute
   '/foundations/guide/': typeof FoundationsGuideIndexRoute
 }
@@ -206,12 +220,14 @@ export interface FileRoutesByTo {
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/recap/$engagementId': typeof RecapEngagementIdRoute
+  '/well-architected/$topic': typeof WellArchitectedTopicRoute
   '/customers': typeof CustomersIndexRoute
   '/delivery': typeof DeliveryIndexRoute
   '/deployments': typeof DeploymentsIndexRoute
   '/engagements': typeof EngagementsIndexRoute
   '/foundations': typeof FoundationsIndexRoute
   '/products': typeof ProductsIndexRoute
+  '/well-architected': typeof WellArchitectedIndexRoute
   '/foundations/guide/$topic': typeof FoundationsGuideTopicRoute
   '/foundations/guide': typeof FoundationsGuideIndexRoute
 }
@@ -234,12 +250,14 @@ export interface FileRoutesById {
   '/foundations/$foundationId': typeof FoundationsFoundationIdRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/recap/$engagementId': typeof RecapEngagementIdRoute
+  '/well-architected/$topic': typeof WellArchitectedTopicRoute
   '/customers/': typeof CustomersIndexRoute
   '/delivery/': typeof DeliveryIndexRoute
   '/deployments/': typeof DeploymentsIndexRoute
   '/engagements/': typeof EngagementsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/well-architected/': typeof WellArchitectedIndexRoute
   '/foundations/guide/$topic': typeof FoundationsGuideTopicRoute
   '/foundations/guide/': typeof FoundationsGuideIndexRoute
 }
@@ -263,12 +281,14 @@ export interface FileRouteTypes {
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/recap/$engagementId'
+    | '/well-architected/$topic'
     | '/customers/'
     | '/delivery/'
     | '/deployments/'
     | '/engagements/'
     | '/foundations/'
     | '/products/'
+    | '/well-architected/'
     | '/foundations/guide/$topic'
     | '/foundations/guide/'
   fileRoutesByTo: FileRoutesByTo
@@ -290,12 +310,14 @@ export interface FileRouteTypes {
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/recap/$engagementId'
+    | '/well-architected/$topic'
     | '/customers'
     | '/delivery'
     | '/deployments'
     | '/engagements'
     | '/foundations'
     | '/products'
+    | '/well-architected'
     | '/foundations/guide/$topic'
     | '/foundations/guide'
   id:
@@ -317,12 +339,14 @@ export interface FileRouteTypes {
     | '/foundations/$foundationId'
     | '/products/$productId'
     | '/recap/$engagementId'
+    | '/well-architected/$topic'
     | '/customers/'
     | '/delivery/'
     | '/deployments/'
     | '/engagements/'
     | '/foundations/'
     | '/products/'
+    | '/well-architected/'
     | '/foundations/guide/$topic'
     | '/foundations/guide/'
   fileRoutesById: FileRoutesById
@@ -345,12 +369,14 @@ export interface RootRouteChildren {
   FoundationsFoundationIdRoute: typeof FoundationsFoundationIdRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   RecapEngagementIdRoute: typeof RecapEngagementIdRoute
+  WellArchitectedTopicRoute: typeof WellArchitectedTopicRoute
   CustomersIndexRoute: typeof CustomersIndexRoute
   DeliveryIndexRoute: typeof DeliveryIndexRoute
   DeploymentsIndexRoute: typeof DeploymentsIndexRoute
   EngagementsIndexRoute: typeof EngagementsIndexRoute
   FoundationsIndexRoute: typeof FoundationsIndexRoute
   ProductsIndexRoute: typeof ProductsIndexRoute
+  WellArchitectedIndexRoute: typeof WellArchitectedIndexRoute
   FoundationsGuideTopicRoute: typeof FoundationsGuideTopicRoute
   FoundationsGuideIndexRoute: typeof FoundationsGuideIndexRoute
 }
@@ -518,6 +544,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RecapEngagementIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/well-architected/': {
+      id: '/well-architected/'
+      path: '/well-architected'
+      fullPath: '/well-architected/'
+      preLoaderRoute: typeof WellArchitectedIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/well-architected/$topic': {
+      id: '/well-architected/$topic'
+      path: '/well-architected/$topic'
+      fullPath: '/well-architected/$topic'
+      preLoaderRoute: typeof WellArchitectedTopicRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/foundations/guide/': {
       id: '/foundations/guide/'
       path: '/foundations/guide'
@@ -553,12 +593,14 @@ const rootRouteChildren: RootRouteChildren = {
   FoundationsFoundationIdRoute: FoundationsFoundationIdRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   RecapEngagementIdRoute: RecapEngagementIdRoute,
+  WellArchitectedTopicRoute: WellArchitectedTopicRoute,
   CustomersIndexRoute: CustomersIndexRoute,
   DeliveryIndexRoute: DeliveryIndexRoute,
   DeploymentsIndexRoute: DeploymentsIndexRoute,
   EngagementsIndexRoute: EngagementsIndexRoute,
   FoundationsIndexRoute: FoundationsIndexRoute,
   ProductsIndexRoute: ProductsIndexRoute,
+  WellArchitectedIndexRoute: WellArchitectedIndexRoute,
   FoundationsGuideTopicRoute: FoundationsGuideTopicRoute,
   FoundationsGuideIndexRoute: FoundationsGuideIndexRoute,
 }

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { demoProvider, demoPipelineProvider } from "./engine/demo-provider.server";
 import { assertTransition, type DeploymentState, type ProviderContext } from "./engine/types";
 import type { Tables } from "./db-types";
-import { fromManifest, toManifest } from "./architecture";
+import { type Architecture, fromManifest, toManifest } from "./architecture";
 import { monthlyEstimate } from "./catalog";
 import {
   DEFAULT_DELIVERY,
@@ -1062,6 +1062,8 @@ export const createOffering = createServerFn({ method: "POST" })
         templateOfferingId: z.string().uuid(),
         /** A starter architecture (2-tier, 3-tier…) instead of the template offering's architecture. */
         starter: z.string().max(40).optional(),
+        /** An Azure Architecture Center reference design (see lib/offering/templates). */
+        reference: z.string().max(60).optional(),
         landing: z.enum(["existing-customer-hub", "dedicated-spoke", "isv-hosted"]),
         landingZone: z.enum(["corp", "online", "local", "sandbox"]),
         regions: z.array(z.string().min(3).max(40)).min(1).max(60),
@@ -1110,15 +1112,23 @@ export const createOffering = createServerFn({ method: "POST" })
     const { STARTERS } = await import("./starters");
     const starter = data.starter ? STARTERS.find((x) => x.id === data.starter) : undefined;
     if (data.starter && !starter) throw new Error("Unknown starter architecture.");
-    const arch = starter
-      ? { selected: starter.selected, topology: starter.topology }
-      : fromManifest(template, base?.manifest_json ?? {});
+    const { REFERENCE_DESIGNS } = await import("./offering/templates");
+    const reference = data.reference
+      ? REFERENCE_DESIGNS.find((x) => x.id === data.reference)
+      : undefined;
+    if (data.reference && !reference) throw new Error("Unknown reference design.");
+    const arch: Architecture = reference
+      ? { ...reference.architecture, workload: reference.workload }
+      : starter
+        ? { selected: starter.selected, topology: starter.topology }
+        : fromManifest(template, base?.manifest_json ?? {});
     const slug = data.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const manifest = toManifest(
       slug,
       "1.0.0",
       {
         selected: arch.selected,
+        ...(arch.workload ? { workload: arch.workload } : {}),
         topology: {
           ...arch.topology,
           landing: data.landing,

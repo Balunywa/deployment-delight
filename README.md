@@ -56,14 +56,14 @@ Either way, it's the same product setup, the same deployment process and the sam
      "How it works" shows the architecture Cloud Delivery draws from the solution's code, per delivery model,
      with the flow in numbered steps on it. Then come the business scenario, caveats to read before deploying, and how
      to deploy, including the project's own command. Catalog cards open the solution page.
-0. **Listen before you solution (Engagements).** A conversation navigator for SEs, CSAs and SSPs, used live in
+1. **Listen before you solution (Engagements).** A conversation navigator for SEs, CSAs and SSPs, used live in
    the meeting. It opens with what the customer is struggling with, in their language ("our pilots don't reach
    production", "our AI answers aren't reliable"…) and their own words, then moves through **Understand**
    (outcome, workflow, why now, owner, baseline) → **Explore** (one question at a time; each answer shows what it
    usually indicates and routes to the next question with the reason) → **Illustrate** (catalog examples chosen by
    what they said) → **Validate** (hypotheses put back to the customer as questions) → **Agree** (next steps with
-   owners and dates). A working summary keeps everything labelled *confirmed*, *hypothesis*, *still unknown* or
-   *ruled out*, and by source (customer, presenter, AI). Around it: **Prep** (what Cloud Delivery knows about the
+   owners and dates). A working summary keeps everything labelled _confirmed_, _hypothesis_, _still unknown_ or
+   _ruled out_, and by source (customer, presenter, AI). Around it: **Prep** (what Cloud Delivery knows about the
    account and starting hypotheses), **Fit & gap** (accelerators ranked by the answers that point to them, their
    honest gaps, and whether an agent is the right answer yet: can it reach the data, does it know what the data
    means, can it act safely), a **customer recap** at `/recap/<id>` that is built server-side from confirmed
@@ -84,19 +84,40 @@ Either way, it's the same product setup, the same deployment process and the sam
    and **Needs you** (on Home and Engagements) lists what's waiting: actions due, runs to review or approve,
    hypotheses untested before a decision, handoffs, and 30/60/90-day value checkpoints. `e2e/journey.spec.ts`
    walks the whole thing through the UI.
-1. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
+2. **Set up your product once.** Pick the Azure services your product needs on a visual canvas and
    choose where it runs. Cloud Delivery creates the infrastructure code (Bicep), the deployment pipeline
    (GitHub Actions or Azure DevOps) and the short list of details you'll need from each customer.
-2. **Review before you offer it.** Every new offering or version goes through architecture review before
+   - **Guided design session.** Architecture → **Guided** walks an SE or CSA through ten steps: requirements
+     (criticality, SLO, RTO/RPO, data classification, audience), a starting point, edge, compute, data and AI,
+     integration, network and landing zone, identity, observability, and review. Every change shows what it does
+     (new and removed flows, roles, private endpoints, DNS zones, diagnostics, customer inputs, cost, and
+     findings raised or cleared) and redraws the workload's traffic. The canvas and the guided session edit the
+     same design.
+   - **Reference designs.** A new offering can start from Azure Architecture Center baselines (zone-redundant web
+     app, AKS, Foundry chat, Container Apps microservices, serverless event-driven, API platform, IoT telemetry,
+     analytics lakehouse, n-tier VMs), each mapped onto the catalog, or from a CAF-ready empty baseline.
+   - **Well-Architected, computed.** Every catalog service has recommendations across the five pillars, checked
+     against the design and its requirements rather than answered as a questionnaire (`src/lib/waf`). Each
+     result is pass, warn or fail, with the reason, a Microsoft Learn link and, where possible, a one-click fix.
+     The **Well-Architected** tab scores the pillars and lists findings by pillar or service. The service
+     inspector shows each service's results, and `/well-architected` is the guide: the pillars, their official
+     checklists and trade-offs, and a page per service.
+   - **Flows.** Traffic, identity (one flow per role grant), logging and deployment are computed from the design
+     (`src/lib/offering/flows.ts`) and drawn in the same diagram standard as the landing zones: step through,
+     compare unsaved changes with the saved release, download as SVG or PNG. Flows the generated Terraform
+     can't deliver yet are listed with the reason, not drawn.
+   - **Exports.** A design document (Markdown: requirements, services, flows, roles, findings) and the findings
+     as CSV, for the design review.
+3. **Review before you offer it.** Every new offering or version goes through architecture review before
    it can be published: every offered region runs every service (from Azure's resource provider region
    lists, all 49 public regions), the landing zone group exists in your landing zone design and its
    policies allow the architecture (for example, Corp denies public endpoints), and the guardrails are on.
-3. **Bring on a customer.** Pick a published offering, then choose each environment — dev, test, QA, UAT,
+4. **Bring on a customer.** Pick a published offering, then choose each environment — dev, test, QA, UAT,
    staging, prod — with its region and target: a new subscription, an existing subscription or an
    existing resource group. Placement in the management group hierarchy comes from the landing zone design,
    one subscription per environment in the same group, as the Cloud Adoption Framework recommends. Hosted
    by you: nothing is needed from the customer. In their Azure: send their admin a link to approve access.
-4. **Onboarding is a pull request on the customer's own repository.** Launching files a vending request for
+5. **Onboarding is a pull request on the customer's own repository.** Launching files a vending request for
    `cust-<customer>`, then adds one file per environment, `environments/<env>/<solution>-<model>.yaml`,
    pinning the offering version and its digest. The customer's workflow calls the pinned install template:
    the pull request plans every environment with read-only identities; merging applies them in ring order,
@@ -104,7 +125,7 @@ Either way, it's the same product setup, the same deployment process and the sam
    identities, trusted only for that repository, environment and template — no secrets. New versions arrive
    as promotion pull requests; drift is checked nightly.
    _The demo engine simulates the GitHub calls and Azure deployments._
-5. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
+6. **Keep everyone up to date.** See every customer's version and health in one place. Roll out new
    versions in stages instead of all at once.
 
 ## Delivery units: isolation per landing zone, solution and customer

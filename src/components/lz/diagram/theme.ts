@@ -110,7 +110,54 @@ const ICONS: Record<string, string> = {
   keyvault: "key-vault",
   sql: "sql-database",
   subscription: "subscription",
+  // Workload services (catalog ids), Microsoft's Azure Public Service Icons.
+  aks: "aks",
+  "container-apps": "container-apps",
+  functions: "functions",
+  "app-service": "app-service",
+  "web-vmss": "vmss",
+  "app-vmss": "vmss",
+  "container-registry": "container-registry",
+  "container-instances": "container-instances",
+  storage: "storage",
+  cosmos: "cosmos",
+  postgres: "postgres",
+  "sql-database": "sql-database",
+  redis: "redis",
+  "ai-foundry": "ai-foundry",
+  "ai-search": "ai-search",
+  "data-explorer": "data-explorer",
+  "iot-hub": "iot-hub",
+  databricks: "databricks",
+  fabric: "data-explorer",
+  adme: "storage",
+  "adme-connection": "storage",
+  apim: "apim",
+  "service-bus": "service-bus",
+  "event-hubs": "event-hubs",
+  "event-grid": "event-grid",
+  "app-configuration": "app-configuration",
+  "key-vault": "key-vault",
+  "managed-identity": "managed-identity",
+  "app-insights": "app-insights",
+  monitoring: "log-analytics",
+  budget: "budget",
+  "resource-group": "resource-group",
+  "security-baseline": "policy",
+  "network-spoke": "vnet",
+  "private-endpoints": "private-endpoint",
+  "app-gateway": "app-gateway",
+  "front-door": "front-door",
+  entra: "entra",
+  cicd: "devops",
+  dns: "dns-zones",
+  hub: "vnet",
 };
+
+/** The icon file name (without .svg) for an id; used by the SVG diagrams. */
+export function iconName(id: string, fallback = "subscription") {
+  return azureIcon(id, fallback).replace("/azure-icons/", "").replace(".svg", "");
+}
 
 /** The icon for an id, matching on the id itself or its leading word (e.g. "firewall-2", "spoke:…"). */
 export function azureIcon(id: string, fallback = "subscription") {

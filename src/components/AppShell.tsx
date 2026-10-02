@@ -6,6 +6,7 @@ import {
   Boxes,
   Building2,
   Cog,
+  Compass,
   DollarSign,
   GitBranch,
   GitFork,
@@ -42,6 +43,7 @@ type Path =
   | "/engagements"
   | "/products"
   | "/offerings"
+  | "/well-architected"
   | "/upgrades"
   | "/foundations"
   | "/delivery"
@@ -71,6 +73,7 @@ const nav: { label: string; items: NavItem[] }[] = [
     items: [
       { to: "/products", label: "Solution catalog", icon: Boxes },
       { to: "/offerings", label: "Offerings", icon: Layers },
+      { to: "/well-architected", label: "Well-Architected", icon: Compass },
       { to: "/upgrades", label: "Releases", icon: GitBranch },
     ],
   },

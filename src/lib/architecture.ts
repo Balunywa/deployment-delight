@@ -2,6 +2,7 @@
  * Bridges the stored blueprint manifest (offering_versions.manifest_json) and the designer's
  * working model: which services are selected with which settings, and the landing topology.
  */
+import { DEFAULT_WORKLOAD, type Workload } from "./waf/types";
 import {
   type LandingZone,
   type Selected,
@@ -21,7 +22,12 @@ type OfferingLike = {
   supported_regions?: string[] | null;
 };
 
-export type Architecture = { selected: Selected[]; topology: Topology };
+/** A workload's design: its services and settings, where it runs, and the requirements it's judged against. */
+export type Architecture = {
+  selected: Selected[];
+  topology: Topology;
+  workload?: Workload | undefined;
+};
 
 export type BlueprintSource = {
   repository: string;
@@ -85,7 +91,11 @@ export function fromManifest(offering: OfferingLike, manifestInput: unknown): Ar
   const selected = modules
     .filter((x) => SERVICE_BY_ID.has(x.name))
     .map((x) => withDefaults(x.name, x.settings));
-  return { selected: normalise(selected, topology), topology };
+  const w = rec(m["workload"]);
+  const workload: Workload | undefined = Object.keys(w).length
+    ? { ...DEFAULT_WORKLOAD, ...(w as Partial<Workload>) }
+    : undefined;
+  return { selected: normalise(selected, topology), topology, ...(workload ? { workload } : {}) };
 }
 
 export function toManifest(
@@ -116,6 +126,8 @@ export function toManifest(
       settings: s.settings,
     })),
     landingZone: { archetype: topology.landingZone },
+    // The requirements the design is judged against (Well-Architected review).
+    ...(arch.workload ? { workload: arch.workload } : {}),
     deploymentOptions: {
       azureModels:
         topology.landing === "existing-customer-hub"

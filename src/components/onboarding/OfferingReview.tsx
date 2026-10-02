@@ -41,6 +41,7 @@ import {
 } from "@/lib/onboarding";
 import { AZURE_REGIONS, UNAVAILABLE } from "@/lib/regions";
 import { STARTERS } from "@/lib/starters";
+import { REFERENCE_DESIGNS } from "@/lib/offering/templates";
 import { cn } from "@/lib/utils";
 
 const GEOS = [...new Set(AZURE_REGIONS.map((r) => r.geo))];
@@ -278,6 +279,12 @@ export function NewOfferingDialog({
       body: x.body,
       arch: { selected: x.selected, topology: x.topology },
     })),
+    ...REFERENCE_DESIGNS.filter((d) => d.id !== "scratch").map((d) => ({
+      id: `ref:${d.id}`,
+      name: d.title,
+      body: `${d.summary} Source: ${d.source.title}.`,
+      arch: { ...d.architecture, workload: d.workload },
+    })),
     ...templates,
   ];
   const template = all.find((t) => t.id === templateId) ?? templates[0] ?? all[0];
@@ -360,6 +367,18 @@ export function NewOfferingDialog({
                     </SelectLabel>
                     {all
                       .filter((x) => x.id.startsWith("starter:"))
+                      .map((x) => (
+                        <SelectItem key={x.id} value={x.id}>
+                          {x.name}
+                        </SelectItem>
+                      ))}
+                  </SelectGroup>
+                  <SelectGroup>
+                    <SelectLabel className="text-[10px] tracking-wider uppercase">
+                      Azure Architecture Center reference designs
+                    </SelectLabel>
+                    {all
+                      .filter((x) => x.id.startsWith("ref:"))
                       .map((x) => (
                         <SelectItem key={x.id} value={x.id}>
                           {x.name}
@@ -462,11 +481,15 @@ export function NewOfferingDialog({
                 create.mutate({
                   data: {
                     name: name.trim(),
-                    templateOfferingId: template.id.startsWith("starter:")
-                      ? (productTemplate?.id ?? template.id)
-                      : template.id,
+                    templateOfferingId:
+                      template.id.startsWith("starter:") || template.id.startsWith("ref:")
+                        ? (productTemplate?.id ?? template.id)
+                        : template.id,
                     ...(template.id.startsWith("starter:")
                       ? { starter: template.id.slice("starter:".length) }
+                      : {}),
+                    ...(template.id.startsWith("ref:")
+                      ? { reference: template.id.slice("ref:".length) }
                       : {}),
                     landing: l,
                     landingZone: lz,
