@@ -23,7 +23,16 @@ import { type Flow, flowsFor, sceneExtras, spokesFor } from "@/lib/alz/scene";
 import { cn } from "@/lib/utils";
 
 type Box = { x: number; y: number; w: number; h: number };
-type NodeDef = Box & { id: string; title: string; sub: string; icon?: string };
+type NodeDef = Box & {
+  id: string;
+  title: string;
+  sub: string;
+  icon?: string;
+  /** A shorter title for crowded rows. */
+  short?: string;
+  /** Drawn tighter, with the short title, when its row is crowded. */
+  tight?: boolean;
+};
 type Theme = "dark" | "light";
 
 const W = 1240;
@@ -120,7 +129,15 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
   ) => {
     const w = Math.min(230, (x1 - x0 - gap * (items.length - 1)) / Math.max(items.length, 1));
     items.forEach((it, i) =>
-      nodes.push({ ...it, row, x: x0 + i * (w + gap), y: ROWS[row]!.y, w, h: ROWS[row]!.h }),
+      nodes.push({
+        ...it,
+        row,
+        x: x0 + i * (w + gap),
+        y: ROWS[row]!.y,
+        w,
+        h: ROWS[row]!.h,
+        ...(w < 160 ? { tight: true, title: it.short ?? it.title } : {}),
+      }),
     );
   };
 
@@ -151,6 +168,7 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
     if (wan)
       items.push({
         id: "hub1",
+        short: "Hub router",
         title: "Virtual hub router",
         sub: "Routes between connections",
         icon: "vwan-hub",
@@ -158,6 +176,7 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
     if (hasFirewall(a))
       items.push({
         id: "firewall",
+        short: `Firewall ${a.firewall}`,
         title: `Azure Firewall ${a.firewall}`,
         sub: wan ? "In the secured hub" : (sub["firewall"] ?? ""),
         icon: "firewall",
@@ -165,6 +184,7 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
     if (on(a.vpnGateway))
       items.push({
         id: "vpngw",
+        short: "VPN gateway",
         title: "VPN gateway",
         sub: wan ? "Site-to-site" : (sub["gateway"] ?? ""),
         icon: "vnet-gateway",
@@ -172,6 +192,7 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
     if (on(a.expressRoute))
       items.push({
         id: "ergw",
+        short: "ER gateway",
         title: "ExpressRoute gateway",
         sub: "Private circuit",
         icon: "expressroute",
@@ -179,6 +200,7 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
     if (on(a.bastion))
       items.push({
         id: "bastion",
+        short: "Bastion",
         title: "Azure Bastion",
         sub: wan ? "Sidecar network" : (sub["bastion"] ?? ""),
         icon: "bastion",
@@ -186,12 +208,14 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
     if (a.privateDns === "platform") {
       items.push({
         id: "dnsresolver",
+        short: "DNS resolver",
         title: "DNS Private Resolver",
         sub: "Inbound endpoint",
         icon: "dns-resolver",
       });
       items.push({
         id: "dnszones",
+        short: "DNS zones",
         title: "Private DNS zones",
         sub: "privatelink.*",
         icon: "dns-zones",
@@ -390,7 +414,26 @@ function storyFor({ lib, answers, placed }: StoryInput) {
   const flows = flowsFor({ spokes, extras: sceneExtras(answers, lib, tree) }, answers);
   const spokeIds: Record<string, string> = {};
   for (const s of spokes) if (!spokeIds[s.group]) spokeIds[s.group] = `spoke:${s.id}`;
-  return { flows, groups, spokeIds };
+  // Workloads in subscriptions added on the canvas (or custom groups like AKS under Online) are drawn in the
+  // landing zone they sit under.
+  const landingZoneOf = (libraryId: string): string | undefined => {
+    let n = tree.find((t) => t.libraryId === libraryId);
+    while (n) {
+      if (spokeIds[n.libraryId]) return n.libraryId;
+      n = tree.find((t) => t.id === n!.parentId);
+    }
+    return undefined;
+  };
+  const alias: Record<string, string> = {};
+  for (const s of spokes) {
+    const g = landingZoneOf(s.group);
+    if (g) alias[`spoke:${s.id}`] = spokeIds[g]!;
+  }
+  for (const x of sceneExtras(answers, lib, tree)) {
+    const g = landingZoneOf(x.group);
+    if (g) alias[`extra:${x.id}`] = spokeIds[g]!;
+  }
+  return { flows, groups, spokeIds, alias };
 }
 
 export function TrafficStory({
@@ -745,12 +788,14 @@ function Canvas({
   // Lanes are per flow across the whole design, so a flow keeps its lane when others are hidden.
   const laneOf = new Map(story.flows.filter((f) => f.available).map((f, i) => [f.id, i]));
   const lanes = Math.max(laneOf.size, 1);
-  const touched = new Set(flows.flatMap((f) => f.steps.map((s) => s.at)));
+  const touched = new Set(flows.flatMap((f) => f.steps.map((s) => story.alias[s.at] ?? s.at)));
   const drawn = L.nodes.filter((n) => n.row !== 0 || n.id === "internet" || touched.has(n.id));
 
   const paths = flows.map((f, i) => {
     const lane = laneOf.get(f.id) ?? i;
-    const seq = f.steps.map((s) => byId.get(s.at)).filter((n): n is Placed => !!n);
+    const seq = f.steps
+      .map((s) => byId.get(s.at) ?? byId.get(story.alias[s.at] ?? ""))
+      .filter((n): n is Placed => !!n);
     const legs: { d: string; pts: Pt[]; via?: string | undefined }[] = [];
     for (let k = 1; k < seq.length; k++) {
       if (seq[k] === seq[k - 1]) continue;
@@ -991,8 +1036,14 @@ function Canvas({
 
         {drawn.map((n) => {
           const big = n.h > 80;
-          const titleLines = wrap(n.title, n.w - 58, 13);
-          const subLine = wrap(n.sub, n.w - 58, 11)[0] ?? "";
+          const tx = n.x + (n.tight ? 36 : 48);
+          const tw = n.w - (n.tight ? 42 : 58);
+          const icon = n.tight ? 20 : 26;
+          const titleLines = wrap(n.title, tw, 13);
+          const subLines = wrap(n.sub, tw, 11);
+          // A subtitle that doesn't fit a crowded box is left out rather than cut mid-word.
+          const subLine =
+            subLines.length === 1 ? subLines[0]! : n.tight ? "" : `${subLines[0] ?? ""}…`;
           const ty = big ? n.y + 30 : n.y + n.h / 2 - (titleLines.length > 1 ? 12 : 4);
           return (
             <g key={n.id}>
@@ -1009,20 +1060,20 @@ function Canvas({
               {n.icon && (
                 <image
                   href={`/azure-icons/${n.icon}.svg`}
-                  x={n.x + 12}
-                  y={big ? n.y + 16 : n.y + n.h / 2 - 13}
-                  width={26}
-                  height={26}
+                  x={n.x + (n.tight ? 10 : 12)}
+                  y={big ? n.y + 16 : n.y + n.h / 2 - icon / 2}
+                  width={icon}
+                  height={icon}
                 />
               )}
-              <text x={n.x + 48} y={ty} fill={c.text} fontSize={13} fontWeight={600}>
+              <text x={tx} y={ty} fill={c.text} fontSize={13} fontWeight={600}>
                 {titleLines.map((l, i) => (
-                  <tspan key={i} x={n.x + 48} dy={i ? 15 : 0}>
+                  <tspan key={i} x={tx} dy={i ? 15 : 0}>
                     {l}
                   </tspan>
                 ))}
               </text>
-              <text x={n.x + 48} y={ty + titleLines.length * 15 + 1} fill={c.sub} fontSize={11}>
+              <text x={tx} y={ty + titleLines.length * 15 + 1} fill={c.sub} fontSize={11}>
                 {subLine}
               </text>
             </g>
@@ -1035,8 +1086,9 @@ function Canvas({
           if (!shown(f) || !start) return null;
           const dim = focus && focus !== f.id;
           const s = STATUS[f.outcome?.status ?? ""];
-          const first = legs[0]?.pts[0] ?? center(start);
-          const end0 = legs.at(-1)?.pts.at(-1) ?? center(end ?? start);
+          // A flow whose hops all land in one box (e.g. a lookup inside the landing zone) is marked on its corner.
+          const first = legs[0]?.pts[0] ?? { x: start.x + start.w - 18, y: start.y };
+          const end0 = legs.at(-1)?.pts.at(-1) ?? first;
           // A flow that ends where it started (e.g. a lookup, then the connection) shows its outcome beside its number.
           const last =
             Math.hypot(end0.x - first.x, end0.y - first.y) < 24
