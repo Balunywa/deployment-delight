@@ -960,6 +960,77 @@ export const SERVICES: ServiceDef[] = [
     blurb: "Application tracing and live metrics.",
   },
   {
+    id: "sre-agent",
+    name: "Azure SRE Agent",
+    short: "SRE Agent",
+    category: "Observability",
+    zone: "shared",
+    resourceType: "Microsoft.App/agents",
+    // No usable AVM module yet (avm/res/app/agent is a placeholder); generated with azapi.
+    avm: "azapi · Microsoft.App/agents",
+    version: "2025-05-01-preview",
+    wave: 5,
+    options: [
+      {
+        key: "agent",
+        label: "Agent",
+        choices: ["New agent per install", "Customer's existing agent"],
+        default: "New agent per install",
+        prices: { "New agent per install": 292, "Customer's existing agent": 0 },
+        notes: {
+          "New agent per install":
+            "Always-on 4 AAU an hour (about $292 a month at $0.10/AAU in US regions) from creation until deleted, plus usage.",
+          "Customer's existing agent":
+            "One agent can cover many workloads. The install grants it read access to its resource group and briefs it; no new always-on charge.",
+        },
+      },
+      {
+        key: "mode",
+        label: "Run mode",
+        choices: ["Review", "Autonomous"],
+        default: "Review",
+        notes: {
+          Review: "Proposes Azure write actions; an SRE Agent Administrator approves each one.",
+          Autonomous:
+            "Acts without approval, within its access level. Choose deliberately for production.",
+        },
+      },
+      {
+        key: "access",
+        label: "Access to the install",
+        choices: ["Read only", "Contributor on the install"],
+        default: "Read only",
+        notes: {
+          "Read only":
+            "Reader, Log Analytics Reader and Monitoring Reader on the install's resource group. Write actions need an administrator's on-behalf-of approval.",
+          "Contributor on the install":
+            "Contributor on the install's resource group, so approved mitigations (scale, restart) run with the agent's own identity.",
+        },
+      },
+      {
+        key: "usageCap",
+        label: "Monthly usage cap",
+        choices: ["1,000 AAU", "5,000 AAU", "20,000 AAU"],
+        default: "1,000 AAU",
+        notes: {
+          "1,000 AAU": "Up to $100 of investigations a month; chat and actions stop at the cap.",
+          "5,000 AAU": "Up to $500 a month.",
+          "20,000 AAU": "Up to $2,000 a month.",
+        },
+      },
+      {
+        key: "devInstalls",
+        label: "Dev/test installs",
+        choices: ["No agent", "Same as production"],
+        default: "No agent",
+        env: "dev",
+      },
+    ],
+    monthly: 292,
+    blurb:
+      "An agent that investigates this install's alerts and runs daily checks, briefed with this design: its flows, roles, targets and accepted risks.",
+  },
+  {
     id: "budget",
     name: "Budget & cost alerts",
     short: "Budget",
@@ -1110,6 +1181,11 @@ export function normalise(selected: Selected[], topology: Topology): Selected[] 
 
 /** Approximate monthly list price of one install: production sizing, or dev/test sizing. */
 export const serviceMonthly = (s: Selected, env: "prod" | "dev" = "prod") => {
+  if (s.id === "sre-agent") {
+    if (s.settings["agent"] === "Customer's existing agent") return 0;
+    if (env === "dev" && s.settings["devInstalls"] !== "Same as production") return 0;
+    return 292;
+  }
   const sized = sizing(s.id, s.settings);
   // Model usage is billed per token; a dev/test install's spend is small.
   if (s.id === "ai-foundry" && env === "dev") return 50;
@@ -1237,5 +1313,31 @@ export function inputsFor(selected: Selected[], topology: Topology) {
   for (const s of selected)
     for (const i of SERVICE_BY_ID.get(s.id)?.inputs ?? [])
       inputs.push({ ...i, from: SERVICE_BY_ID.get(s.id)?.name ?? s.id });
+  const sre = selected.find((s) => s.id === "sre-agent");
+  if (sre?.settings["agent"] === "Customer's existing agent")
+    inputs.push(
+      {
+        key: "sreAgentId",
+        label: "Customer's SRE Agent",
+        source: "customer",
+        help: "Resource ID of their Azure SRE Agent. The install adds its resource group to the agent's managed resources.",
+        from: "Azure SRE Agent",
+      },
+      {
+        key: "sreAgentPrincipalId",
+        label: "SRE Agent identity",
+        source: "customer",
+        help: "Object ID of the agent's user-assigned managed identity, granted read access to the install.",
+        from: "Azure SRE Agent",
+      },
+    );
+  else if (sre)
+    inputs.push({
+      key: "sreAgentAdminGroupId",
+      label: "SRE Agent administrators",
+      source: "customer",
+      help: "Entra group made SRE Agent Administrator: the people who approve the agent's actions in Review mode.",
+      from: "Azure SRE Agent",
+    });
   return inputs;
 }

@@ -102,6 +102,7 @@ export function designDocument(
   section("Identity and access", byKind("identity"));
   section("Logging and telemetry", byKind("logging"));
   section("Deployment", byKind("deploy"));
+  section("Operations (Azure SRE Agent)", byKind("operate"));
   const inputs = inputsFor(arch.selected, t);
   if (inputs.length)
     lines.push(

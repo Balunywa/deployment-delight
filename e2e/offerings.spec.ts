@@ -96,7 +96,7 @@ test.describe.serial("offering designer", () => {
   test("publish, then changes become the next draft release", async ({ page }) => {
     await open(page, `/offerings?offering=${offeringId}`);
     await expect(page.getByRole("heading", { level: 1 })).toContainText(NAME);
-    await page.getByRole("button", { name: /^Review/ }).click();
+    await page.getByRole("button", { name: /^Architecture review/ }).click();
     const publish = page.getByRole("button", { name: "Publish v1.0.0", exact: true });
     await expect(publish).toBeEnabled();
     await publish.click();

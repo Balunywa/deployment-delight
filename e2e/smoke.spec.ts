@@ -36,12 +36,14 @@ test.describe("every page loads @readonly", () => {
   test("offerings designer and every tab", async ({ page }) => {
     await open(page, "/offerings");
     for (const tab of [
-      /^Review/,
-      /^Deploy$/,
+      /^Architecture review/,
+      /^Test deploy$/,
       /^Pipeline$/,
       /^Infrastructure as code$/,
       /^Customer inputs/,
       /^Releases/,
+      /^SRE Agent$/,
+      /^Flows$/,
       /^Architecture$/,
     ]) {
       await page.getByRole("button", { name: tab }).first().click();

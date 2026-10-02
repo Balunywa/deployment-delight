@@ -75,7 +75,13 @@ import { pipelineFor, workflowFor } from "@/lib/pipeline";
 import { listAiModels } from "@/lib/offering/run.functions";
 import { offeringTerraform } from "@/lib/offering/terraform";
 import { DeployTab, ENV_LABEL, useOfferingRuns } from "@/components/offering/DeployTab";
-import { OfferingFlow, TerraformFiles } from "@/components/offering/OfferingFlow";
+import { TerraformFiles } from "@/components/offering/OfferingFlow";
+import {
+  NextStep,
+  OfferingNav,
+  type OfferingView,
+  type Stage,
+} from "@/components/offering/OfferingNav";
 import {
   verdict,
   reviewOffering,
@@ -93,6 +99,8 @@ import {
 } from "@/components/onboarding/OfferingReview";
 import { cn } from "@/lib/utils";
 import { GuidedWorkload } from "@/components/offering/GuidedWorkload";
+import { OperatePanel } from "@/components/offering/OperatePanel";
+import { sreSettings } from "@/lib/offering/sre-agent";
 import { ServiceWaf, WafFindings, WafScorecard } from "@/components/offering/WafReview";
 import { WorkloadStory } from "@/components/offering/WorkloadStory";
 import { designDocument, findingsCsv } from "@/lib/offering/design-doc";
@@ -109,16 +117,7 @@ function saveText(text: string, filename: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
-type View =
-  | "architecture"
-  | "flows"
-  | "waf"
-  | "review"
-  | "deploy"
-  | "pipeline"
-  | "iac"
-  | "inputs"
-  | "releases";
+type View = OfferingView;
 
 export const Route = createFileRoute("/offerings")({
   validateSearch: (
@@ -160,6 +159,7 @@ type Version = {
 function Designer() {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/offerings" });
+  const navigateTo = useNavigate();
   const offerings = useQuery(offeringsQuery);
   const foundations = useQuery(foundationsQuery);
   const hostingAnswers = (foundations.data ?? []).find((f) => !f.customer_id)?.answers ?? {};
@@ -328,6 +328,165 @@ function Designer() {
     return v ? [{ id: o.id, name: o.name, arch: fromManifest(o, v.manifest_json) }] : [];
   });
 
+  const sreSel = selected.find((s) => s.id === "sre-agent");
+  const sre = {
+    on: !!sreSel,
+    modeLabel: sreSel
+      ? `${sreSettings(sreSel.settings).mode}${sreSettings(sreSel.settings).existing ? " · customer's agent" : ""}`
+      : "",
+  };
+  const failing = review.filter((c) => c.level === "fail").length;
+  const wafFails = waf.findings.filter((f) => f.result === "fail").length;
+  const testedThis =
+    !!lastRun && lastRun.version === base.version && lastRun.status === "succeeded";
+  const go = (v: View, extra: { mode?: "guided" | "canvas" } = {}) =>
+    void navigate({ search: (s) => ({ ...s, view: v, ...extra }) });
+  const lifecycle: Stage[] = [
+    {
+      id: "design",
+      title: "Design",
+      done: !dirty && wafFails === 0,
+      status: dirty
+        ? { text: "Unsaved changes", tone: "warning" }
+        : { text: `${selected.length} resources · WAF ${waf.overall ?? "–"}` },
+      views: [
+        { id: "architecture", label: "Architecture" },
+        { id: "flows", label: "Flows" },
+        { id: "waf", label: `Well-Architected · ${waf.overall ?? "–"}` },
+      ],
+    },
+    {
+      id: "build",
+      title: "Build",
+      done: !dirty,
+      status: { text: `Terraform · ${stages.length} pipeline stages` },
+      views: [
+        { id: "iac", label: "Infrastructure as code" },
+        { id: "pipeline", label: "Pipeline" },
+        { id: "inputs", label: `Customer inputs · ${inputs.length}` },
+      ],
+    },
+    {
+      id: "validate",
+      title: "Validate",
+      done: reviewState !== "fail" && testedThis,
+      status:
+        reviewState === "fail"
+          ? { text: `${failing} review check${failing === 1 ? "" : "s"} failing`, tone: "danger" }
+          : !lastRun
+            ? { text: "Not test-deployed yet" }
+            : lastRun.status === "running"
+              ? { text: "Deploying…", tone: "warning" }
+              : lastRun.status === "waiting"
+                ? { text: "Waiting for approval", tone: "warning" }
+                : lastRun.status === "failed"
+                  ? { text: `Test deploy failed on v${lastRun.version}`, tone: "danger" }
+                  : {
+                      text: `v${lastRun.version} live in ${deployedEnvs.map((e) => ENV_LABEL[e]).join(", ") || "—"}`,
+                      tone: "success",
+                    },
+      views: [
+        {
+          id: "review",
+          label:
+            reviewState === "pass"
+              ? "Architecture review ✓"
+              : reviewState === "warn"
+                ? "Architecture review · warnings"
+                : `Architecture review · ${failing} failing`,
+        },
+        { id: "deploy", label: "Test deploy" },
+      ],
+    },
+    {
+      id: "release",
+      title: "Release",
+      done: base.status === "published",
+      status:
+        base.status === "published"
+          ? { text: `v${base.version} published`, tone: "success" }
+          : { text: `v${base.version} draft` },
+      views: [{ id: "releases", label: `Releases · ${versions.length}` }],
+    },
+    {
+      id: "operate",
+      title: "Operate",
+      done: sre.on,
+      status: sre.on
+        ? { text: `SRE Agent · ${sre.modeLabel}`, tone: "success" }
+        : { text: "No SRE Agent in the design" },
+      views: [{ id: "operate", label: "SRE Agent" }],
+    },
+  ];
+  const next: Parameters<typeof NextStep>[0] = dirty
+    ? {
+        title: editable
+          ? "Save your changes to the draft"
+          : `Save your changes as v${semverBump(maxVersion)}`,
+        why: editable
+          ? "Saving reruns the architecture review and regenerates the Terraform, pipeline and customer inputs."
+          : `v${base.version} is published and immutable, so changes become the next draft release.`,
+        tone: "warning",
+        action: {
+          label: editable ? "Save draft" : `Save as v${semverBump(maxVersion)} draft`,
+          onClick: () => setSaveOpen(true),
+        },
+        secondary: { label: "Discard", onClick: () => setArch(loaded) },
+      }
+    : base.status === "published"
+      ? sre.on
+        ? {
+            title: `v${base.version} is live: onboard customers, and the SRE Agent watches each install`,
+            why: "To change the design, edit it here; saving starts the next draft release and leaves this one untouched.",
+            tone: "success",
+            action: {
+              label: "Onboard a customer",
+              onClick: () => void navigateTo({ to: "/onboard" }),
+            },
+            secondary: { label: "Operate", onClick: () => go("operate") },
+          }
+        : {
+            title: `v${base.version} is live. Decide how installs will be operated`,
+            why: "Add Azure SRE Agent so every install gets an agent that already knows this design: its flows, roles, SLOs and accepted risks.",
+            tone: "muted",
+            action: { label: "Plan operations", onClick: () => go("operate") },
+            secondary: {
+              label: "Onboard a customer",
+              onClick: () => void navigateTo({ to: "/onboard" }),
+            },
+          }
+      : reviewState === "fail"
+        ? {
+            title: `Fix ${failing} failing architecture review check${failing === 1 ? "" : "s"}`,
+            why: "Review gates publishing: every offered region must run every service and the landing zone must fit.",
+            tone: "danger",
+            action: { label: "Open the review", onClick: () => go("review") },
+          }
+        : wafFails > 0
+          ? {
+              title: `${wafFails} Well-Architected check${wafFails === 1 ? "" : "s"} fail`,
+              why: "They don't block publishing, but most have a one-click fix. Accepting one is a decision to record in the design document.",
+              tone: "warning",
+              action: { label: "See the findings", onClick: () => go("waf") },
+              secondary: { label: "Test deploy anyway", onClick: () => go("deploy") },
+            }
+          : !testedThis
+            ? {
+                title: `Test deploy v${base.version}`,
+                why: "Runs the generated pipeline into a sandbox so you see it deploy before customers do.",
+                action: { label: "Test deploy", onClick: () => go("deploy") },
+              }
+            : {
+                title: `Publish v${base.version}`,
+                why: "Review passes and the test deploy succeeded. Publishing makes it immutable and available to onboarding.",
+                tone: "success",
+                action: {
+                  label: "Publish this release",
+                  onClick: () => publish.mutate({ data: { versionId: base.id } }),
+                  disabled: publish.isPending,
+                },
+              };
+
   return (
     <div className="-mx-4 -my-6 flex min-h-[calc(100vh-49px)] flex-col lg:-mx-8">
       {/* Resource header */}
@@ -409,6 +568,25 @@ function Designer() {
                 {base.status === "published" ? "Published · immutable" : base.status}
               </Pill>
               {base.ai_generated && <Pill tone="warning">AI draft — review required</Pill>}
+              {siblings.length > 1 && (
+                <span className="ml-1 inline-flex items-center gap-0.5 rounded-md border border-border p-0.5">
+                  <span className="px-1.5 text-[11px] text-muted-foreground">Delivered as</span>
+                  {siblings.map((o) => (
+                    <button
+                      key={o.id}
+                      onClick={() => navigate({ search: { offering: o.id, view } })}
+                      className={cn(
+                        "rounded-sm px-2 py-0.5 text-xs transition-colors",
+                        o.id === offering.id
+                          ? "bg-accent font-medium text-accent-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      {modelOf(o.name)}
+                    </button>
+                  ))}
+                </span>
+              )}
               {dirty && <Pill tone="info">Unsaved changes</Pill>}
             </div>
           </div>
@@ -422,17 +600,6 @@ function Designer() {
             </Button>
             <Button size="sm" variant="outline" onClick={() => setIntakeOpen(true)}>
               <Sparkles className="size-3.5" /> Describe architecture
-            </Button>
-            <Button size="sm" variant="outline" disabled={!dirty} onClick={() => setArch(loaded)}>
-              Discard
-            </Button>
-            <Button
-              size="sm"
-              variant={editable && !dirty ? "outline" : "default"}
-              disabled={!dirty}
-              onClick={() => setSaveOpen(true)}
-            >
-              {editable ? "Save draft" : `Save as v${semverBump(maxVersion)} draft`}
             </Button>
             {editable && (
               <Button
@@ -453,101 +620,15 @@ function Designer() {
           </div>
         </div>
 
-        <div className="mt-3">
-          <OfferingFlow
+        <div className="mt-3 overflow-x-auto">
+          <OfferingNav
             view={view}
             onGo={(id) => navigate({ search: (s) => ({ ...s, view: id }) })}
-            status={{
-              architecture: dirty
-                ? { text: "Unsaved changes", tone: "warning" }
-                : { text: `${selected.length} resources · saved` },
-              review:
-                reviewState === "pass"
-                  ? { text: "All checks pass", tone: "success" }
-                  : reviewState === "warn"
-                    ? {
-                        text: `${review.filter((c) => c.level === "warn").length} warnings`,
-                        tone: "warning",
-                      }
-                    : {
-                        text: `${review.filter((c) => c.level === "fail").length} failing`,
-                        tone: "danger",
-                      },
-              deploy: !lastRun
-                ? { text: "Not deployed yet" }
-                : lastRun.status === "running"
-                  ? { text: "Deploying…", tone: "warning" }
-                  : lastRun.status === "waiting"
-                    ? { text: "Waiting for approval", tone: "warning" }
-                    : lastRun.status === "failed"
-                      ? { text: `Failed on v${lastRun.version}`, tone: "danger" }
-                      : {
-                          text: `v${lastRun.version} live in ${deployedEnvs.map((e) => ENV_LABEL[e]).join(", ") || "—"}`,
-                          tone: "success",
-                        },
-              releases:
-                base.status === "published"
-                  ? { text: `v${base.version} published`, tone: "success" }
-                  : { text: `v${base.version} draft` },
-            }}
+            stages={lifecycle}
           />
         </div>
-
-        <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-          <nav className="-mb-px flex gap-4 text-[13px]">
-            {(
-              [
-                ["architecture", "Architecture"],
-                ["flows", "Flows"],
-                ["waf", `Well-Architected · ${waf.overall ?? "–"}`],
-                [
-                  "review",
-                  reviewState === "pass"
-                    ? "Review ✓"
-                    : reviewState === "warn"
-                      ? "Review · warnings"
-                      : `Review · ${review.filter((c) => c.level === "fail").length} failing`,
-                ],
-                ["deploy", "Deploy"],
-                ["pipeline", "Pipeline"],
-                ["iac", "Infrastructure as code"],
-                ["inputs", `Customer inputs · ${inputs.length}`],
-                ["releases", `Releases · ${versions.length}`],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => navigate({ search: (s) => ({ ...s, view: id }) })}
-                className={cn(
-                  "border-b-2 pb-2 transition-colors",
-                  view === id
-                    ? "border-primary font-medium text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="-mb-px flex flex-wrap items-center gap-1 pb-1.5">
-            <span className="mr-1 text-[11px] text-muted-foreground">Delivered as</span>
-            {siblings.map((o) => (
-              <button
-                key={o.id}
-                onClick={() => navigate({ search: { offering: o.id, view } })}
-                className={cn(
-                  "rounded-sm px-2 py-1 text-xs transition-colors",
-                  o.id === offering.id
-                    ? "bg-accent font-medium text-accent-foreground"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                {modelOf(o.name)}
-              </button>
-            ))}
-          </div>
-        </div>
       </div>
+      <NextStep {...next} />
 
       {view === "architecture" && (
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-card px-4 py-2 lg:px-6">
@@ -727,6 +808,10 @@ function Designer() {
         </div>
       )}
 
+      {view === "operate" && (
+        <OperatePanel name={offering.name} version={base.version} arch={arch} set={set} />
+      )}
+
       {view === "flows" && (
         <div className="space-y-3 p-4 lg:p-6">
           <div>
@@ -890,6 +975,8 @@ function Designer() {
               product: productOf(offering.name) || offering.name,
               selected,
               topology,
+              workload: arch.workload,
+              version: base.version,
             })}
           />
         </div>

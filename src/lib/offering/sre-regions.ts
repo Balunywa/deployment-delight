@@ -1,0 +1,26 @@
+/* Kept apart so the Well-Architected checks can use it without importing the generators. */
+/** Regions where an agent can be created (Learn, supported regions, Aug 2026). It can manage resources anywhere. */
+export const SRE_AGENT_REGIONS = [
+  "australiaeast",
+  "brazilsouth",
+  "canadacentral",
+  "centralindia",
+  "centralus",
+  "eastasia",
+  "eastus2",
+  "francecentral",
+  "italynorth",
+  "japaneast",
+  "japanwest",
+  "koreacentral",
+  "northcentralus",
+  "southafricanorth",
+  "southindia",
+  "southeastasia",
+  "spaincentral",
+  "swedencentral",
+  "uksouth",
+  "westcentralus",
+  "westus2",
+  "westus3",
+];

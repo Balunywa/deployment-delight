@@ -108,6 +108,22 @@ Either way, it's the same product setup, the same deployment process and the sam
      can't deliver yet are listed with the reason, not drawn.
    - **Exports.** A design document (Markdown: requirements, services, flows, roles, findings) and the findings
      as CSV, for the design review.
+   - **One lifecycle, one next step.** An offering's pages are grouped into five stages: **Design** (architecture,
+     flows, Well-Architected), **Build** (infrastructure as code, pipeline, customer inputs), **Validate**
+     (architecture review, test deploy), **Release** and **Operate**. A next-step bar always says what to do next and
+     why: save changes, fix a failing review check, look at Well-Architected failures, test deploy, publish, or plan
+     operations. It shows the button that does it.
+   - **Operate with Azure SRE Agent.** Add Azure SRE Agent to the design, as a new agent per install or the
+     customer's existing agent, and each production install gets an agent briefed with this design.
+     - **Settings:** Review or Autonomous run mode, read-only or Contributor access, and a monthly usage cap.
+     - **Terraform:** it generates `Microsoft.App/agents` through azapi, with its identities and RBAC on the install.
+     - **Briefing:** the release carries `sre-agent/` and the pipeline runs `brief.sh` after apply. `brief.sh`
+       uploads `overview.md` (always in the agent's context), `architecture.md`, `deployment.md`, a runbook and the
+       design document, and creates a daily drift check and a weekly targets review. It uses the data-plane calls in
+       Microsoft's `sreagent-templates`.
+     - **Operate lens:** shows the loop. The release briefs the agent, an alert becomes an investigation, a
+       mitigation waits for approval, a morning drift check runs, and findings go back as GitHub issues.
+     - **Not automated yet:** the GitHub connector and PagerDuty/ServiceNow are connected in the agent itself.
 3. **Review before you offer it.** Every new offering or version goes through architecture review before
    it can be published: every offered region runs every service (from Azure's resource provider region
    lists, all 49 public regions), the landing zone group exists in your landing zone design and its

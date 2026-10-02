@@ -1,5 +1,6 @@
 import {
   Activity,
+  BotMessageSquare,
   BrainCircuit,
   BrickWall,
   ChartLine,
@@ -64,6 +65,7 @@ const ICON: Record<string, LucideIcon> = {
   defender: Shield,
   monitoring: Activity,
   "app-insights": Gauge,
+  "sre-agent": BotMessageSquare,
   budget: Wallet,
   "ai-foundry": BrainCircuit,
   "ai-search": ScanSearch,

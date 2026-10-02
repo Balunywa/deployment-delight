@@ -1,3 +1,4 @@
+import { SRE_AGENT_REGIONS } from "../../offering/sre-regions";
 import type { WafCheck, WafFix, WafRec, WafServiceGuide } from "../types";
 
 const AZURE_WAF = "https://learn.microsoft.com/azure/well-architected";
@@ -360,6 +361,45 @@ const resourceGroupPlacementCheck: WafCheck = (ctx) => {
     detail: `The resource group lands in the ${ctx.topology.landingZone} policy area.`,
   };
 };
+
+const SRE_DOCS = "https://learn.microsoft.com/azure/sre-agent";
+const SRE_LEARN = `${SRE_DOCS}/overview`;
+
+const sreModeCheck: WafCheck = (ctx) => {
+  const autonomous = ctx.setting("sre-agent", "mode") === "Autonomous";
+  const high = ctx.setting("sre-agent", "access") === "Contributor on the install";
+  if (autonomous && !high)
+    return {
+      result: "warn",
+      detail:
+        "Autonomous with read-only access still waits for an administrator to elevate each write.",
+      fix: { label: "Use Review mode", settings: { mode: "Review" } },
+    };
+  if (
+    autonomous &&
+    (ctx.workload.criticality === "mission-critical" || ctx.workload.data === "regulated")
+  )
+    return {
+      result: "warn",
+      detail:
+        "It changes production on its own. For this workload, approve its actions until you trust them.",
+      fix: { label: "Use Review mode", settings: { mode: "Review" } },
+    };
+  return {
+    result: "pass",
+    detail: autonomous
+      ? "Autonomous, with Contributor on the install."
+      : "Review mode: a person approves every change.",
+  };
+};
+
+const sreApproversCheck: WafCheck = (ctx) =>
+  ctx.setting("sre-agent", "agent") === "Customer's existing agent"
+    ? { result: "pass", detail: "The customer's own SRE Agent Administrators approve." }
+    : {
+        result: "pass",
+        detail: "Onboarding asks each customer for the Entra group made SRE Agent Administrator.",
+      };
 
 const guides = {
   eventHubs: "https://learn.microsoft.com/azure/well-architected/service-guides/azure-event-hubs",
@@ -1003,6 +1043,118 @@ export const PLATFORM_GUIDES: WafServiceGuide[] = [
         "Scaling strategy should balance performance targets with efficient resource use.",
         `${AZURE_WAF}/performance-efficiency/scale-partition`,
         budgetCheck,
+      ),
+    ],
+  },
+  {
+    service: "sre-agent",
+    learn: SRE_LEARN,
+    summary:
+      "Azure SRE Agent investigates the install's Azure Monitor alerts, runs scheduled checks, and proposes or makes mitigations. Here it's briefed with the design itself, so it judges what it finds against what was intended. The decisions are run mode, access level, one agent per install or the customer's own, and cost. Microsoft's Well-Architected Framework doesn't yet cover SRE Agent; these recommendations apply its Operational Excellence and Security principles and the SRE Agent documentation.",
+    recs: [
+      rec(
+        "sre-agent",
+        "review-mode",
+        "security",
+        "Start in Review mode with read-only access.",
+        "In Review mode every Azure write waits for an SRE Agent Administrator; read-only access means writes run on that person's behalf. Widen it once you trust its proposals.",
+        `${SRE_DOCS}/run-modes`,
+        sreModeCheck,
+      ),
+      rec(
+        "sre-agent",
+        "approvers",
+        "security",
+        "Name the people who approve its actions.",
+        "Only SRE Agent Administrators can approve; Azure Owner or Contributor alone can't.",
+        `${SRE_DOCS}/user-roles`,
+        sreApproversCheck,
+      ),
+      rec(
+        "sre-agent",
+        "design-knowledge",
+        "operations",
+        "Brief the agent with the design, not just access.",
+        "An agent that knows the intended flows, roles, targets and accepted risks can tell drift from design, and its overview.md is always in context.",
+        `${SRE_DOCS}/memory`,
+        () => ({
+          result: "pass",
+          detail:
+            "The pipeline uploads overview.md, architecture.md, deployment.md, the runbook and the design document after every release.",
+        }),
+      ),
+      rec(
+        "sre-agent",
+        "telemetry",
+        "reliability",
+        "Give it application telemetry to investigate with.",
+        "Platform logs show that something failed; Application Insights shows which request and dependency.",
+        `${SRE_DOCS}/overview`,
+        (ctx) =>
+          ctx.has("app-insights")
+            ? { result: "pass", detail: "Application Insights is in the design." }
+            : {
+                result: "warn",
+                detail:
+                  "Without Application Insights it investigates from platform logs and metrics only.",
+                fix: { label: "Add Application Insights", add: ["app-insights"] },
+              },
+      ),
+      rec(
+        "sre-agent",
+        "region",
+        "reliability",
+        "Run the agent in a supported region near the installs.",
+        "An agent's region is fixed at creation and is where its data is processed; it can manage resources in any region.",
+        `${SRE_DOCS}/supported-regions`,
+        (ctx) => {
+          const out = ctx.topology.regions.filter((r) => !SRE_AGENT_REGIONS.includes(r));
+          return out.length
+            ? {
+                result: "warn",
+                detail: `Installs in ${out.join(", ")} get their agent in the fallback region (East US 2 by default); the agent's data is processed there.`,
+              }
+            : { result: "pass", detail: "Every offered region can host the agent." };
+        },
+      ),
+      rec(
+        "sre-agent",
+        "shared-agent",
+        "cost",
+        "Don't pay for an agent on every dev/test install.",
+        "The always-on charge is 4 AAU an hour (about $292 a month in US regions) per agent, running or stopped, until it's deleted. One agent can cover many workloads.",
+        `${SRE_DOCS}/pricing-billing`,
+        (ctx) => {
+          const v = ctx.setting("sre-agent", "agent");
+          if (v === "Customer's existing agent")
+            return {
+              result: "pass",
+              detail: "Uses the customer's agent: no new always-on charge.",
+            };
+          return ctx.setting("sre-agent", "devInstalls") === "Same as production"
+            ? {
+                result: "warn",
+                detail: "Every dev/test install gets its own agent and its always-on charge.",
+                fix: { label: "No agent on dev/test", settings: { devInstalls: "No agent" } },
+              }
+            : {
+                result: "pass",
+                detail: "Production installs only, with a monthly usage cap.",
+              };
+        },
+      ),
+      rec(
+        "sre-agent",
+        "issues",
+        "operations",
+        "Send design-level findings back as issues on the offering's repository.",
+        "A fix to the design belongs in the next release, not in a hand change to one install.",
+        `${SRE_DOCS}/github-connector`,
+        () => ({
+          result: "warn",
+          detail:
+            "Connect the offering's repository in the agent's GitHub connector; the generated Terraform doesn't set connectors.",
+        }),
       ),
     ],
   },

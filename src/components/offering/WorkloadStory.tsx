@@ -27,6 +27,11 @@ const LENSES: { id: Lens; title: string; body: string }[] = [
   },
   { id: "logging", title: "Logging", body: "Where diagnostics and telemetry end up" },
   { id: "deploy", title: "Deploy", body: "How the pipeline ships each release" },
+  {
+    id: "operate",
+    title: "Operate",
+    body: "How Azure SRE Agent runs the install against this design",
+  },
 ];
 
 const W = 1240;
@@ -62,7 +67,10 @@ const ROW_OF: Record<DiagramNode["row"], number> = {
 function workloadLayout(arch: Architecture, marks?: Map<string, "added" | "removed">): StoryLayout {
   const all = nodesFor(arch).filter((n) => !HIDDEN.has(n.id));
   // The spoke itself only matters for its flow logs; it sits with the shared services.
-  const rowOf = (n: DiagramNode) => (n.id === "network-spoke" ? 4 : ROW_OF[n.row]);
+  // The SRE Agent operates the install from beside it, so it gets the row above the spoke, not a slot among
+  // the shared services.
+  const rowOf = (n: DiagramNode) =>
+    n.id === "network-spoke" ? 4 : n.id === "sre-agent" ? 1 : ROW_OF[n.row];
   const nodes: StoryNode[] = [];
   for (let r = 0; r < ROWS.length; r++) {
     const items = all.filter((n) => rowOf(n) === r);
@@ -168,26 +176,28 @@ export function WorkloadStory({
     <div className="space-y-3">
       {!fixedLens && (
         <div role="tablist" aria-label="Flows" className="flex flex-wrap gap-1.5">
-          {LENSES.map((l) => {
-            const n = all.filter((f) => f.kind === l.id && f.available).length;
-            return (
-              <button
-                key={l.id}
-                role="tab"
-                aria-selected={active === l.id}
-                onClick={() => setLens(l.id)}
-                title={l.body}
-                className={cn(
-                  "rounded-lg border px-3 py-1.5 text-left text-[12.5px] transition-colors",
-                  active === l.id
-                    ? "border-primary/50 bg-primary/[0.07] font-semibold text-primary"
-                    : "border-border bg-card text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {l.title} <span className="font-normal opacity-70">· {n}</span>
-              </button>
-            );
-          })}
+          {LENSES.filter((l) => l.id !== "operate" || all.some((f) => f.kind === "operate")).map(
+            (l) => {
+              const n = all.filter((f) => f.kind === l.id && f.available).length;
+              return (
+                <button
+                  key={l.id}
+                  role="tab"
+                  aria-selected={active === l.id}
+                  onClick={() => setLens(l.id)}
+                  title={l.body}
+                  className={cn(
+                    "rounded-lg border px-3 py-1.5 text-left text-[12.5px] transition-colors",
+                    active === l.id
+                      ? "border-primary/50 bg-primary/[0.07] font-semibold text-primary"
+                      : "border-border bg-card text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {l.title} <span className="font-normal opacity-70">· {n}</span>
+                </button>
+              );
+            },
+          )}
         </div>
       )}
       <StoryView

@@ -131,7 +131,7 @@ const SERVICES_FOR: Partial<Record<StepId, string[]>> = {
   ],
   integration: ["service-bus", "event-hubs", "event-grid", "app-configuration"],
   identity: ["managed-identity", "key-vault", "defender", "security-baseline"],
-  observability: ["monitoring", "app-insights", "budget"],
+  observability: ["monitoring", "app-insights", "sre-agent", "budget"],
 };
 
 /** Why a service is suggested for this workload, if it is. Heuristics stated plainly, never hidden. */
@@ -161,6 +161,10 @@ function suggestion(id: string, arch: Architecture, w: Workload): string | undef
         : undefined;
     case "budget":
       return "Cost visibility from the first deployment.";
+    case "sre-agent":
+      return w.criticality !== "standard" && compute
+        ? `${w.criticality === "mission-critical" ? "Mission" : "Business"}-critical: alerts investigated against this design in minutes, not when someone is free. About $292 a month per agent, or use the customer's.`
+        : undefined;
     case "redis":
       return has("sql") || has("postgres") || has("cosmos")
         ? "A cache in front of the database for hot reads."

@@ -36,7 +36,9 @@ import {
   list,
   q,
 } from "./hcl";
+import { srePack, sreAgent, sreSettings } from "./sre-agent";
 import { appTier, dataVms, tierRules, vmCredentials, webTier } from "./vm-services";
+import type { Workload } from "@/lib/waf/types";
 
 export const AZURERM_VERSION = "~> 4.50";
 
@@ -68,6 +70,7 @@ const GENERATORS: Record<string, (s: Record<string, string>, ctx: Ctx) => Servic
   defender,
   budget,
   "security-baseline": policyPack,
+  "sre-agent": (s) => sreAgent(s),
 };
 
 /** Services the foundation file always covers (resource group, identity, network, monitoring). */
@@ -85,6 +88,8 @@ export function offeringTerraform(opts: {
   product: string;
   selected: Selected[];
   topology: Topology;
+  workload?: Workload | undefined;
+  version?: string | undefined;
 }): TfFile[] {
   const { selected, topology } = opts;
   const has = (id: string) => selected.some((s) => s.id === id);
@@ -361,6 +366,32 @@ provider "azurerm" {
         "[]",
       ),
       v("enable_defender", "bool", "Turn on Defender plans on the subscription.", "true"),
+      ...(has("sre-agent")
+        ? sreSettings(selected.find((x) => x.id === "sre-agent")?.settings).existing
+          ? [
+              v("sre_agent_id", "string", "Resource ID of the customer's Azure SRE Agent.", '""'),
+              v(
+                "sre_agent_principal_id",
+                "string",
+                "Object ID of that agent's user-assigned identity, granted read access to the install.",
+                '""',
+              ),
+            ]
+          : [
+              v(
+                "sre_agent_admin_group_id",
+                "string",
+                "Entra group made SRE Agent Administrator (approves its actions in Review mode).",
+                '""',
+              ),
+              v(
+                "sre_agent_fallback_location",
+                "string",
+                "Region for the agent when the install's region can't host one.",
+                '"eastus2"',
+              ),
+            ]
+        : []),
     ].join("\n"),
   });
 
@@ -765,6 +796,15 @@ Customer inputs: ${inputs.map((i) => i.label).join(", ")}.
 `,
   });
 
+  // The pack that briefs the install's SRE Agent with this design (run by the pipeline after apply).
+  if (has("sre-agent"))
+    files.push(
+      ...srePack(opts.product, opts.version ?? "1.0.0", {
+        selected,
+        topology,
+        ...(opts.workload ? { workload: opts.workload } : {}),
+      }).map(({ path, content }) => ({ path, content })),
+    );
   return files.map((f) => (f.path.endsWith(".tf") ? { ...f, content: fmtHcl(f.content) } : f));
 }
 

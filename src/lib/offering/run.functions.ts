@@ -452,6 +452,7 @@ export const startOfferingRun = createServerFn({ method: "POST" })
           product: offering.name.split(" · ")[0] ?? offering.name,
           selected: arch.selected,
           topology: arch.topology,
+          workload: arch.workload,
         });
 
         if (data.action !== "destroy") {

@@ -296,6 +296,26 @@ export const WORKLOAD_RECS: WafRec[] = [
     defenderPlans,
   ),
   rec(
+    "incident-first-response",
+    "operations",
+    "Automate the first response to incidents on critical workloads.",
+    "Operational Excellence asks for a practised incident response; for a mission-critical workload the first minutes matter, and Azure SRE Agent investigates alerts as they fire.",
+    "https://learn.microsoft.com/azure/sre-agent/overview",
+    (ctx) =>
+      ctx.has("sre-agent")
+        ? {
+            result: "pass",
+            detail: "Azure SRE Agent investigates the install's alerts against this design.",
+          }
+        : ctx.workload.criticality === "mission-critical"
+          ? {
+              result: "warn",
+              detail: "Mission-critical, and nothing investigates an alert until someone is free.",
+              fix: { label: "Add Azure SRE Agent", add: ["sre-agent"] },
+            }
+          : { result: "na", detail: "Optional below mission-critical." },
+  ),
+  rec(
     "monitoring-retention-data",
     "operations",
     "Set monitoring retention to match the workload data classification.",

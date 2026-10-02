@@ -13,7 +13,9 @@ import {
 } from "@/lib/catalog";
 import type { Workload } from "@/lib/waf/types";
 
-export type WorkloadFlow = Flow & { kind: "traffic" | "identity" | "logging" | "deploy" };
+export type WorkloadFlow = Flow & {
+  kind: "traffic" | "identity" | "logging" | "deploy" | "operate";
+};
 
 export type DiagramNode = {
   id: string;
@@ -67,6 +69,7 @@ const GENERATED_IDS = new Set([
   "defender",
   "budget",
   "security-baseline",
+  "sre-agent",
 ]);
 
 const COMPUTE_IDS = new Set([
@@ -229,6 +232,7 @@ const COLORS = {
   identity: "#8b5cf6",
   logging: "#22c55e",
   deploy: "#f59e0b",
+  operate: "#ec4899",
 } as const;
 
 const nameOf = (id: string) => SERVICE_BY_ID.get(id)?.name ?? titleCase(id);
@@ -1169,6 +1173,172 @@ export function workloadFlows(arch: Architecture, workload?: Workload): Workload
     ...identityFlows(arch),
     ...loggingFlows(arch),
     ...deployFlows(arch),
+    ...operateFlows(arch),
+  ];
+}
+
+/*
+ * How the install is operated once it's live, when the design includes Azure SRE Agent: the release briefs the
+ * agent, alerts become investigations, mitigations wait for approval, and what it learns goes back to the design.
+ */
+function operateFlows(arch: Architecture): WorkloadFlow[] {
+  const selected = selectedOf(arch);
+  const sre = selected.find((s) => s.id === "sre-agent");
+  if (!sre) return [];
+  const existing = sre.settings["agent"] === "Customer's existing agent";
+  const autonomous = sre.settings["mode"] === "Autonomous";
+  const high = sre.settings["access"] === "Contributor on the install";
+  const compute = computeSelected(selected)[0]?.id ?? "monitoring";
+  const telemetry = hasId(selected, "app-insights") ? "app-insights" : "law";
+  const op = (base: Omit<Flow, "color">) =>
+    flow("operate", { ...base, color: COLORS.operate } as Flow);
+  return [
+    op({
+      id: "operate-brief",
+      title: "The release briefs the agent",
+      summary:
+        "After apply, the pipeline uploads the design (overview, architecture, runbook, design document) and creates the drift and target checks.",
+      available: true,
+      steps: [
+        step("cicd", "Pipeline finishes the deploy", "Verify stage, after smoke tests."),
+        step(
+          "sre-agent",
+          existing
+            ? "The customer's agent learns this install"
+            : "The install's agent learns the design",
+          existing
+            ? "brief.sh adds the resource group to the agent's managed resources and uploads this install's documents."
+            : "brief.sh uploads overview.md (always in context), architecture.md, deployment.md, the runbook and the design document.",
+          { via: "design knowledge" },
+        ),
+      ],
+      outcome: { status: "reaches", text: "The agent knows what this install should look like." },
+    }),
+    op({
+      id: "operate-alert",
+      title: "An alert becomes an investigation",
+      summary:
+        "Azure Monitor alerts from the managed resource group reach the agent without credentials; recurring alerts merge into one thread.",
+      available: true,
+      steps: [
+        step("monitoring", "An Azure Monitor alert fires", "Alerts on the install's resources."),
+        step(
+          "sre-agent",
+          "The agent opens an investigation",
+          "Azure Monitor is its built-in incident platform.",
+          {
+            via: "alert",
+          },
+        ),
+        step(
+          telemetry,
+          "It reads the evidence",
+          "Logs, metrics and traces, with Log Analytics Reader and Monitoring Reader.",
+          {
+            via: "KQL",
+          },
+        ),
+        step(compute, "And the resources themselves", "Reader on the install's resource group.", {
+          via: "Reader",
+        }),
+      ],
+      outcome: {
+        status: "reaches",
+        text: "A probable root cause, checked against the design, and a proposed mitigation in the thread.",
+      },
+    }),
+    op({
+      id: "operate-mitigate",
+      title: autonomous ? "It mitigates on its own" : "A mitigation waits for approval",
+      summary: autonomous
+        ? "Autonomous mode acts without approval, within its access level."
+        : "Review mode: Azure write actions show Approve / Deny; only SRE Agent Administrators can approve.",
+      available: true,
+      steps: [
+        step(
+          "sre-agent",
+          "The agent proposes a fix",
+          "Scale out, restart, roll back to the previous release.",
+        ),
+        ...(autonomous && high
+          ? []
+          : [
+              step(
+                "operators",
+                autonomous ? "An administrator elevates it" : "An SRE Agent Administrator approves",
+                high
+                  ? "Approve or deny in the thread."
+                  : "With read-only access, every write runs on behalf of the approving administrator.",
+                { via: "approve" },
+              ),
+            ]),
+        step(
+          compute,
+          "The change is made",
+          high
+            ? "With the agent's Contributor role on the install."
+            : "On behalf of the administrator.",
+          {
+            via: high ? "Contributor" : "on behalf of",
+          },
+        ),
+      ],
+      outcome:
+        autonomous && !high
+          ? {
+              status: "needs-rules",
+              text: "Autonomous mode with read-only access still needs an administrator to elevate each write.",
+            }
+          : {
+              status: "reaches",
+              text: autonomous ? "Mitigated without waiting." : "Mitigated once a person agrees.",
+            },
+    }),
+    op({
+      id: "operate-drift",
+      title: "Every morning it checks the design",
+      summary:
+        "A scheduled task compares the install with architecture.md and the runbook, and changes nothing.",
+      available: true,
+      steps: [
+        step("sre-agent", "07:00 UTC drift check", "design-drift-check, Review mode."),
+        step(
+          compute,
+          "Each resource against the design",
+          "Public access, private endpoints, roles, SKUs, zones, diagnostics.",
+          {
+            via: "compare",
+          },
+        ),
+      ],
+      outcome: { status: "reaches", text: "Differences from the design are reported as drift." },
+    }),
+    op({
+      id: "operate-feedback",
+      title: "What it learns goes back to the design",
+      summary:
+        "Design-level fixes become GitHub issues on the offering's repository, so the next release changes the design rather than the install.",
+      available: true,
+      steps: [
+        step("sre-agent", "A design-level finding", "Something no mitigation should fix by hand."),
+        step(
+          "cicd",
+          "An issue on the offering's repository",
+          "Reviewed in the next design session.",
+          {
+            via: "GitHub issue",
+            gap: {
+              severity: "warn",
+              text: "Connect the offering's repository in the agent's GitHub connector; the Terraform doesn't set connectors.",
+            },
+          },
+        ),
+      ],
+      outcome: {
+        status: "needs-rules",
+        text: "Needs the agent's GitHub connector pointed at the offering's repository.",
+      },
+    }),
   ];
 }
 

@@ -1,78 +1,12 @@
 /*
- * Offering page helpers: the four-step flow bar (design → review → test deploy → publish) and the
- * Terraform file browser for the Infrastructure as code tab.
+ * The Terraform file browser for the Infrastructure as code tab.
  */
-import { ArrowRight, Download, FileCode2 } from "lucide-react";
+import { Download, FileCode2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { TfFile } from "@/lib/offering/terraform";
 import { cn } from "@/lib/utils";
-
-export type OfferingStep = "architecture" | "review" | "deploy" | "releases";
-
-export function OfferingFlow({
-  view,
-  onGo,
-  status,
-}: {
-  view: string;
-  onGo: (s: OfferingStep) => void;
-  status: Record<OfferingStep, { text: string; tone?: "warning" | "success" | "danger" | "muted" }>;
-}) {
-  const steps: [OfferingStep, string][] = [
-    ["architecture", "Design"],
-    ["review", "Review"],
-    ["deploy", "Test deploy"],
-    ["releases", "Publish"],
-  ];
-  return (
-    <ol className="flex flex-wrap items-stretch gap-1">
-      {steps.map(([id, label], i) => (
-        <li key={id} className="flex items-center gap-1">
-          {i > 0 && <ArrowRight className="size-3.5 text-muted-foreground/60" />}
-          <button
-            onClick={() => onGo(id)}
-            className={cn(
-              "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors",
-              view === id
-                ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                : "border-border bg-card hover:border-border-strong",
-            )}
-          >
-            <span
-              className={cn(
-                "grid size-5 place-items-center rounded-full text-[11px] font-semibold",
-                view === id
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
-              )}
-            >
-              {i + 1}
-            </span>
-            <span>
-              <span className="block text-[12.5px] font-medium">{label}</span>
-              <span
-                className={cn(
-                  "block text-[10.5px]",
-                  status[id].tone === "warning"
-                    ? "text-warning"
-                    : status[id].tone === "success"
-                      ? "text-success"
-                      : status[id].tone === "danger"
-                        ? "text-danger"
-                        : "text-muted-foreground",
-                )}
-              >
-                {status[id].text}
-              </span>
-            </span>
-          </button>
-        </li>
-      ))}
-    </ol>
-  );
-}
 
 export function TerraformFiles({ files, name }: { files: TfFile[]; name: string }) {
   const [path, setPath] = useState(files.find((f) => f.path === "main.tf")?.path ?? files[0]?.path);

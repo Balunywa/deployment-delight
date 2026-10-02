@@ -140,6 +140,8 @@ const ICONS: Record<string, string> = {
   "key-vault": "key-vault",
   "managed-identity": "managed-identity",
   "app-insights": "app-insights",
+  // No official SRE Agent icon in the V24 pack; the Azure Monitor icon, always labelled.
+  "sre-agent": "monitor",
   monitoring: "log-analytics",
   budget: "budget",
   "resource-group": "resource-group",

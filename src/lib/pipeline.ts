@@ -104,6 +104,15 @@ export function pipelineFor(selected: Selected[], topology: Topology): Stage[] {
         },
         { id: "smoke", name: "Smoke tests", detail: "Health probes through private ingress" },
         { id: "baseline", name: "Record desired state", detail: "Snapshot for drift detection" },
+        ...(selected.some((s) => s.id === "sre-agent")
+          ? [
+              {
+                id: "sre-brief",
+                name: "Brief the SRE Agent",
+                detail: "sre-agent/brief.sh · design knowledge, drift and target checks",
+              },
+            ]
+          : []),
       ],
     },
   ];
