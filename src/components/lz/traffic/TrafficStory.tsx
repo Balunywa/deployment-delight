@@ -277,7 +277,7 @@ function layout(a: Answers, groups: string[], spokeIds: Record<string, string>) 
             },
           ]
         : []),
-      { x: 276, y: 460, w: 918, h: 168, label: "Landing zones" },
+      { x: 276, y: 460, w: 918, h: 154, label: "Landing zones" },
     ],
     band: {
       x: 260,
@@ -901,7 +901,7 @@ function Canvas({
         />
         <text
           x={L.azure.x + L.azure.w - 18}
-          y={L.azure.y - 10}
+          y={L.azure.y + L.azure.h - 6}
           textAnchor="end"
           fill={c.sub}
           fontSize={12}
