@@ -14,8 +14,6 @@ import {
   ConnectionMode,
   Controls,
   type Edge,
-  EdgeLabelRenderer,
-  type EdgeProps,
   Handle,
   MarkerType,
   MiniMap,
@@ -25,7 +23,6 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
-  getSmoothStepPath,
   useReactFlow,
 } from "@xyflow/react";
 import { ChevronLeft, ChevronRight, Download, Pause, Play, Plus, RotateCcw } from "lucide-react";
@@ -47,6 +44,15 @@ import type { SceneExtra, Spoke } from "@/lib/alz/scene";
 import { cn } from "@/lib/utils";
 
 import { type Adding, AddDialog } from "./HierarchyEditor";
+import {
+  DiagramBadge,
+  DiagramCanvas,
+  DiagramCard,
+  DiagramZone,
+  LaneEdge,
+  ThemeToggle,
+} from "./diagram/Kit";
+import { OUTCOME, PALETTE, azureIcon, useDiagramTheme } from "./diagram/theme";
 import { toDrawio } from "./traffic/drawio";
 import { type TEdge, type TNode, iconUrl, trafficLayout } from "./traffic/layout";
 
@@ -65,14 +71,14 @@ const WIRE: Record<
   TEdge["kind"],
   { color: string; width: number; dash?: string; arrows?: boolean }
 > = {
-  peering: { color: "#1b1b1b", width: 1.4, arrows: true },
-  global: { color: "#1b1b1b", width: 2, arrows: true },
-  er: { color: "#2f5bb7", width: 2.4 },
-  bgp: { color: "#2f5bb7", width: 1.2 },
+  peering: { color: "#9db4d6", width: 1.6, arrows: true },
+  global: { color: "#9db4d6", width: 2.2, arrows: true },
+  er: { color: "#55a6ff", width: 2.6 },
+  bgp: { color: "#55a6ff", width: 1.4 },
   ipsec: { color: "#8661c5", width: 1.6, dash: "6 5" },
-  wan: { color: "#605e5c", width: 1.2, arrows: true },
-  link: { color: "#1b1b1b", width: 1.2 },
-  p2s: { color: "#a19f9d", width: 1.2, dash: "4 4" },
+  wan: { color: "#94a3b8", width: 1.3, arrows: true },
+  link: { color: "#9db4d6", width: 1.3 },
+  p2s: { color: "#94a3b8", width: 1.3, dash: "4 4" },
 };
 const VERDICT: Record<SimResult["verdict"]["status"], { label: string; cls: string }> = {
   reaches: { label: "Reaches", cls: "bg-[#dff6dd] text-[#107c10]" },
@@ -172,29 +178,34 @@ function HopBadges({ id }: { id: string }) {
   const c = useContext(TCtx);
   const summaries = c.hopSummaries.get(id);
   if (!summaries?.length) return null;
+  const visible = summaries.filter((s) => s.index === c.currentStep);
+  if (!visible.length) return null;
   return (
-    <div className="pointer-events-none absolute top-full right-1 left-1 z-30 mt-1 space-y-1">
-      {summaries.map((s) => {
+    // A callout beside the card, so the hop's decision never covers what the card says.
+    <div className="pointer-events-none absolute top-1/2 left-full z-30 ml-2 w-max max-w-[300px] -translate-y-1/2 space-y-1">
+      {visible.map((s) => {
         const current = s.index === c.currentStep;
-        const cls =
+        const tone =
           s.result === "drop" || s.result === "deny"
-            ? "border-[#a4262c] bg-[#fde7e9] text-[#7a1d23]"
+            ? OUTCOME.blocked.color
             : s.result === "allow"
-              ? "border-[#107c10] bg-[#dff6dd] text-[#0b5a08]"
+              ? OUTCOME.reaches.color
               : s.result === "needs-rule"
-                ? "border-[#8a6100] bg-[#fff4ce] text-[#5c4400]"
-                : "border-[#0f6cbd] bg-[#e5f1fb] text-[#0f4f8c]";
+                ? OUTCOME["needs-rules"].color
+                : c.color;
         return (
           <span
             key={`${s.dir}-${s.index}`}
-            className={cn(
-              "block rounded border px-1.5 py-0.5 text-[11.5px] leading-tight font-semibold shadow-sm",
-              cls,
-              current && "ring-2 ring-offset-1",
-            )}
-            style={{ ["--tw-ring-color" as string]: s.dir === "back" ? BACK : c.color }}
+            className="flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] leading-tight font-semibold shadow-lg"
+            style={{
+              background: "var(--d-bg)",
+              borderColor: `${tone}${current ? "" : "99"}`,
+              color: current ? tone : "var(--d-sub)",
+              boxShadow: current ? `0 0 0 2px ${tone}66, 0 0 18px ${tone}55` : undefined,
+            }}
           >
-            {s.index + 1}. {s.text}
+            <DiagramBadge n={s.index + 1} color={current ? tone : "var(--d-muted)"} />
+            <span>{s.text}</span>
           </span>
         );
       })}
@@ -205,40 +216,53 @@ function HopBadges({ id }: { id: string }) {
 function FrameNode({ id, data }: NodeProps<Node<TNode>>) {
   const c = useContext(TCtx);
   const dim = c.focus && !c.involved.has(id);
+  const kind = data.zoneKind ?? (data.dashed ? "vnet" : "zone");
+  const failed = data.down || data.failed;
   return (
-    <div
-      className="relative h-full w-full rounded-lg border-[1.5px]"
-      style={{
-        background: data.fill,
-        borderColor: data.stroke,
-        borderStyle: data.dashed ? "dashed" : "solid",
-        opacity: data.down ? 0.5 : dim ? 0.22 : 1,
-      }}
+    <DiagramZone
+      label={data.title || data.chip?.text || " "}
+      sub={data.detail}
+      kind={kind}
+      out={data.absent || failed}
+      state={c.involved.has(id) && c.focus ? "selected" : undefined}
+      icon={data.icon ? iconUrl(data.icon) : undefined}
+      right={
+        failed ? (
+          <span
+            className="grid size-6 place-items-center rounded-full text-[12px] font-bold text-white shadow"
+            style={{ background: OUTCOME.broken.color }}
+            title={data.down ? "Region unavailable" : "Traffic stops here"}
+          >
+            ✕
+          </span>
+        ) : undefined
+      }
+      className={cn("transition-opacity", dim && "opacity-25")}
     >
       <Handles />
-      {data.chip && (
+      {data.chip && !failed && (
+        // The group a frame starts, as a tab on its top edge, so it never squeezes the frame's own title.
         <span
-          className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded border border-[#8a8886] px-3 py-0.5 text-[12.5px] font-bold whitespace-nowrap text-[#1b1b1b] shadow-sm"
-          style={{ background: data.chip.fill }}
+          className="absolute -top-2.5 left-3 rounded-full border px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
+          style={{
+            borderColor: "var(--d-zone-line)",
+            color: "var(--d-sub)",
+            background: "var(--d-bg)",
+          }}
         >
           {data.chip.text}
         </span>
       )}
-      {data.title && (
-        <div className="flex items-center gap-2 px-3 pt-3">
-          {data.icon && <img src={iconUrl(data.icon)} alt="" className="size-5 shrink-0" />}
-          <div className="min-w-0 leading-tight">
-            <p className="truncate text-[15px] font-bold text-[#1b1b1b]">{data.title}</p>
-            {data.detail && <p className="truncate text-[12.5px] text-[#605e5c]">{data.detail}</p>}
-          </div>
-        </div>
-      )}
-      {data.down && (
-        <span className="pointer-events-none absolute inset-0 grid place-items-center rounded-lg bg-[#a4262c]/5 text-[18px] font-extrabold tracking-[0.2em] text-[#a4262c]/60">
-          REGION DOWN
+      {failed && (
+        <span
+          className="pointer-events-none absolute inset-0 grid place-items-center rounded-[inherit] text-[15px] font-extrabold tracking-[0.24em]"
+          style={{ color: OUTCOME.broken.color, background: `${OUTCOME.broken.color}10` }}
+        >
+          {data.down ? "REGION DOWN" : "FAILED"}
         </span>
       )}
-    </div>
+      <HopBadges id={id} />
+    </DiagramZone>
   );
 }
 
@@ -247,104 +271,99 @@ function PartNode({ id, data }: NodeProps<Node<TNode>>) {
   const active = c.active === id;
   const nums = c.hopNums.get(id);
   const dim = c.focus && !c.involved.has(id);
+  const stopped = data.failed || c.drops.has(id);
+  const state = active
+    ? "selected"
+    : data.absent || data.down || data.failed
+      ? "out"
+      : dim
+        ? "dim"
+        : c.focus && c.involved.has(id)
+          ? "focus"
+          : "normal";
   return (
     <div
-      className={cn(
-        "relative flex h-full w-full items-center gap-3 rounded-md border bg-white px-3 shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-[opacity,box-shadow]",
-        data.absent ? "border-dashed border-[#a19f9d] bg-white/70" : "border-[#c8c6c4]",
-        data.failed && "border-[#a4262c]",
-        active && "ring-[3px] ring-offset-1",
-      )}
-      style={{
-        opacity: data.down ? 0.45 : dim ? 0.4 : data.absent ? 0.65 : 1,
-        ["--tw-ring-color" as string]: c.color,
-      }}
+      className="relative h-full w-full"
       title={`${data.title}${data.detail ? ` — ${data.detail}` : ""}`}
     >
       <Handles />
-      {data.icon && (
-        <img
-          src={iconUrl(data.icon)}
-          alt=""
-          className={cn("size-9 shrink-0", data.absent && "opacity-40 grayscale")}
-        />
-      )}
-      <div className="min-w-0 flex-1 leading-tight">
-        <p
-          className={cn(
-            "truncate text-[14px] font-semibold text-[#1b1b1b]",
-            data.absent && "text-[#8a8886]",
-          )}
-        >
-          {data.title}
-        </p>
-        {data.detail && <p className="truncate text-[12.5px] text-[#605e5c]">{data.detail}</p>}
-        {data.tag && !data.absent && (
-          <p className="truncate font-mono text-[11.5px] text-[#0f6cbd]">{data.tag}</p>
-        )}
-      </div>
-      {nums && (
-        <span className="absolute -top-2.5 -left-2.5 flex gap-0.5">
-          {nums.map((n) => (
+      <DiagramCard
+        icon={data.icon ? iconUrl(data.icon) : undefined}
+        title={data.title}
+        sub={data.detail}
+        state={state}
+        accent={stopped ? OUTCOME.broken.color : active ? c.color : undefined}
+        titleAttr={`${data.title}${data.detail ? ` — ${data.detail}` : ""}`}
+        right={
+          stopped ? (
             <span
-              key={n}
-              className={cn(
-                "grid place-items-center rounded-full border text-[10px] font-bold shadow",
-                n === c.currentStep
-                  ? "size-6 border-white text-white ring-2 ring-offset-1"
-                  : "size-5 border-current bg-white",
-              )}
-              style={{
-                color: n === c.currentStep ? "white" : n < c.currentStep ? c.color : "#605e5c",
-                background: n === c.currentStep ? c.color : "white",
-                ["--tw-ring-color" as string]: c.color,
-              }}
+              className="grid size-6 shrink-0 place-items-center rounded-full text-[12px] font-bold text-white shadow"
+              style={{ background: OUTCOME.broken.color }}
+              title="Traffic stops here"
             >
-              {n + 1}
+              ✕
             </span>
-          ))}
+          ) : undefined
+        }
+      >
+        {data.tag && !data.absent && (
+          <span
+            className="mt-0.5 block truncate font-mono text-[10.5px]"
+            style={{ color: PALETTE.dark.accent }}
+          >
+            {data.tag}
+          </span>
+        )}
+      </DiagramCard>
+      {nums && (
+        <span className="absolute -top-2.5 -left-2.5 z-20 flex gap-0.5">
+          {nums.map((n) => {
+            const current = n === c.currentStep;
+            const passed = n < c.currentStep;
+            return (
+              <span
+                key={n}
+                className={cn(current && "scale-110")}
+                style={{ opacity: current || passed ? 1 : 0.45 }}
+              >
+                <DiagramBadge
+                  n={n + 1}
+                  color={current ? c.color : passed ? `${c.color}` : "var(--d-muted)"}
+                  title={current ? "Current hop" : passed ? "Passed hop" : "Upcoming hop"}
+                />
+              </span>
+            );
+          })}
         </span>
       )}
       <HopBadges id={id} />
-      {(data.failed || c.drops.has(id)) && (
+    </div>
+  );
+}
+
+function CloudNode({ id, data }: NodeProps<Node<TNode>>) {
+  const c = useContext(TCtx);
+  const dim = c.focus && !c.involved.has(id);
+  return (
+    <div className="relative h-full w-full" style={{ opacity: dim ? 0.25 : 1 }}>
+      <Handles />
+      <DiagramCard
+        icon={data.icon ? iconUrl(data.icon) : azureIcon(id)}
+        title={data.title}
+        sub={data.detail}
+        state={c.active === id ? "selected" : "normal"}
+        accent={c.active === id ? c.color : undefined}
+      />
+      {c.drops.has(id) && (
         <span
-          className="absolute -top-2.5 -right-2.5 grid size-6 place-items-center rounded-full bg-[#a4262c] text-[12px] font-bold text-white shadow ring-2 ring-white"
+          className="absolute -top-2.5 -right-2.5 grid size-6 place-items-center rounded-full text-[12px] font-bold text-white"
+          style={{ background: OUTCOME.broken.color }}
           title="Traffic stops here"
         >
           ✕
         </span>
       )}
-    </div>
-  );
-}
-
-function CloudNode({ data }: NodeProps<Node<TNode>>) {
-  const c = useContext(TCtx);
-  const dim = c.focus && !c.involved.has("internet");
-  return (
-    <div className="relative h-full w-full" style={{ opacity: dim ? 0.25 : 1 }}>
-      <svg
-        viewBox="0 0 1000 74"
-        preserveAspectRatio="none"
-        className="absolute inset-0 h-full w-full"
-      >
-        <path
-          d="M40,58 C8,58 4,26 36,22 C40,6 90,2 120,14 C160,-2 240,2 262,14 C320,-4 420,0 450,12 C520,-4 610,0 640,12 C700,-4 800,0 830,14 C880,2 960,6 964,24 C996,28 994,58 960,58 Z"
-          fill="#ffffff"
-          stroke="#605e5c"
-          strokeWidth={1.6}
-          vectorEffect="non-scaling-stroke"
-        />
-      </svg>
-      <span className="absolute inset-x-0 top-[22px] text-center text-[24px] font-bold text-[#1b1b1b]">
-        Internet
-      </span>
-      {c.drops.has("internet") && (
-        <span className="absolute top-2 right-6 grid size-6 place-items-center rounded-full bg-[#a4262c] text-[12px] font-bold text-white">
-          ✕
-        </span>
-      )}
-      <HopBadges id="internet" />
+      <HopBadges id={id} />
       {Array.from({ length: 60 }, (_, k) => (
         <Handle
           key={k}
@@ -355,102 +374,12 @@ function CloudNode({ data }: NodeProps<Node<TNode>>) {
           style={{ ...HS, left: `${(k + 0.5) * (100 / 60)}%` }}
         />
       ))}
-      <Handles />
     </div>
   );
 }
 
-/** A traffic path: the line in its legend colour and a packet comet (head and tail) moving along it. */
-function CometEdge({
-  id,
-  sourceX,
-  sourceY,
-  targetX,
-  targetY,
-  sourcePosition,
-  targetPosition,
-  data,
-  label,
-  markerEnd,
-}: EdgeProps) {
-  const d = data as {
-    color: string;
-    dash?: string;
-    lane: number;
-    current?: boolean;
-    faint?: boolean;
-    flowing?: boolean;
-    comet?: boolean;
-    begin?: number;
-    count?: number;
-  };
-  const [path, lx, ly] = getSmoothStepPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-    borderRadius: 16,
-    offset: 18 + d.lane * 8,
-  });
-  const pid = `tp-${id.replace(/[^a-z0-9]/gi, "_")}`;
-  const dur = d.current ? 1.2 : 2.4;
-  const begin = d.begin ?? 0;
-  return (
-    <>
-      <path d={path} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" />
-      {d.current && (
-        <path d={path} fill="none" stroke={d.color} strokeOpacity={0.2} strokeWidth={16} />
-      )}
-      <path
-        id={pid}
-        d={path}
-        fill="none"
-        stroke={d.faint ? "#a19f9d" : d.color}
-        strokeWidth={d.current ? 4.8 : d.faint ? 1.6 : 3}
-        strokeDasharray={d.faint ? "3 5" : d.dash}
-        className={d.flowing ? "ts-flow" : undefined}
-        opacity={d.faint ? 0.6 : 0.95}
-        markerEnd={d.faint ? undefined : markerEnd}
-      />
-      {d.comet && (
-        <>
-          <circle r={d.current ? 6.5 : 4.8} fill={d.color} stroke="white" strokeWidth={1.4}>
-            <animateMotion dur={`${dur}s`} begin={`${-begin}s`} repeatCount="indefinite">
-              <mpath href={`#${pid}`} />
-            </animateMotion>
-          </circle>
-          <circle r={d.current ? 4 : 3} fill={d.color} opacity={0.45}>
-            <animateMotion dur={`${dur}s`} begin={`${-begin - dur / 7}s`} repeatCount="indefinite">
-              <mpath href={`#${pid}`} />
-            </animateMotion>
-          </circle>
-        </>
-      )}
-      {label && (
-        <EdgeLabelRenderer>
-          <span
-            className={cn(
-              "nodrag nopan pointer-events-none absolute rounded border bg-white px-1.5 font-mono text-[11.5px] whitespace-nowrap shadow-sm",
-              d.current ? "font-semibold" : "",
-            )}
-            style={{
-              transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
-              borderColor: d.color,
-              color: "#323130",
-            }}
-          >
-            {label}
-          </span>
-        </EdgeLabelRenderer>
-      )}
-    </>
-  );
-}
-
 const nodeTypes = { frame: FrameNode, part: PartNode, cloud: CloudNode };
-const edgeTypes = { comet: CometEdge };
+const edgeTypes = { comet: LaneEdge };
 
 type Rect = { x: number; y: number; w: number; h: number };
 function sides(a: Rect, b: Rect): [string, string] {
@@ -492,6 +421,7 @@ function Inner({
   set?: ((p: Partial<Answers>) => void) | undefined;
 }) {
   const rf = useReactFlow();
+  const [theme] = useDiagramTheme();
   const [failure, setFailure] = useState<Failure>("none");
   const [allowRules, setAllowRules] = useState(true);
   const [scenario, setScenario] = useState<string>(initial ?? "all");
@@ -628,7 +558,7 @@ function Inner({
         draggable: false,
         selectable: false,
         connectable: false,
-        zIndex: n.kind === "frame" ? (n.id === "frame:connectivity" ? 0 : 1) : 3,
+        zIndex: n.kind === "frame" ? (n.layer ?? 1) : 5,
       })),
     [L],
   );
@@ -665,22 +595,29 @@ function Inner({
       target: e.target,
       sourceHandle: s,
       targetHandle: tg,
-      type: "smoothstep",
-      // While stepping through one path, its own hop labels are the ones to read.
-      label: sim ? undefined : e.label,
-      labelStyle: { fontSize: 11.5, fontWeight: 700, fill: e.down ? "#a4262c" : w.color },
-      labelBgStyle: { fill: "#ffffff" },
-      labelBgPadding: [3, 1] as [number, number],
-      style: {
-        stroke: e.down ? "#a4262c" : w.color,
-        strokeWidth: w.width,
-        strokeDasharray: e.down ? "3 4" : w.dash,
-        opacity: e.down ? 0.4 : sim ? (fixedInPath ? 0.35 : 0.1) : 0.8,
+      type: "comet",
+      data: {
+        color: e.down ? OUTCOME.broken.color : w.color,
+        label: sim ? undefined : e.label,
+        width: w.width,
+        dashed: !!w.dash || e.down,
+        dash: e.down ? "3 4" : w.dash,
+        dim: e.down ? false : sim ? !fixedInPath : false,
       },
       ...(w.arrows
         ? {
-            markerEnd: { type: MarkerType.ArrowClosed, color: w.color, width: 14, height: 14 },
-            markerStart: { type: MarkerType.ArrowClosed, color: w.color, width: 14, height: 14 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: e.down ? OUTCOME.broken.color : w.color,
+              width: 14,
+              height: 14,
+            },
+            markerStart: {
+              type: MarkerType.ArrowClosed,
+              color: e.down ? OUTCOME.broken.color : w.color,
+              width: 14,
+              height: 14,
+            },
           }
         : {}),
       zIndex: 2,
@@ -703,8 +640,18 @@ function Inner({
         sourceHandle: s,
         targetHandle: tg,
         type: "comet",
-        label,
-        data: { ...data, lane: lane(x, y) },
+        data: {
+          color: data["color"],
+          label,
+          lane: lane(x, y),
+          width: data["current"] ? 4.4 : data["faint"] ? 1.6 : 3,
+          live: !!data["current"] || (!sim && !!data["comet"]),
+          dim: !!data["faint"],
+          dashed: !!data["dash"] || !!data["faint"],
+          dash: data["faint"] ? "3 6" : (data["dash"] as string | undefined),
+          begin: data["begin"],
+          flowId: data["flowId"],
+        },
         markerEnd: {
           type: MarkerType.ArrowClosed,
           color: data["color"] as string,
@@ -790,7 +737,7 @@ function Inner({
     [byId, rf],
   );
   const focusOverview = useCallback(
-    () => focusIds(overviewNodeIds, { padding: 0.06, duration: 450, minZoom: 0.72, maxZoom: 1 }),
+    () => focusIds(overviewNodeIds, { padding: 0.08, duration: 450, minZoom: 0.48, maxZoom: 0.88 }),
     [focusIds, overviewNodeIds],
   );
   useEffect(() => {
@@ -1001,13 +948,16 @@ function Inner({
         </aside>
 
         {/* The canvas */}
-        <section className="min-w-0 overflow-hidden rounded-md border border-border bg-card">
-          <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
+        <DiagramCanvas
+          theme={theme}
+          className="min-w-0 overflow-hidden rounded-md border border-[var(--d-azure-line)]"
+        >
+          <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-[var(--d-azure-line)] px-4 py-2">
             <div className="min-w-0 flex-1">
               <p className="text-[13px] font-semibold">
                 {sim ? sim.title : "Every traffic path in this design"}
               </p>
-              <p className="truncate font-mono text-[11.5px] text-muted-foreground">
+              <p className="truncate font-mono text-[11.5px]" style={{ color: "var(--d-sub)" }}>
                 {sim
                   ? sim.question
                   : failure !== "none"
@@ -1039,6 +989,7 @@ function Inner({
             <Button size="sm" variant="outline" className="h-7" onClick={exportDrawio}>
               <Download className="size-3.5" /> draw.io
             </Button>
+            <ThemeToggle />
             <Button
               size="sm"
               variant="ghost"
@@ -1052,7 +1003,7 @@ function Inner({
             </Button>
           </header>
           {sim && (
-            <div className="flex items-center gap-1.5 border-b border-border px-4 py-1.5 text-[11.5px]">
+            <div className="flex items-center gap-1.5 border-b border-[var(--d-azure-line)] px-4 py-1.5 text-[11.5px]">
               <Button
                 size="sm"
                 variant="outline"
@@ -1101,7 +1052,7 @@ function Inner({
               >
                 <RotateCcw className="size-3.5" />
               </Button>
-              <span className="ml-1 text-muted-foreground">
+              <span className="ml-1" style={{ color: "var(--d-sub)" }}>
                 Hop {Math.min(step + 1, hops.length)} of {hops.length}
                 {cur?.dir === "back" ? " · reply" : sim.back.length ? " · request" : ""}
               </span>
@@ -1143,27 +1094,34 @@ function Inner({
                 setSpokeSel(f.spoke);
                 setScenario(f.scenario);
               }}
-              className="bg-white [&_.react-flow__node]:overflow-visible"
+              className="bg-transparent [&_.react-flow__node]:overflow-visible"
             >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e1dfdd" />
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={20}
+                size={1}
+                color={theme === "dark" ? "#243247" : "#dbe3ef"}
+              />
               <Controls showInteractive={false} position="top-left" />
               <MiniMap
                 position="bottom-right"
                 pannable
                 zoomable
                 ariaLabel="Overview"
-                className="!h-[90px] !w-[150px] rounded border border-border"
-                maskColor="rgba(240,240,240,0.7)"
+                className="!h-[90px] !w-[150px] rounded border border-[var(--d-node-line)]"
+                maskColor={theme === "dark" ? "rgba(15,20,28,0.72)" : "rgba(247,249,252,0.72)"}
                 nodeColor={(n) =>
-                  (n.data as TNode).kind === "frame"
-                    ? ((n.data as TNode).fill ?? "#eee")
-                    : "#c8c6c4"
+                  (n.data as TNode).kind === "frame" ? PALETTE[theme].zone : PALETTE[theme].nodeLine
                 }
               />
               <Panel position="bottom-left" className="!m-2">
                 <div
-                  className="rounded-md border border-border bg-white/95 p-2 text-[11px] shadow-sm"
+                  className="rounded-md border p-2 text-[11px] shadow-sm backdrop-blur"
                   aria-label="Legend"
+                  style={{
+                    background: `${PALETTE[theme].bg}ee`,
+                    borderColor: "var(--d-node-line)",
+                  }}
                 >
                   <p className="mb-1 font-semibold">Legend · click to show or hide</p>
                   <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
@@ -1204,13 +1162,27 @@ function Inner({
                     })}
                     <span className="flex items-center gap-1.5 px-1">
                       <svg width="28" height="6" aria-hidden>
-                        <line x1="0" y1="3" x2="28" y2="3" stroke="#1b1b1b" strokeWidth="1.6" />
+                        <line
+                          x1="0"
+                          y1="3"
+                          x2="28"
+                          y2="3"
+                          stroke={WIRE.peering.color}
+                          strokeWidth="1.6"
+                        />
                       </svg>
                       Peering
                     </span>
                     <span className="flex items-center gap-1.5 px-1">
                       <svg width="28" height="6" aria-hidden>
-                        <line x1="0" y1="3" x2="28" y2="3" stroke="#2f5bb7" strokeWidth="2.4" />
+                        <line
+                          x1="0"
+                          y1="3"
+                          x2="28"
+                          y2="3"
+                          stroke={WIRE.er.color}
+                          strokeWidth="2.4"
+                        />
                       </svg>
                       ExpressRoute
                     </span>
@@ -1239,13 +1211,16 @@ function Inner({
               </Panel>
             </ReactFlow>
           </div>
-          <p className="border-t border-border px-4 py-1.5 text-[11px] text-muted-foreground">
+          <p
+            className="border-t border-[var(--d-azure-line)] px-4 py-1.5 text-[11px]"
+            style={{ color: "var(--d-sub)" }}
+          >
             Icons: Microsoft's Azure architecture icons. Addresses: hubs as Microsoft's
             hub-and-spoke module allocates them (10.0.0.0/22, 10.1.0.0/22); spokes from this design,
             or the offering's range (10.60.0.0/19, a /22 per install). On-premises and internet
             addresses are examples.
           </p>
-        </section>
+        </DiagramCanvas>
 
         {/* This hop, or the overview */}
         <aside className="space-y-3 xl:col-span-2" aria-label="This hop">

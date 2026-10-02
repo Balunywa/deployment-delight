@@ -1,8 +1,8 @@
 /*
- * Where everything sits on the traffic canvas, computed from the routing topology: the internet on top, Online
- * installs under it, the Connectivity subscription (primary and secondary hubs) in the middle, every Corp spoke on
- * the left (one or two columns), platform services on the right, and ExpressRoute / VPN down to the data centers.
- * Positions are absolute and fixed-size, so the drawing is the same every time and exports cleanly to draw.io.
+ * Architecture-standard layout for the hop-by-hop traffic simulator. It is still computed from the
+ * routing topology: outside actors sit above the Microsoft Azure boundary, Azure contains the
+ * management row, regional hub(s), landing-zone spokes and the hybrid band, and on-premises is the
+ * bottom boundary. The same absolute positions are used by React Flow and the draw.io export.
  */
 import type { Failure, Topology } from "@/lib/alz/routing";
 
@@ -19,7 +19,6 @@ export const ICONS = {
   "private-endpoint": "other/Private_Endpoints.svg",
   "log-analytics": "management_governance/Log_Analytics_Workspaces.svg",
   sentinel: "security/Azure_Sentinel.svg",
-  defender: "security/Security_Center.svg",
   "network-watcher": "networking/Network_Watcher.svg",
   "vwan-hub": "networking/Virtual_WAN_Hub.svg",
   "virtual-router": "networking/Virtual_Router.svg",
@@ -29,6 +28,8 @@ export const ICONS = {
   users: "identity/Users.svg",
   subscription: "general/Subscriptions.svg",
   monitor: "management_governance/Monitor.svg",
+  "public-ip": "networking/Public_IP_Addresses.svg",
+  "vpn-client": "networking/Virtual_Network_Gateways.svg",
 } as const;
 export type Icon = keyof typeof ICONS;
 export const iconUrl = (i: Icon) => `/azure-icons/${i}.svg`;
@@ -52,6 +53,10 @@ export type TNode = {
   absent?: boolean | undefined;
   /** A red ✕ on the part itself (a failed circuit). */
   failed?: boolean | undefined;
+  /** Which standard boundary to draw for frame nodes. */
+  zoneKind?: "azure" | "subscription" | "vnet" | "zone" | "onprem" | "band" | undefined;
+  /** Lower layers are sent behind cards. */
+  layer?: number | undefined;
 };
 export type TEdge = {
   id: string;
@@ -62,10 +67,17 @@ export type TEdge = {
   down?: boolean | undefined;
 };
 
-export const PART = { w: 284, h: 72 };
+export const PART = { w: 216, h: 58 };
 const FRAME_W = PART.w + 28;
-const HEAD = 56;
-const GAP = 8;
+const HEAD = 50;
+const GAP = 7;
+const M = 28;
+const OUTSIDE_Y = 18;
+const AZURE_Y = 118;
+const MGMT_Y = AZURE_Y + 46;
+const HUB_Y = AZURE_Y + 150;
+const ROW_GAP = 22;
+const COL_GAP = 18;
 
 function gwTitle(t: Topology) {
   if (!t.gateway) return "Gateway";
@@ -73,113 +85,123 @@ function gwTitle(t: Topology) {
   return `${er ? "ExpressRoute" : ""}${er && t.gateway.vpn ? " + " : ""}${t.gateway.vpn ? "VPN" : ""} gateway`;
 }
 
+function subnetTitle(name: string) {
+  if (name === "snet-appgw") return "Application Gateway WAF v2";
+  if (name.includes("private")) return "Private endpoint";
+  return "Workload VM";
+}
+
+function subnetIcon(name: string): Icon {
+  if (name === "snet-appgw") return "app-gateway";
+  if (name.includes("private")) return "private-endpoint";
+  return "vm";
+}
+
 export function trafficLayout(t: Topology, failure: Failure) {
   const nodes: TNode[] = [];
   const edges: TEdge[] = [];
   const regionDown = failure === "region";
   const sub = (id: string) => t.subnets.find((s) => s.id === id);
-  const part = (n: Omit<TNode, "kind" | "w" | "h"> & { w?: number }) =>
-    nodes.push({ kind: "part", w: n.w ?? PART.w, h: PART.h, ...n });
-  const framedSpoke = (id: string, x: number, y: number, chip?: TNode["chip"]) => {
-    const v = t.vnets.find((z) => z.id === id)!;
-    const rows = t.subnets.filter((s) => s.vnet === id);
-    const h = HEAD + rows.length * (PART.h + GAP) + 4;
-    const online = t.onlines.includes(id);
+  const vnet = (id: string) => t.vnets.find((v) => v.id === id);
+  const has = (id: string) => nodes.some((n) => n.id === id && !n.absent);
+  const part = (n: Omit<TNode, "kind" | "w" | "h"> & { w?: number; h?: number }) =>
+    nodes.push({ kind: "part", w: n.w ?? PART.w, h: n.h ?? PART.h, ...n });
+
+  const spokeIds = [...t.corp, ...t.onlines];
+  const spokeCols = Math.max(1, Math.min(4, spokeIds.length || 1));
+  const azureW = Math.max(1188, M * 2 + spokeCols * FRAME_W + (spokeCols - 1) * COL_GAP);
+  const actorGap = 28;
+  const actorW = Math.min(230, (azureW - M * 2 - actorGap * 3) / 4);
+
+  nodes.push(
+    {
+      id: "internet",
+      kind: "cloud",
+      x: M,
+      y: OUTSIDE_Y,
+      w: actorW,
+      h: 66,
+      title: "Internet",
+      detail: "Public endpoints",
+      icon: "public-ip",
+      layer: 5,
+    },
+    {
+      id: "users",
+      kind: "part",
+      x: M + actorW + actorGap,
+      y: OUTSIDE_Y,
+      w: actorW,
+      h: 66,
+      title: "Internet users",
+      detail: "Browsers and partners",
+      icon: "users",
+      layer: 5,
+    },
+    {
+      id: "operator",
+      kind: "part",
+      x: M + (actorW + actorGap) * 2,
+      y: OUTSIDE_Y,
+      w: actorW,
+      h: 66,
+      title: "Operators",
+      detail: "Azure portal + RBAC",
+      icon: "users",
+      layer: 5,
+    },
+  );
+  if (t.gateway?.vpn)
     nodes.push({
-      id: `frame:${id}`,
-      kind: "frame",
-      x,
-      y,
-      w: FRAME_W,
-      h,
-      title: `${v.name} · ${v.cidr}`,
-      detail: online
-        ? "Online install · not peered · own public entry"
-        : t.mode === "hub"
-          ? `Corp · peered to the hub${v.useRemoteGateways ? " · uses its gateway" : ""}`
-          : t.mode === "vwan"
-            ? "Corp · hub connection"
-            : "Corp · standalone network",
-      icon: "vnet",
-      fill: online ? "#f1f8f3" : "#fdf3ea",
-      stroke: online ? "#9fd1ae" : "#e7c29d",
-      chip,
-      down: regionDown,
+      id: "remote",
+      kind: "part",
+      x: M + (actorW + actorGap) * 3,
+      y: OUTSIDE_Y,
+      w: actorW,
+      h: 66,
+      title: "Remote engineers",
+      detail: "Point-to-site VPN · not configured",
+      icon: "vpn-client",
+      layer: 5,
     });
-    rows.forEach((s, i) =>
-      part({
-        id: s.id,
-        x: x + 14,
-        y: y + HEAD + i * (PART.h + GAP),
-        title:
-          s.name === "snet-appgw"
-            ? "Application Gateway WAF v2"
-            : s.name.includes("private")
-              ? "Private endpoint"
-              : "Workload VM",
-        detail: `${s.name} · ${s.cidr} · ${s.ip}`,
-        tag: s.routeTable
-          ? `${s.routeTable.name}: 0.0.0.0/0 → firewall`
-          : s.publicIp
-            ? `public IP ${s.publicIp}`
-            : s.private
-              ? "private subnet · no route table"
-              : undefined,
-        icon:
-          s.name === "snet-appgw"
-            ? "app-gateway"
-            : s.name.includes("private")
-              ? "private-endpoint"
-              : "vm",
-        down: regionDown,
-      }),
-    );
-    return h;
-  };
 
-  /* Column positions */
-  const corpCols = t.corp.length > 4 ? 2 : 1;
-  const leftW = corpCols * (FRAME_W + 16) + 16;
-  const connX = leftW + 52;
-  const hubW = FRAME_W;
-  const connW = hubW * 2 + 56 + 32;
-  const rightX = connX + connW + 34;
-  const rightW = 286;
-  const totalW = rightX + rightW;
+  const mgmtItems: Array<Omit<TNode, "kind" | "x" | "y" | "w" | "h">> = [
+    {
+      id: "azure-dns",
+      title: "Azure platform DNS",
+      detail: "168.63.129.16 · privatelink zones",
+      icon: "dns-zones",
+    },
+    {
+      id: "mgmt-law",
+      title: "Log Analytics workspace",
+      detail: "Firewall, NSG flow and gateway logs",
+      icon: "log-analytics",
+    },
+    {
+      id: "mgmt-sentinel",
+      title: "Sentinel · Defender for Cloud",
+      detail: "Detections across every subscription",
+      icon: "sentinel",
+    },
+    {
+      id: "mgmt-nw",
+      title: "Network Watcher",
+      detail: "Next hop · connection troubleshoot",
+      icon: "network-watcher",
+    },
+  ];
+  const mgmtW = (azureW - M * 2 - 24 * (mgmtItems.length - 1)) / mgmtItems.length;
+  mgmtItems.forEach((item, i) =>
+    part({
+      ...item,
+      x: M + i * (mgmtW + 24),
+      y: MGMT_Y,
+      w: mgmtW,
+      h: 62,
+    }),
+  );
 
-  nodes.push({
-    id: "internet",
-    kind: "cloud",
-    x: 40,
-    y: 0,
-    w: totalW - 80,
-    h: 74,
-    title: "Internet",
-  });
-
-  /* Online installs, just under the internet */
-  let y = 124;
-  if (t.onlines.length) {
-    const rowW = t.onlines.length * (FRAME_W + 18) - 18;
-    let x = connX + connW / 2 - rowW / 2;
-    let maxH = 0;
-    t.onlines.forEach((id, i) => {
-      maxH = Math.max(
-        maxH,
-        framedSpoke(
-          id,
-          x,
-          y,
-          i === 0 ? { text: "Online subscriptions", fill: "#fde2b8" } : undefined,
-        ),
-      );
-      x += FRAME_W + 18;
-    });
-    y += maxH + 76;
-  }
-
-  /* Connectivity subscription: the hubs */
-  const connY = y;
   type Row = {
     id: string;
     title: string;
@@ -266,36 +288,44 @@ export function trafficLayout(t: Topology, failure: Failure) {
         : []),
     ];
   };
+
+  const hubExists = t.mode !== "none";
+  const hubCount = hubExists && t.regions.secondary ? 2 : 1;
+  const hubFrameW = hubCount === 2 ? Math.min(420, (azureW - M * 2 - 28) / 2) : 520;
+  const hubStartX = M + (azureW - M * 2 - (hubFrameW * hubCount + 28 * (hubCount - 1))) / 2;
   const drawHub = (hub: 1 | 2, x: number) => {
-    const exists = t.mode !== "none" && (hub === 1 || !!t.regions.secondary);
+    const exists = hubExists && (hub === 1 || !!t.regions.secondary);
     const rows = exists ? hubRows(hub) : [];
-    const h = HEAD + Math.max(rows.length, 4) * (PART.h + GAP) + 4;
+    const frameH = HEAD + Math.max(rows.length, 3) * (PART.h + GAP) + 8;
+    const label = exists
+      ? `${t.mode === "vwan" ? "Virtual WAN hub" : "Hub VNet"} · ${hub === 1 ? t.regions.primary : t.regions.secondary}`
+      : hub === 1
+        ? "No central network"
+        : "No hub in a second region";
     nodes.push({
       id: `frame:${hub === 1 ? "hub" : "hub2"}`,
       kind: "frame",
+      zoneKind: t.mode === "vwan" ? "band" : "vnet",
       x,
-      y: connY + 44,
-      w: hubW,
-      h,
-      title: exists
-        ? `${t.mode === "vwan" ? "Virtual WAN hub" : "Hub VNet"} · ${hub === 1 ? t.regions.primary : t.regions.secondary}`
-        : hub === 1
-          ? "No central network"
-          : "No hub in a second region",
+      y: HUB_Y,
+      w: hubFrameW,
+      h: frameH,
+      title: label,
       detail: exists
-        ? `${hub === 1 ? "Primary" : "Secondary"} region${t.mode === "hub" ? ` · ${hub === 1 ? "10.0.0.0/22" : "10.1.0.0/22"}` : ""}`
+        ? `${hub === 1 ? "Primary" : "Secondary"} region${t.mode === "hub" ? ` · ${vnet(hub === 1 ? "hub" : "hub2")?.cidr ?? "10.0.0.0/22"}` : ""}`
         : "A regional outage takes everything down",
       icon: t.mode === "vwan" ? "vwan-hub" : "vnet",
-      fill: hub === 1 ? "#edf6e6" : "#f8e6e6",
-      stroke: hub === 1 ? "#a3c98a" : "#dba7a7",
-      dashed: !exists,
+      dashed: t.mode !== "vwan",
+      absent: !exists,
       down: hub === 1 && regionDown,
+      layer: 2,
     });
     rows.forEach((r, i) =>
       part({
         id: r.id,
         x: x + 14,
-        y: connY + 44 + HEAD + i * (PART.h + GAP),
+        y: HUB_Y + HEAD + i * (PART.h + GAP),
+        w: hubFrameW - 28,
         title: r.present
           ? r.title
           : r.id.includes("fw")
@@ -308,26 +338,16 @@ export function trafficLayout(t: Topology, failure: Failure) {
         icon: r.icon,
         absent: !r.present,
         down: hub === 1 && regionDown,
+        failed: failure === "zone" && ["firewall", "vnet-gateway"].includes(r.icon),
       }),
     );
-    return connY + 44 + h;
+    return HUB_Y + frameH;
   };
-  const h1 = drawHub(1, connX + 20);
-  const h2 = drawHub(2, connX + 20 + hubW + 56);
-  const connBottom = Math.max(h1, h2) + 20;
-  nodes.unshift({
-    id: "frame:connectivity",
-    kind: "frame",
-    x: connX,
-    y: connY,
-    w: connW,
-    h: connBottom - connY,
-    title: "",
-    fill: "#e3efd6",
-    stroke: "#b9d3a0",
-    chip: { text: "Connectivity subscription", fill: "#d4c6ee" },
-  });
-  if (t.mode !== "none" && t.regions.secondary)
+  const hubBottom = Math.max(
+    drawHub(1, hubStartX),
+    hubCount === 2 ? drawHub(2, hubStartX + hubFrameW + 28) : HUB_Y,
+  );
+  if (hubExists && t.regions.secondary)
     edges.push({
       id: "global",
       source: "frame:hub",
@@ -337,21 +357,78 @@ export function trafficLayout(t: Topology, failure: Failure) {
       down: regionDown,
     });
 
-  /* Corp spokes (Prod) on the left */
-  const perCol = Math.ceil(t.corp.length / corpCols) || 1;
-  let corpBottom = connY;
-  t.corp.forEach((id, i) => {
-    const col = Math.floor(i / perCol);
-    const row = i % perCol;
-    const fy = connY + row * (HEAD + 2 * (PART.h + GAP) + 4 + 22);
-    const fh = framedSpoke(
-      id,
-      20 + col * (FRAME_W + 16),
-      fy,
-      i === 0 ? { text: "Prod subscriptions", fill: "#f5cfa6" } : undefined,
+  const framedSpoke = (id: string, x: number, y: number, chip?: TNode["chip"]) => {
+    const v = vnet(id)!;
+    const rows = t.subnets.filter((s) => s.vnet === id);
+    const h = HEAD + rows.length * (PART.h + GAP) + 8;
+    const online = t.onlines.includes(id);
+    nodes.push({
+      id: `frame:${id}`,
+      kind: "frame",
+      zoneKind: "vnet",
+      x,
+      y,
+      w: FRAME_W,
+      h,
+      title: `${v.name} · ${v.cidr}`,
+      detail: online
+        ? "Online install · public entry · not peered"
+        : t.mode === "hub"
+          ? `Corp spoke · peered to hub${v.useRemoteGateways ? " · remote gateways" : ""}`
+          : t.mode === "vwan"
+            ? "Corp spoke · Virtual WAN connection"
+            : "Corp spoke · standalone network",
+      icon: "vnet",
+      dashed: true,
+      chip,
+      down: regionDown && !online,
+      layer: 2,
+    });
+    rows.forEach((s, i) =>
+      part({
+        id: s.id,
+        x: x + 14,
+        y: y + HEAD + i * (PART.h + GAP),
+        w: FRAME_W - 28,
+        title: subnetTitle(s.name),
+        detail: `${s.name} · ${s.cidr} · ${s.ip}`,
+        tag: s.routeTable
+          ? `${s.routeTable.name}: 0.0.0.0/0 → firewall`
+          : s.publicIp
+            ? `public IP ${s.publicIp}`
+            : s.private
+              ? "private subnet · no route table"
+              : undefined,
+        icon: subnetIcon(s.name),
+        down: regionDown && !online,
+      }),
     );
-    corpBottom = Math.max(corpBottom, fy + fh);
-    if (t.mode !== "none")
+    return h;
+  };
+
+  const spokesY = hubBottom + ROW_GAP + 30;
+  const spokeRowH = new Map<number, number>();
+  spokeIds.forEach((id, i) => {
+    const col = i % spokeCols;
+    const row = Math.floor(i / spokeCols);
+    const x = M + col * (FRAME_W + COL_GAP);
+    const prevRows = Array.from({ length: row }, (_, r) => spokeRowH.get(r) ?? 0).reduce(
+      (a, b) => a + b + ROW_GAP,
+      0,
+    );
+    const y = spokesY + prevRows;
+    const h = framedSpoke(
+      id,
+      x,
+      y,
+      i === 0
+        ? { text: "Landing-zone spokes", fill: "#1d4ed8" }
+        : t.onlines.includes(id) && !t.onlines.includes(spokeIds[i - 1] ?? "")
+          ? { text: "Online spokes", fill: "#b45309" }
+          : undefined,
+    );
+    spokeRowH.set(row, Math.max(spokeRowH.get(row) ?? 0, h));
+    if (t.mode !== "none" && t.corp.includes(id))
       edges.push({
         id: `peer:${id}`,
         source: `frame:${id}`,
@@ -361,82 +438,44 @@ export function trafficLayout(t: Topology, failure: Failure) {
         down: regionDown,
       });
   });
+  const spokeRows = Math.max(1, Math.ceil(spokeIds.length / spokeCols));
+  const spokesBottom =
+    spokesY +
+    Array.from({ length: spokeRows }, (_, r) => spokeRowH.get(r) ?? 0).reduce(
+      (a, b, i) => a + b + (i ? ROW_GAP : 0),
+      0,
+    );
 
-  /* Platform, DR installs, management on the right */
-  part({
-    id: "azure-dns",
-    x: rightX,
-    y: connY + 44,
-    w: rightW,
-    title: "Azure platform",
-    detail: "Azure DNS 168.63.129.16 · privatelink zones · Azure Monitor",
-    icon: "dns-zones",
-  });
-  if (t.regions.secondary || failure === "region")
-    part({
-      id: "dr-installs",
-      x: rightX,
-      y: connY + 44 + PART.h + 16,
-      w: rightW,
-      title: t.regions.secondary
-        ? `Installs in ${t.regions.secondary}`
-        : "Installs in a second region",
-      detail: "None deployed yet — nothing to fail over to",
-      icon: "vm",
-      absent: true,
-    });
-  const mgY = connY + 44 + 2 * (PART.h + 16);
-  nodes.push({
-    id: "frame:mgmt",
-    kind: "frame",
-    x: rightX,
-    y: mgY,
-    w: rightW,
-    h: HEAD + 3 * (PART.h + GAP) + 4,
-    title: "Management & security",
-    detail: "Shared services subscription",
-    icon: "subscription",
-    fill: "#f2effa",
-    stroke: "#c9b9e8",
-  });
-  (
-    [
-      {
-        id: "mgmt-law",
-        title: "Log Analytics workspace",
-        detail: "Firewall, NSG flow and gateway logs",
-        icon: "log-analytics",
-      },
-      {
-        id: "mgmt-sentinel",
-        title: "Sentinel · Defender for Cloud",
-        detail: "Detections across every subscription",
-        icon: "sentinel",
-      },
-      {
-        id: "mgmt-nw",
-        title: "Network Watcher",
-        detail: "Next hop · connection troubleshoot · flow logs",
-        icon: "network-watcher",
-      },
-    ] as const
-  ).forEach((p, i) =>
-    part({ ...p, x: rightX + 14, y: mgY + HEAD + i * (PART.h + GAP), w: rightW - 28 }),
-  );
-
-  /* ExpressRoute edge and the data centers */
+  const hybridY = spokesBottom + 44;
   const erEver = !!t.gateway && (t.gateway.er || !!t.gateway.erDown);
+  nodes.push({
+    id: "frame:hybrid",
+    kind: "frame",
+    zoneKind: "band",
+    x: M,
+    y: hybridY,
+    w: azureW - M * 2,
+    h: erEver ? 116 : 72,
+    title: erEver
+      ? `Hybrid connectivity · ${t.gateway?.vpn ? "ExpressRoute + site-to-site VPN" : "ExpressRoute"}`
+      : t.gateway?.vpn
+        ? "Hybrid connectivity · site-to-site VPN"
+        : "Hybrid connectivity · not connected",
+    detail: "BGP routes and encrypted fallback live in this band",
+    icon: "expressroute",
+    layer: 1,
+  });
   const gw1 = t.mode === "vwan" ? "vhub-gw" : "hub-gw";
   const gw2 = t.mode === "vwan" ? "vhub2-gw" : "hub2-gw";
-  const has = (id: string) => nodes.some((n) => n.id === id && !n.absent);
-  const bottom = Math.max(connBottom, corpBottom) + 70;
-  const x1 = connX + 20 + 14;
-  const x2 = connX + 20 + hubW + 56 + 14;
+  const mseeW = 252;
+  const msee1X = hubStartX + 14;
+  const msee2X = hubCount === 2 ? hubStartX + hubFrameW + 28 + 14 : msee1X + mseeW + 30;
   if (erEver) {
     part({
       id: "msee1",
-      x: x1,
-      y: bottom,
+      x: msee1X,
+      y: hybridY + 42,
+      w: mseeW,
       title: "MSEE · peering location 1",
       detail: "ExpressRoute circuit 1 · BFD",
       icon: "expressroute",
@@ -444,8 +483,9 @@ export function trafficLayout(t: Topology, failure: Failure) {
     });
     part({
       id: "msee2",
-      x: x2,
-      y: bottom,
+      x: msee2X,
+      y: hybridY + 42,
+      w: mseeW,
       title: "MSEE · peering location 2",
       detail: "ExpressRoute circuit 2",
       icon: "expressroute",
@@ -453,11 +493,41 @@ export function trafficLayout(t: Topology, failure: Failure) {
       failed: failure === "er" && !!t.regions.secondary,
     });
   }
-  const dcY = bottom + (erEver ? 130 : 20);
+  const azureH = hybridY + (erEver ? 116 : 72) + 26 - AZURE_Y;
+  nodes.unshift({
+    id: "frame:azure",
+    kind: "frame",
+    zoneKind: "azure",
+    x: 0,
+    y: AZURE_Y,
+    w: azureW,
+    h: azureH,
+    title: "Microsoft Azure",
+    detail: `${t.regions.primary}${t.regions.secondary ? ` + ${t.regions.secondary}` : ""} landing-zone estate`,
+    icon: "subscription",
+    down: regionDown,
+    layer: 0,
+  });
+
+  const onpremY = AZURE_Y + azureH + 26;
+  nodes.push({
+    id: "frame:onprem",
+    kind: "frame",
+    zoneKind: "onprem",
+    x: 0,
+    y: onpremY,
+    w: azureW,
+    h: 132,
+    title: "On-premises",
+    detail: t.onPremRanges.join(", ") || "No ranges listed",
+    icon: "on-premises",
+    layer: 0,
+  });
   part({
     id: "onprem",
-    x: x1,
-    y: dcY,
+    x: msee1X,
+    y: onpremY + 50,
+    w: mseeW,
     title: "DC-1 · on-premises",
     detail: `${t.onPrem} (example)`,
     icon: "on-premises",
@@ -465,22 +535,15 @@ export function trafficLayout(t: Topology, failure: Failure) {
   });
   part({
     id: "onprem2",
-    x: x2,
-    y: dcY,
+    x: msee2X,
+    y: onpremY + 50,
+    w: mseeW,
     title: "DC-2 · on-premises",
     detail: "192.168.20.0/24 (example)",
     icon: "on-premises",
     absent: !t.gateway || !t.regions.secondary,
   });
-  if (t.gateway?.vpn)
-    part({
-      id: "remote",
-      x: 20,
-      y: dcY,
-      title: "Remote engineers",
-      detail: "Point-to-site VPN · not configured",
-      icon: "users",
-    });
+
   if (erEver && has(gw1)) {
     edges.push({
       id: "er1",
@@ -555,5 +618,5 @@ export function trafficLayout(t: Topology, failure: Failure) {
       label: "P2S (not configured)",
     });
 
-  return { nodes, edges, width: totalW, height: dcY + PART.h };
+  return { nodes, edges, width: azureW, height: onpremY + 132 };
 }

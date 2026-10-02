@@ -47,6 +47,7 @@ import { checkIpPlan, ipPlan } from "@/lib/alz/ipplan";
 import type { Placement } from "@/lib/alz/placement";
 import { cn } from "@/lib/utils";
 
+import { MiniArchitecture } from "./diagram/MiniArchitecture";
 import { GuideLink } from "./Guide";
 import { TrafficStory } from "./traffic/TrafficStory";
 import { IpPlanPanel } from "./IpPlan";
@@ -1264,7 +1265,6 @@ function designDocument(lib: AlzLibrary, a: Answers, issues: Issue[], name: stri
 
 function AtAGlance({ lib, a }: { lib: AlzLibrary; a: Answers }) {
   const tree = hierarchy(lib, a);
-  const hub = hasHub(a);
   return (
     <section className="rounded-xl border border-border bg-card p-4">
       <h3 className="text-[13px] font-semibold">At a glance</h3>
@@ -1284,66 +1284,10 @@ function AtAGlance({ lib, a }: { lib: AlzLibrary; a: Answers }) {
         ))}
         {tree.length > 14 && <li className="text-muted-foreground">and {tree.length - 14} more</li>}
       </ul>
-      <p className="mt-3.5 text-[10.5px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
-        Network
+      <p className="mt-3.5 mb-1.5 text-[10.5px] font-semibold tracking-[0.1em] text-muted-foreground uppercase">
+        Architecture
       </p>
-      <div className="mt-1.5 space-y-1.5 text-[12px]">
-        <Lane icon={<Globe className="size-3.5" />} label="Internet" />
-        <Arrow />
-        <Lane
-          icon={<ShieldCheck className="size-3.5" />}
-          label={hasFirewall(a) ? `Azure Firewall ${a.firewall}` : "No central firewall"}
-          muted={!hasFirewall(a)}
-        />
-        <Arrow />
-        <Lane
-          icon={<Network className="size-3.5" />}
-          label={
-            !hub
-              ? "No hub"
-              : `${a.connectivity === "virtual_wan" ? "Virtual hub" : "Hub"} · ${a.primaryRegion} · ${a.hubAddressSpace}`
-          }
-          muted={!hub}
-        />
-        {hub && a.secondaryRegion && (
-          <Lane
-            icon={<Network className="size-3.5" />}
-            label={`Second hub · ${a.secondaryRegion} · ${a.secondaryHubAddressSpace}`}
-          />
-        )}
-        {hub && (on(a.vpnGateway) || on(a.expressRoute)) && (
-          <Lane
-            icon={<Server className="size-3.5" />}
-            label={`On-premises via ${[on(a.vpnGateway) && "VPN", on(a.expressRoute) && "ExpressRoute"].filter(Boolean).join(" + ")}`}
-          />
-        )}
-        <Arrow />
-        <Lane
-          icon={<Waypoints className="size-3.5" />}
-          label={
-            a.landingZones.map((g) => LANDING_ZONE_LABEL[g]?.title ?? g).join(" · ") ||
-            "No landing zones"
-          }
-        />
-      </div>
+      <MiniArchitecture answers={a} />
     </section>
   );
-}
-
-function Lane({ icon, label, muted }: { icon: ReactNode; label: string; muted?: boolean }) {
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-2 rounded-md border px-2.5 py-1.5",
-        muted ? "border-dashed border-border text-muted-foreground" : "border-border bg-muted/30",
-      )}
-    >
-      <span className="text-primary">{icon}</span>
-      <span className="min-w-0 truncate">{label}</span>
-    </div>
-  );
-}
-
-function Arrow() {
-  return <div className="ml-4 h-2 w-px bg-border" />;
 }

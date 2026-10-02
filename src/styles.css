@@ -276,6 +276,33 @@
   background: #fef3c7;
   box-shadow: 0 0 0 1px #f59e0b;
 }
+/* Architecture standard: live connectors march along their lane. */
+@keyframes cd-march {
+  to {
+    stroke-dashoffset: -22;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [style*="cd-march"] {
+    animation: none !important;
+  }
+}
+/* React Flow canvases in the architecture standard take the diagram's colours. */
+[data-diagram-theme] .react-flow__background {
+  background: var(--d-bg);
+}
+[data-diagram-theme] .react-flow__controls-button {
+  background: var(--d-node);
+  border-color: var(--d-node-line);
+  fill: var(--d-text);
+}
+[data-diagram-theme] .react-flow__minimap {
+  background: var(--d-zone);
+}
+[data-diagram-theme] .react-flow__attribution {
+  background: transparent;
+  color: var(--d-muted);
+}
 /* Traffic simulator: flows move along their path. */
 @keyframes ts-dash {
   to {

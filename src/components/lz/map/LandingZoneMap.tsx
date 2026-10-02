@@ -26,20 +26,7 @@ import {
   getSmoothStepPath,
   useReactFlow,
 } from "@xyflow/react";
-import {
-  Building2,
-  CheckCircle2,
-  ChevronRight,
-  CircleAlert,
-  CircleHelp,
-  KeyRound,
-  Maximize,
-  Network,
-  Plus,
-  ShieldCheck,
-  UserRound,
-  XCircle,
-} from "lucide-react";
+import { ChevronRight, CircleAlert, CircleHelp, Maximize, Plus, UserRound } from "lucide-react";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { AlzLibrary, Answers, MgNode } from "@/lib/alz/engine";
@@ -53,6 +40,15 @@ import { type Check, accessChecks, checkSummary } from "@/lib/alz/access-checks"
 import { changedIds } from "./changed";
 import { StatusIcon } from "./StatusIcon";
 import { type Govern, GovernDialog } from "./GovernDialog";
+import {
+  DiagramBadge,
+  DiagramCanvas,
+  DiagramCard,
+  DiagramZone,
+  LaneEdge,
+  ThemeToggle,
+} from "../diagram/Kit";
+import { OUTCOME, PALETTE, azureIcon, useDiagramTheme } from "../diagram/theme";
 import {
   type ExtData,
   type GovData,
@@ -142,10 +138,10 @@ function Tick({ on, onClick }: { on: boolean; onClick: () => void }) {
       title={on ? "Leave out of the design" : "Add to the design"}
       aria-pressed={on}
       className={cn(
-        "nodrag nopan grid size-4 shrink-0 place-items-center rounded-[3px] border text-[10px] leading-none",
+        "nodrag nopan grid size-5 shrink-0 place-items-center rounded-full border text-[10px] leading-none shadow-sm",
         on
-          ? "border-[#0078d4] bg-[#0078d4] text-white"
-          : "border-[#8a8886] bg-white text-[#8a8886] hover:border-[#0078d4]",
+          ? "border-[var(--d-accent)] bg-[var(--d-accent)] text-white"
+          : "border-[var(--d-muted)] bg-[var(--d-node)] text-[var(--d-muted)] hover:border-[var(--d-accent)] hover:text-[var(--d-accent)]",
       )}
     >
       {on ? "✓" : "+"}
@@ -163,13 +159,10 @@ function Hops({ id }: { id: string }) {
       {hops.map((i) => (
         <span
           key={i}
-          className={cn(
-            "grid size-5 place-items-center rounded-full text-[10px] font-bold text-white shadow",
-            i === c.step && "ring-4",
-          )}
-          style={{ background: c.color, ["--tw-ring-color" as string]: `${c.color}55` }}
+          className={cn(i === c.step && "rounded-full ring-4")}
+          style={{ ["--tw-ring-color" as string]: `${c.color}55` }}
         >
-          {i + 1}
+          <DiagramBadge n={i + 1} color={c.color} />
         </span>
       ))}
       {c.stopAt === id && (
@@ -219,54 +212,31 @@ function Actions({ actions }: { actions: ItemData["actions"] }) {
   );
 }
 
-const ZONE_TONE: Record<ZoneData["tone"], string> = {
-  sub: "border-[#c7e0f4] bg-[#f5f9fd]",
-  vnet: "border-[#8ac7ea] bg-[#e8f4fc]",
-  lz: "border-[#b7dcc2] bg-[#f4faf6]",
-  quiet: "border-[#d2d0ce] bg-[#faf9f8]",
-};
-
 function ZoneNode({ id, data }: NodeProps<Node<ZoneData>>) {
   const c = useContext(MapCtx);
-  const Icon = data.tone === "vnet" ? Network : data.tone === "lz" ? Building2 : KeyRound;
+  const dim = !!c.involved && !c.hops.has(id);
+  const selected = same(c.sel, data.sel);
+  const state = selected ? "selected" : c.changed.has(id) ? "changed" : undefined;
   return (
-    <div
+    <DiagramZone
+      label={data.title}
+      kind={
+        data.zoneKind ??
+        (data.tone === "vnet" ? "vnet" : data.tone === "sub" ? "subscription" : "zone")
+      }
+      out={!data.on}
       className={cn(
-        "h-full w-full rounded-lg border-[1.5px] transition-[border-color,box-shadow]",
-        data.on ? ZONE_TONE[data.tone] : "border-dashed border-[#a19f9d] bg-white/70",
-        data.sel && "cursor-zoom-in hover:border-[#0078d4]",
-        same(c.sel, data.sel) && "ring-2 ring-[#0078d4] ring-offset-2",
-        c.changed.has(id) && "cd-glow",
+        data.sel && "cursor-zoom-in hover:border-[var(--d-accent)]",
+        dim && "opacity-25",
       )}
-      title={data.sel ? "Click to zoom in and see its settings" : undefined}
+      {...(data.subtitle ? { sub: data.subtitle } : {})}
+      {...(state ? { state } : {})}
+      {...(data.iconId ? { icon: azureIcon(data.iconId) } : {})}
+      {...(c.edit && data.toggle ? { right: <Tick on={data.on} onClick={data.toggle} /> } : {})}
     >
       <Handles />
-      <div className="flex items-start gap-2 px-3 pt-2.5">
-        <Icon
-          className={cn(
-            "mt-0.5 size-4 shrink-0",
-            data.tone === "sub"
-              ? "text-[#c19c00]"
-              : data.tone === "lz"
-                ? "text-[#107c10]"
-                : "text-[#0078d4]",
-            !data.on && "text-[#a19f9d]",
-          )}
-        />
-        <div className="min-w-0 flex-1">
-          <p
-            className={cn(
-              "truncate text-[13px] leading-tight font-semibold",
-              !data.on && "text-[#8a8886] line-through",
-            )}
-          >
-            {data.title}
-          </p>
-          {data.subtitle && <p className="truncate text-[11px] text-[#605e5c]">{data.subtitle}</p>}
-        </div>
-        {c.edit && data.toggle && <Tick on={data.on} onClick={data.toggle} />}
-      </div>
-    </div>
+      <Hops id={id} />
+    </DiagramZone>
   );
 }
 
@@ -278,8 +248,9 @@ function ItemNode({ id, data }: NodeProps<Node<ItemData>>) {
     return (
       <div
         className={cn(
-          "flex h-full w-full cursor-pointer items-center justify-center gap-1.5 rounded-md border border-dashed border-[#8a8886] bg-white/60 text-[11.5px] text-[#605e5c] hover:border-[#0078d4] hover:text-[#0078d4]",
+          "flex h-full w-full cursor-pointer items-center justify-center gap-1.5 rounded-[10px] border border-dashed border-[var(--d-muted)] bg-[var(--d-node)] text-[11.5px] text-[var(--d-sub)] hover:border-[var(--d-accent)] hover:text-[var(--d-accent)]",
           dim && "opacity-40",
+          c.changed.has(id) && "cd-glow",
         )}
       >
         <Handles />
@@ -287,44 +258,32 @@ function ItemNode({ id, data }: NodeProps<Node<ItemData>>) {
       </div>
     );
   const Icon = data.icon;
+  const selected = same(c.sel, data.sel);
+  const out = !data.on;
+  const icon = data.iconId ? (
+    azureIcon(data.iconId)
+  ) : Icon ? (
+    <Icon className="size-5 shrink-0 text-[var(--d-accent)]" />
+  ) : undefined;
   return (
-    <div
+    <DiagramCard
+      title={data.label}
+      titleAttr={`${data.label}${data.detail ? ` — ${data.detail}` : ""}`}
+      state={dim ? "dim" : selected ? "selected" : out ? "out" : "normal"}
       className={cn(
-        "group relative flex h-full w-full cursor-pointer items-center gap-2 rounded-md border bg-white px-2 transition-[opacity,border-color]",
-        data.on && data.variant !== "ghost" && data.variant !== "more"
-          ? "border-[#c8c6c4] shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:border-[#0078d4]"
-          : "border-dashed border-[#a19f9d] text-[#8a8886]",
-        same(c.sel, data.sel) && "ring-2 ring-[#0078d4]",
-        inFlow && "ring-2 ring-offset-1",
-        dim && "opacity-35",
+        "cursor-pointer",
+        data.variant === "ghost" && "border-dashed opacity-70",
         c.changed.has(id) && "cd-glow",
       )}
-      style={inFlow ? { ["--tw-ring-color" as string]: c.color } : undefined}
-      title={`${data.label}${data.detail ? ` — ${data.detail}` : ""}`}
+      {...(icon ? { icon } : {})}
+      {...(data.detail ? { sub: data.detail } : {})}
+      {...(inFlow ? { accent: c.color } : {})}
+      {...(c.edit && data.toggle ? { right: <Tick on={data.on} onClick={data.toggle} /> } : {})}
     >
       <Handles />
       <Hops id={id} />
       <Actions actions={data.actions} />
-      {Icon && (
-        <span
-          className="grid size-6 shrink-0 place-items-center rounded"
-          style={{ background: data.on ? `${data.color}18` : "#f3f2f1" }}
-        >
-          <Icon className="size-3.5" style={{ color: data.on ? data.color : "#a19f9d" }} />
-        </span>
-      )}
-      <span className="min-w-0 flex-1 leading-tight">
-        <span
-          className={cn("block truncate text-[11.5px] font-medium", !data.on && "line-through")}
-        >
-          {data.label}
-        </span>
-        {data.detail && data.on && (
-          <span className="block truncate text-[10px] text-[#605e5c]">{data.detail}</span>
-        )}
-      </span>
-      {c.edit && data.toggle && <Tick on={data.on} onClick={data.toggle} />}
-    </div>
+    </DiagramCard>
   );
 }
 
@@ -332,201 +291,217 @@ function ExtNode({ id, data }: NodeProps<Node<ExtData>>) {
   const c = useContext(MapCtx);
   const inFlow = c.hops.has(id);
   const Icon = data.icon;
+  const dim = !!c.involved && !inFlow;
   return (
-    <div
-      className={cn(
-        "relative flex h-full w-full cursor-pointer items-center gap-2.5 rounded-lg border border-[#c8c6c4] bg-[#f3f2f1] px-3 transition-opacity hover:border-[#0078d4]",
-        same(c.sel, data.sel) && "ring-2 ring-[#0078d4]",
-        inFlow && "ring-2 ring-offset-1",
-        !!c.involved && !inFlow && "opacity-35",
-      )}
-      style={inFlow ? { ["--tw-ring-color" as string]: c.color } : undefined}
+    <DiagramCard
+      icon={
+        data.iconId ? (
+          azureIcon(data.iconId)
+        ) : (
+          <Icon className="size-5 shrink-0 text-[var(--d-accent)]" />
+        )
+      }
+      title={data.label}
+      sub={data.detail}
+      state={dim ? "dim" : same(c.sel, data.sel) ? "selected" : "normal"}
+      className="cursor-pointer"
+      {...(inFlow ? { accent: c.color } : {})}
     >
       <Handles />
       <Hops id={id} />
-      <Icon className="size-5 shrink-0 text-[#605e5c]" />
-      <span className="min-w-0 leading-tight">
-        <span className="block truncate text-[12px] font-semibold">{data.label}</span>
-        <span className="block truncate text-[10.5px] text-[#605e5c]">{data.detail}</span>
-      </span>
-    </div>
+    </DiagramCard>
   );
 }
 
 function LabelNode({ data }: NodeProps<Node<LabelData>>) {
   return (
-    <p className="pointer-events-none text-[11px] font-semibold tracking-wide text-[#605e5c] uppercase">
+    <p className="pointer-events-none text-[11px] font-semibold tracking-[0.18em] text-[var(--d-sub)] uppercase">
       {data.text}
     </p>
   );
 }
 
+const CHECK_TONE: Record<Check["status"], { mark: string; color: string; label: string }> = {
+  pass: { mark: OUTCOME.reaches.mark, color: OUTCOME.reaches.color, label: "Pass" },
+  warn: { mark: OUTCOME["needs-rules"].mark, color: OUTCOME["needs-rules"].color, label: "Fix" },
+  fail: { mark: OUTCOME.broken.mark, color: OUTCOME.broken.color, label: "Fix" },
+  confirm: { mark: "?", color: OUTCOME.isolated.color, label: "Confirm" },
+};
+
+const checkStatus = (issues: Check[]): Check["status"] =>
+  issues.some((x) => x.status === "fail")
+    ? "fail"
+    : issues.some((x) => x.status === "warn")
+      ? "warn"
+      : issues.some((x) => x.status === "confirm")
+        ? "confirm"
+        : "pass";
+
+function InlineTick({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      title="Leave out of the design"
+      aria-pressed
+      className="nodrag nopan grid size-5 shrink-0 place-items-center rounded-md border border-[var(--d-accent)] bg-[var(--d-accent)] text-[11px] font-bold text-white shadow-[0_0_10px_rgba(77,163,255,0.45)]"
+    >
+      ✓
+    </button>
+  );
+}
+
 function MgCard({ id, data }: NodeProps<Node<MgData>>) {
   const c = useContext(MapCtx);
+  const selected = same(c.sel, data.sel);
+  const changed = c.changed.has(id);
+  const policyBadge =
+    typeof data.policyCount === "number" ? (
+      <DiagramBadge
+        n={data.policyCount}
+        color={data.included ? OUTCOME.reaches.color : "#64748b"}
+        title="Policies assigned here"
+      />
+    ) : undefined;
+  const icon = data.root ? azureIcon("users") : azureIcon("subscription");
   return (
-    <div
-      className={cn(
-        "group relative flex h-full w-full flex-col justify-center rounded-lg border px-3 py-2 transition-colors",
-        data.root
-          ? "border-dashed border-[#8a8886] bg-white text-[#605e5c]"
-          : data.included
-            ? "cursor-pointer border-[#c8c6c4] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:border-[#0078d4]"
-            : "cursor-pointer border-dashed border-[#a19f9d] bg-white/60 text-[#8a8886] hover:border-[#0078d4] hover:text-[#0078d4]",
-        data.custom && "border-[#0078d4]/60",
-        same(c.sel, data.sel) && "ring-2 ring-[#0078d4] ring-offset-2",
-        c.changed.has(id) && "cd-glow",
-      )}
-    >
+    <div className="group relative h-full w-full">
       <Handles />
       <Actions actions={data.actions} />
-      <div className="flex items-start gap-2">
-        <p
-          className={cn(
-            "min-w-0 flex-1 truncate text-[13px] leading-tight font-semibold",
-            !data.included && "line-through",
-          )}
-        >
-          {data.title}
-        </p>
-        {c.edit && data.toggle && <Tick on onClick={data.toggle} />}
-      </div>
-      <p className="truncate text-[10.5px] text-[#605e5c]">{data.counts}</p>
-      {data.tags.length > 0 && (
-        <div className="mt-1 flex gap-1 overflow-hidden">
-          {data.tags.slice(0, 2).map((t) => (
-            <span
-              key={t.label}
-              title={t.pending ? "Created when a customer is onboarded" : undefined}
-              className={cn(
-                "shrink-0 rounded-sm border px-1.5 text-[10px] whitespace-nowrap",
-                t.pending
-                  ? "border-dashed border-[#e8c65b] bg-[#fffbeb]"
-                  : t.on
-                    ? "border-[#e8c65b] bg-[#fff4ce]"
-                    : "border-dashed border-[#a19f9d] text-[#8a8886] line-through",
-              )}
-            >
-              {t.label}
-            </span>
-          ))}
-          {data.tags.length > 2 && (
-            <span className="text-[10px] text-[#605e5c]">+{data.tags.length - 2}</span>
-          )}
-        </div>
-      )}
+      <DiagramCard
+        icon={icon}
+        title={data.title}
+        sub={data.counts}
+        state={!data.included ? "out" : selected ? "selected" : "normal"}
+        badge={policyBadge}
+        right={c.edit && data.toggle ? <InlineTick onClick={data.toggle} /> : undefined}
+        className={cn(
+          "cursor-pointer overflow-visible pr-2",
+          data.root && "border-dashed",
+          data.custom && "border-[var(--d-accent)]",
+          changed && "cd-glow",
+        )}
+        titleAttr={
+          data.included ? "Click to inspect this management group" : "Click to add this group back"
+        }
+      >
+        {data.tags.length > 0 && (
+          <div className="mt-1.5 flex max-h-[44px] flex-wrap gap-1 overflow-hidden">
+            {data.tags.slice(0, 4).map((t) => (
+              <span
+                key={t.label}
+                title={t.pending ? "Created when a customer is onboarded" : undefined}
+                className={cn(
+                  "inline-flex min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] leading-none whitespace-nowrap",
+                  t.pending
+                    ? "border-dashed border-amber-300/70 bg-amber-300/10 text-amber-100"
+                    : t.on
+                      ? "border-sky-300/40 bg-sky-300/10 text-sky-100"
+                      : "border-dashed border-[var(--d-muted)] text-[var(--d-muted)] line-through",
+                )}
+              >
+                <img src={azureIcon("subscription")} alt="" className="size-3 shrink-0" />
+                <span className="truncate">{t.label}</span>
+              </span>
+            ))}
+            {data.tags.length > 4 && (
+              <span className="text-[10px] text-[var(--d-sub)]">+{data.tags.length - 4}</span>
+            )}
+          </div>
+        )}
+      </DiagramCard>
     </div>
   );
 }
 
 function GovCard({ id, data }: NodeProps<Node<GovData>>) {
   const c = useContext(MapCtx);
-  const worst = data.issues.some((x) => x.status === "fail")
-    ? "fail"
-    : data.issues.length
-      ? "warn"
-      : null;
+  const selected = same(c.sel, data.sel);
+  const status = checkStatus(data.issues);
+  const tone = CHECK_TONE[status];
+  const changed = c.changed.has(id);
+  const icon = data.variant === "entra" ? azureIcon("users") : azureIcon("subscription");
   return (
-    <div
-      className={cn(
-        "group relative flex h-full w-full flex-col gap-1 overflow-hidden rounded-lg border px-3 py-2 transition-colors",
-        data.variant === "entra"
-          ? "border-[#8661c5]/50 bg-[#f7f3fc]"
-          : data.variant === "root"
-            ? "border-dashed border-[#8a8886] bg-white"
-            : "cursor-pointer border-[#c8c6c4] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.06)] hover:border-[#0078d4]",
-        worst === "fail" && "border-[#a4262c]/60",
-        worst === "warn" && "border-[#c19c00]/60",
-        same(c.sel, data.sel) && "ring-2 ring-[#0078d4] ring-offset-2",
-        c.changed.has(id) && "cd-glow",
-      )}
-    >
+    <div className="group relative h-full w-full">
       <Handles />
-      <div className="flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-[13px] leading-tight font-semibold">
-          {data.title}
-        </p>
-        {worst ? (
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-1.5 text-[10px] font-semibold text-white",
-              worst === "fail" ? "bg-[#a4262c]" : "bg-[#c19c00]",
-            )}
-          >
-            {data.issues.length} to fix
-          </span>
-        ) : (
-          data.variant === "mg" && <CheckCircle2 className="size-3.5 shrink-0 text-[#107c10]" />
-        )}
-      </div>
-      {data.lines ? (
-        <ul className="space-y-0.5">
-          {data.lines.map((l) => (
-            <li
-              key={l.id}
-              className="flex items-start gap-1 text-[10.5px] leading-snug"
-              title={l.detail}
-            >
-              <StatusIcon status={l.status} className="mt-px size-3" />
-              <span className="line-clamp-2">{l.title}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <>
-          <p className="flex items-center gap-1 truncate text-[10.5px] text-[#605e5c]">
-            <ShieldCheck className="size-3 shrink-0" /> {data.policies}
-          </p>
-          {!!data.added?.length && (
-            <p className="truncate text-[10.5px] text-[#0078d4]" title={data.added.join(", ")}>
-              + {data.added.join(", ")}
-            </p>
-          )}
-          {!!data.weakened && (
-            <p className="text-[10.5px] text-[#a4262c]">
-              {data.weakened} ALZ polic{data.weakened === 1 ? "y" : "ies"} weakened
-            </p>
-          )}
-          <ul className="mt-0.5 space-y-0.5 border-t border-[#edebe9] pt-1">
-            {data.access?.slice(0, 3).map((r) => (
+      <DiagramCard
+        icon={icon}
+        title={data.title}
+        sub={data.lines ? "Identity and root checks" : data.policies}
+        state={selected ? "selected" : "normal"}
+        accent={status === "pass" ? undefined : tone.color}
+        badge={<DiagramBadge n={tone.mark} color={tone.color} title={tone.label} />}
+        className={cn("cursor-pointer items-start overflow-hidden", changed && "cd-glow")}
+      >
+        {data.lines ? (
+          <ul className="mt-1 space-y-1">
+            {data.lines.slice(0, 3).map((l) => (
               <li
-                key={r.label}
-                className={cn(
-                  "flex items-center gap-1 truncate text-[10.5px]",
-                  r.flag && "text-[#a4262c]",
-                )}
+                key={l.id}
+                className="flex items-start gap-1.5 text-[10.5px] leading-snug"
+                title={l.detail}
               >
-                <UserRound className="size-3 shrink-0" />
-                <span className="truncate">
-                  <b className="font-medium">{r.label}</b> · {r.role}
-                </span>
+                <StatusIcon status={l.status} className="mt-px size-3" />
+                <span className="line-clamp-2">{l.title}</span>
               </li>
             ))}
-            {(data.access?.length ?? 0) > 3 && (
-              <li className="text-[10.5px] text-[#605e5c]">+{data.access!.length - 3} more</li>
-            )}
-            {!data.access?.length && (
-              <li className="text-[10.5px] text-[#8a8886]">No roles assigned here — inherited</li>
-            )}
           </ul>
-          {!!data.actions?.length && (
-            <div className="mt-auto flex gap-1.5">
-              {data.actions.map((a) => (
-                <button
-                  key={a.label}
-                  title={a.title}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    a.onClick();
-                  }}
-                  className="nodrag nopan rounded border border-[#c7e0f4] bg-[#f5f9fd] px-1.5 text-[10.5px] leading-5 font-medium text-[#0078d4] hover:border-[#0078d4]"
+        ) : (
+          <>
+            {!!data.added?.length && (
+              <p className="mt-1 truncate text-[10.5px] text-sky-200" title={data.added.join(", ")}>
+                + {data.added.join(", ")}
+              </p>
+            )}
+            {!!data.weakened && (
+              <p className="mt-1 text-[10.5px]" style={{ color: OUTCOME.broken.color }}>
+                {data.weakened} ALZ polic{data.weakened === 1 ? "y" : "ies"} weakened
+              </p>
+            )}
+            <ul className="mt-1 space-y-0.5 border-t border-[var(--d-node-line)] pt-1">
+              {data.access?.slice(0, 3).map((r) => (
+                <li
+                  key={r.label}
+                  className="flex items-center gap-1.5 truncate text-[10.5px]"
+                  style={r.flag ? { color: OUTCOME["needs-rules"].color } : undefined}
                 >
-                  {a.label}
-                </button>
+                  <UserRound className="size-3 shrink-0" />
+                  <span className="truncate">
+                    <b className="font-medium">{r.label}</b> · {r.role}
+                  </span>
+                </li>
               ))}
-            </div>
-          )}
-        </>
-      )}
+              {(data.access?.length ?? 0) > 3 && (
+                <li className="text-[10.5px] text-[var(--d-sub)]">
+                  +{data.access!.length - 3} more
+                </li>
+              )}
+              {!data.access?.length && (
+                <li className="text-[10.5px] text-[var(--d-muted)]">No roles here — inherited</li>
+              )}
+            </ul>
+            {!!data.actions?.length && (
+              <div className="mt-2 flex gap-1.5">
+                {data.actions.map((a) => (
+                  <button
+                    key={a.label}
+                    title={a.title}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      a.onClick();
+                    }}
+                    className="nodrag nopan rounded-md border border-[var(--d-node-line)] bg-[var(--d-band)] px-2 text-[10.5px] leading-5 font-semibold text-[var(--d-text)] hover:border-[var(--d-accent)] hover:text-[var(--d-accent)]"
+                  >
+                    {a.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </DiagramCard>
     </div>
   );
 }
@@ -558,7 +533,14 @@ function PacketEdge({
   const d = data as { color: string; current: boolean; gap?: "fail" | "warn" };
   return (
     <>
-      <path d={path} fill="none" stroke={d.color} strokeOpacity={0.15} strokeWidth={10} />
+      <path
+        d={path}
+        fill="none"
+        stroke={d.color}
+        strokeOpacity={0.22}
+        strokeWidth={10}
+        style={{ filter: "blur(3px)" }}
+      />
       <BaseEdge
         id={id}
         path={path}
@@ -572,13 +554,13 @@ function PacketEdge({
         <EdgeLabelRenderer>
           <div
             className={cn(
-              "nodrag nopan pointer-events-none absolute rounded border bg-white px-1.5 py-px font-mono text-[10px] whitespace-nowrap shadow-sm",
+              "nodrag nopan pointer-events-none absolute rounded-md border bg-[var(--d-bg)] px-1.5 py-0.5 font-mono text-[10px] whitespace-nowrap shadow-sm",
               d.current ? "z-20 font-semibold" : "opacity-90",
             )}
             style={{
               transform: `translate(-50%, -50%) translate(${lx}px, ${ly}px)`,
               borderColor: d.color,
-              color: d.gap === "fail" ? "#a4262c" : "#323130",
+              color: d.gap === "fail" ? "#ef4444" : d.color,
             }}
           >
             {label}
@@ -588,7 +570,7 @@ function PacketEdge({
     </>
   );
 }
-const edgeTypes = { packet: PacketEdge };
+const edgeTypes = { packet: PacketEdge, lane: LaneEdge };
 
 const nodeTypes = {
   zone: ZoneNode,
@@ -675,6 +657,8 @@ function MapInner({
   const summary = checkSummary(checks);
   const edit = !!set;
   const active = flow?.available ? flow : null;
+  const [theme] = useDiagramTheme();
+  const colors = PALETTE[theme];
   // A traffic flow is drawn on the architecture.
   useEffect(() => {
     if (active) setView("architecture");
@@ -753,7 +737,16 @@ function MapInner({
         draggable: false,
         selectable: false,
         connectable: false,
-        zIndex: n.type === "zone" ? (n.parentId ? 1 : 0) : 2,
+        zIndex:
+          n.type === "zone"
+            ? n.data.kind === "zone" && n.data.zoneKind === "azure"
+              ? -2
+              : n.parentId
+                ? 1
+                : 0
+            : n.type === "label"
+              ? 3
+              : 2,
       })),
     [graph],
   );
@@ -762,20 +755,37 @@ function MapInner({
     const rect = (id: string) => byId.get(id)?.abs;
     const out: Edge[] = graph.edges.map((e) => {
       const st = EDGE[e.kind]!;
+      const standardLane =
+        view === "architecture" ||
+        ((view === "hierarchy" || view === "governance") &&
+          (e.kind === "tree" || e.kind === "ghost" || e.kind === "identity"));
       const [s, t] =
-        e.kind === "tree" || e.kind === "ghost"
-          ? (["r", "l"] as [Side, Side])
-          : sides(rect(e.source)!, rect(e.target)!);
+        standardLane && view !== "architecture"
+          ? (["b", "t"] as [Side, Side])
+          : e.kind === "tree" || e.kind === "ghost"
+            ? (["r", "l"] as [Side, Side])
+            : sides(rect(e.source)!, rect(e.target)!);
+      const laneData = standardLane
+        ? {
+            color: e.data?.color ?? st.stroke,
+            dashed: e.data?.dashed ?? !!st.dash,
+            width: e.data?.width ?? st.width,
+            ...(active ? { dim: true } : e.data?.dim ? { dim: e.data.dim } : {}),
+            ...(e.data?.live ? { live: e.data.live } : {}),
+            ...(active || !(e.data?.label ?? e.label) ? {} : { label: e.data?.label ?? e.label }),
+          }
+        : undefined;
+      const laneProps = laneData ? { data: laneData } : {};
       return {
         id: e.id,
         source: e.source,
         target: e.target,
         sourceHandle: s,
         targetHandle: t,
-        type: "smoothstep",
+        type: standardLane ? "lane" : "smoothstep",
         pathOptions: { borderRadius: 10, offset: 18 },
         // While a flow plays, its own hop labels are the ones to read.
-        label: active ? undefined : e.label,
+        ...(standardLane ? laneProps : active || !e.label ? {} : { label: e.label }),
         labelStyle: { fontSize: 10.5, fill: st.stroke, fontWeight: 500 },
         labelBgStyle: { fill: "#ffffff" },
         labelBgPadding: [4, 2] as [number, number],
@@ -786,7 +796,7 @@ function MapInner({
           strokeDasharray: st.dash,
           opacity: active ? 0.25 : 1,
         },
-        zIndex: 5,
+        zIndex: standardLane ? 1 : 5,
       };
     });
     if (active)
@@ -811,7 +821,7 @@ function MapInner({
         out.push(edge);
       });
     return out;
-  }, [graph, byId, active, hopIds, step]);
+  }, [graph, byId, active, hopIds, step, view]);
 
   /* Navigation */
   const fitWidth = () => {
@@ -821,16 +831,14 @@ function MapInner({
     const x0 = Math.min(...xs);
     const x1 = Math.max(...graph.nodes.map((n) => n.abs.x + n.abs.w));
     const y0 = Math.min(...graph.nodes.map((n) => n.abs.y));
-    const zoom = Math.min(1.05, Math.max(0.35, (el.clientWidth - 48) / (x1 - x0)));
-    // The tree opens level with its root; the architecture opens at the top.
-    const root =
-      view === "hierarchy"
-        ? byId.get("mg-root")
-        : view === "governance"
-          ? byId.get("tenant-root")
-          : undefined;
-    const y = root ? el.clientHeight / 2 - (root.abs.y + root.abs.h / 2) * zoom : 52 - y0 * zoom;
-    void rf.setViewport({ x: 24 - x0 * zoom, y, zoom }, { duration: 300 });
+    const y1 = Math.max(...graph.nodes.map((n) => n.abs.y + n.abs.h));
+    const widthZoom = (el.clientWidth - 48) / (x1 - x0);
+    const heightZoom = (el.clientHeight - 64) / (y1 - y0);
+    // Every lens is drawn top-down in the standard, so all open on the whole picture, centred, from the top.
+    const zoom = Math.min(1.05, Math.max(0.35, Math.min(widthZoom, heightZoom)));
+    const x = Math.max(24, (el.clientWidth - (x1 - x0) * zoom) / 2) - x0 * zoom;
+    const y = 52 - y0 * zoom;
+    void rf.setViewport({ x, y, zoom }, { duration: 300 });
   };
   const whole = () => void rf.fitView({ padding: 0.05, duration: 400 });
   const focus = (ids: string[]) =>
@@ -948,6 +956,7 @@ function MapInner({
               <Plus className="size-3" /> Add a management group
             </button>
           )}
+          {edit ? <ThemeToggle /> : <ThemeToggle className="ml-auto" />}
         </div>
         <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/20 px-3 py-1 text-[11px]">
           {view === "governance" ? (
@@ -1040,101 +1049,113 @@ function MapInner({
             )}
           </span>
         </div>
-        <div
-          ref={box}
+        <DiagramCanvas
+          theme={theme}
           className={cn(
-            "relative",
+            "relative overflow-hidden",
             full ? "min-h-0 flex-1" : "h-[calc(100vh-250px)] min-h-[560px]",
           )}
         >
-          <ReactFlow
-            key={view}
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            edgeTypes={edgeTypes}
-            onInit={() => setReady(true)}
-            onNodeClick={click}
-            onPaneClick={() => onSelect(null)}
-            nodesDraggable={false}
-            nodesConnectable={false}
-            elementsSelectable={false}
-            connectionMode={ConnectionMode.Loose}
-            panOnScroll
-            zoomOnDoubleClick={false}
-            minZoom={0.2}
-            maxZoom={1.8}
-            className="bg-white"
-          >
-            <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="#e1dfdd" />
-            <Controls
-              showInteractive={false}
-              orientation="horizontal"
-              position="bottom-left"
-              onFitView={whole}
-              fitViewOptions={{ padding: 0.05 }}
-            />
-            <MiniMap
-              position="bottom-right"
-              pannable
-              zoomable
-              ariaLabel="Map overview"
-              className="!h-[90px] !w-[140px] rounded border border-border"
-              maskColor="rgba(240,240,240,0.7)"
-              nodeColor={(n) =>
-                n.type === "zone"
-                  ? "#dbeafe"
-                  : n.type === "ext"
-                    ? "#e5e7eb"
-                    : n.type === "label"
-                      ? "transparent"
-                      : "#93c5fd"
-              }
-            />
-            <Panel position="top-left" className="!m-2">
-              <nav
-                aria-label="Where you are"
-                className="flex items-center gap-1 rounded-md border border-border bg-card/95 px-2 py-1 text-[11.5px] shadow-sm"
-              >
-                <button
-                  onClick={() => {
-                    onSelect(null);
-                    whole();
+          <div ref={box} className="h-full w-full">
+            <ReactFlow
+              key={view}
+              nodes={nodes}
+              edges={edges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              onInit={() => setReady(true)}
+              onNodeClick={click}
+              onPaneClick={() => onSelect(null)}
+              nodesDraggable={false}
+              nodesConnectable={false}
+              elementsSelectable={false}
+              connectionMode={ConnectionMode.Loose}
+              panOnScroll
+              zoomOnDoubleClick={false}
+              minZoom={0.2}
+              maxZoom={1.8}
+              className="bg-transparent"
+            >
+              <Background
+                variant={BackgroundVariant.Dots}
+                gap={18}
+                size={1}
+                color={colors.nodeLine}
+              />
+              <Controls
+                showInteractive={false}
+                orientation="horizontal"
+                position="bottom-left"
+                onFitView={whole}
+                fitViewOptions={{ padding: 0.05 }}
+              />
+              <MiniMap
+                position="bottom-right"
+                pannable
+                zoomable
+                ariaLabel="Map overview"
+                className="!h-[90px] !w-[140px] rounded border border-border"
+                maskColor={theme === "dark" ? "rgba(15,20,28,0.72)" : "rgba(240,244,250,0.72)"}
+                nodeColor={(n) =>
+                  n.type === "zone"
+                    ? colors.zoneLine
+                    : n.type === "ext"
+                      ? colors.muted
+                      : n.type === "label"
+                        ? "transparent"
+                        : colors.accent
+                }
+              />
+              <Panel position="top-left" className="!m-2">
+                <nav
+                  aria-label="Where you are"
+                  className="flex items-center gap-1 rounded-md border px-2 py-1 text-[11.5px] shadow-sm [&_.text-muted-foreground]:!text-[var(--d-sub)]"
+                  style={{
+                    background: "var(--d-node)",
+                    borderColor: "var(--d-node-line)",
+                    color: "var(--d-text)",
                   }}
-                  className={cn(
-                    "hover:text-primary",
-                    crumbs.length ? "text-muted-foreground" : "font-medium",
-                  )}
                 >
-                  {view === "architecture" ? "Whole landing zone" : "Tenant root"}
-                </button>
-                {!crumbs.length && (
-                  <span className="text-muted-foreground">
-                    · click a box to zoom in, Esc to come back
-                  </span>
-                )}
-                {crumbs.map((n, i) => (
-                  <span key={n.id} className="flex items-center gap-1">
-                    <ChevronRight className="size-3 text-muted-foreground" />
-                    <button
-                      onClick={() => {
-                        const d = n.data;
-                        if ("sel" in d && d.sel) onSelect(d.sel);
-                        focus([n.id]);
-                      }}
-                      className={cn(
-                        "max-w-[220px] truncate hover:text-primary",
-                        i === crumbs.length - 1 ? "font-medium" : "text-muted-foreground",
-                      )}
-                    >
-                      {title(n)}
-                    </button>
-                  </span>
-                ))}
-              </nav>
-            </Panel>
-          </ReactFlow>
-        </div>
+                  <button
+                    onClick={() => {
+                      onSelect(null);
+                      whole();
+                    }}
+                    className={cn(
+                      "hover:text-primary",
+                      crumbs.length ? "text-muted-foreground" : "font-medium",
+                    )}
+                  >
+                    {view === "architecture" ? "Whole landing zone" : "Tenant root"}
+                  </button>
+                  {!crumbs.length && (
+                    <span className="text-muted-foreground">
+                      · click a box to zoom in, Esc to come back
+                    </span>
+                  )}
+                  {crumbs.map((n, i) => (
+                    <span key={n.id} className="flex items-center gap-1">
+                      <ChevronRight className="size-3 text-muted-foreground" />
+                      <button
+                        onClick={() => {
+                          const d = n.data;
+                          if ("sel" in d && d.sel) onSelect(d.sel);
+                          focus([n.id]);
+                        }}
+                        className={cn(
+                          "max-w-[220px] truncate hover:text-primary",
+                          i === crumbs.length - 1 ? "font-medium" : "text-muted-foreground",
+                        )}
+                      >
+                        {title(n)}
+                      </button>
+                    </span>
+                  ))}
+                </nav>
+              </Panel>
+            </ReactFlow>
+          </div>
+        </DiagramCanvas>
       </div>
       {set && (
         <GovernDialog

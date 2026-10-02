@@ -22,6 +22,8 @@ import type { Placement } from "@/lib/alz/placement";
 import { type Flow, flowsFor, sceneExtras, spokesFor } from "@/lib/alz/scene";
 import { cn } from "@/lib/utils";
 
+import { OUTCOME, PALETTE as KIT_PALETTE, useDiagramTheme } from "../diagram/theme";
+
 type Box = { x: number; y: number; w: number; h: number };
 type NodeDef = Box & {
   id: string;
@@ -38,57 +40,8 @@ type Theme = "dark" | "light";
 const W = 1240;
 const H = 856;
 
-type Colors = {
-  bg: string;
-  azure: string;
-  azureLine: string;
-  zone: string;
-  zoneLine: string;
-  node: string;
-  nodeLine: string;
-  text: string;
-  sub: string;
-  muted: string;
-  band: string;
-};
-
-const PALETTE: Record<Theme, Colors> = {
-  dark: {
-    bg: "#0f141c",
-    azure: "#1a2230",
-    azureLine: "#3b4a63",
-    zone: "#141b26",
-    zoneLine: "#4a5a76",
-    node: "#1f2836",
-    nodeLine: "#3d4b62",
-    text: "#e8eef7",
-    sub: "#93a3b8",
-    muted: "#5b6a80",
-    band: "#1d2636",
-  },
-  light: {
-    bg: "#f7f9fc",
-    azure: "#ffffff",
-    azureLine: "#c9d3e1",
-    zone: "#f4f7fb",
-    zoneLine: "#aab7ca",
-    node: "#ffffff",
-    nodeLine: "#c9d3e1",
-    text: "#152033",
-    sub: "#5b6a80",
-    muted: "#94a3b8",
-    band: "#eef2f8",
-  },
-};
-
-const STATUS: Record<string, { mark: string; color: string; label: string }> = {
-  reaches: { mark: "✓", color: "#22c55e", label: "Works" },
-  "needs-rules": { mark: "!", color: "#f59e0b", label: "Needs a rule" },
-  uninspected: { mark: "!", color: "#f59e0b", label: "Not inspected" },
-  isolated: { mark: "■", color: "#38bdf8", label: "Isolated by design" },
-  blocked: { mark: "✕", color: "#ef4444", label: "Blocked" },
-  broken: { mark: "✕", color: "#ef4444", label: "Broken" },
-};
+const PALETTE = KIT_PALETTE;
+const STATUS = OUTCOME;
 
 /*
  * Rows, top to bottom: who's outside (internet, users, operators), Azure services, the hub, the landing zones, and
@@ -457,7 +410,7 @@ export function TrafficStory({
   compact?: boolean;
   onTrace?: ((flowId: string) => void) | undefined;
 }) {
-  const [theme, setTheme] = useState<Theme>("dark");
+  const [theme, setTheme] = useDiagramTheme();
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const [focus, setFocus] = useState<string | null>(null);
   const [step, setStep] = useState<number | null>(null);
