@@ -10,7 +10,7 @@ const DEMO = "44444444-4444-4444-8444-000000000001";
 const NAME = `E2E engagement ${Date.now().toString(36)}`;
 
 test.describe.serial("engagements", () => {
-  test("the demo engagement: working summary, handoff and a customer-safe recap @readonly", async ({
+  test("the demo engagement: working summary, handoff and a customer-safe recap (demo data)", async ({
     page,
   }) => {
     await open(page, "/");
