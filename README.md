@@ -152,6 +152,18 @@ customer tenants you build, and customer landing zones you plug into. The **Land
 Microsoft's [Azure Landing Zones Library](https://github.com/Azure/Azure-Landing-Zones-Library) (snapshots of pinned
 releases in `src/lib/alz/`):
 
+- **Guided design, or the canvas.** New landing zones open in a guided flow: scope, management groups, network
+  model, outbound internet, on-premises, DNS and admin access, IP plan, security and operations, review. Each step
+  asks one question; options are cards that say what they mean, which one is suggested and why, and why an option
+  isn't available when it isn't. A readiness check (with one-click fixes) and an at-a-glance summary stay beside it,
+  and Review downloads the design as a Markdown document. It edits the same design as the canvas.
+- **A real IP plan.** Hub address spaces and on-premises ranges are design inputs that flow into the Terraform
+  (`default_hub_address_space`) and the route simulator. The hub is drawn to scale the way the pinned AVM modules
+  carve it (`src/lib/alz/ipplan.ts` records the verified allocation and sources), with overlap, alignment, size and
+  private-range checks.
+- **A design guide in the app** (`/foundations/guide`): outbound internet, hub and spoke vs Virtual WAN, management
+  groups, Private Link DNS, IP planning and hybrid connectivity, each checked against Microsoft Learn, with what this
+  app generates. "How to decide" opens the relevant guide beside the design step.
 - **A landing zone designer drawn like Microsoft's reference architecture** (Cloud Adoption Framework, hub and
   spoke / Virtual WAN): the management group tree with its subscriptions, then the Management, Security, Identity,
   Connectivity, landing zone (one subscription per customer install) and Sandbox subscriptions, each with the

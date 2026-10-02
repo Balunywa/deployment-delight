@@ -18,6 +18,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { AssessmentView, snapshotFor } from "@/components/lz/Assessment";
 import { TrafficSimulator } from "@/components/lz/TrafficSimulator";
 import { LandingZoneDesigner } from "@/components/lz/Designer";
+import { GuidedDesign } from "@/components/lz/Guided";
 import { ChangeBar, ReviewView, StepBar } from "@/components/lz/Flow";
 import { RealDeploy } from "@/components/lz/RealDeploy";
 import { describeChanges } from "@/lib/alz/changes";
@@ -52,11 +53,16 @@ type View =
   "design" | "assessment" | "review" | "policies" | "version" | "iac" | "deploy" | "traffic";
 
 export const Route = createFileRoute("/foundations/$foundationId")({
-  validateSearch: (s: Record<string, unknown>): { view?: View; flow?: string } => {
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { view?: View; flow?: string; mode?: "guided" | "canvas" } => {
     const v = s["view"];
     const flow = typeof s["flow"] === "string" ? { flow: s["flow"] } : {};
-    if (v === "hierarchy" || v === "setup") return { view: "design" };
-    return typeof v === "string" ? { view: v as View, ...flow } : {};
+    const m = s["mode"];
+    const mode: { mode?: "guided" | "canvas" } =
+      m === "guided" || m === "canvas" ? { mode: m } : {};
+    if (v === "hierarchy" || v === "setup") return { view: "design", ...mode };
+    return typeof v === "string" ? { view: v as View, ...flow, ...mode } : mode;
   },
   head: () => ({ meta: [{ title: "Landing zone · Cloud Delivery" }] }),
   component: FoundationDetail,
@@ -102,6 +108,8 @@ function FoundationDetail() {
       ? search.view
       : "assessment";
   const lib = libraryFor(f.library_ref);
+  // New landing zones start guided; deployed ones open on the canvas, where everything is visible at once.
+  const mode = search.mode ?? (f.status === "draft" ? "guided" : "canvas");
   const current = managed ? answers : saved;
   const tree = hierarchy(lib, current);
   const placed = placementsFor(placements(customers.data ?? [], offerings.data ?? []), f);
@@ -284,7 +292,52 @@ function FoundationDetail() {
       </div>
 
       <div className="p-4 lg:p-6">
-        {view === "design" && (
+        {view === "design" && managed && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div
+              role="tablist"
+              aria-label="Design mode"
+              className="inline-flex rounded-lg border border-border bg-card p-1 text-[12.5px] shadow-sm"
+            >
+              {(
+                [
+                  ["guided", "Guided", "Decide step by step"],
+                  ["canvas", "Canvas", "See and edit everything"],
+                ] as const
+              ).map(([m, label, hint]) => (
+                <button
+                  key={m}
+                  role="tab"
+                  aria-selected={mode === m}
+                  title={hint}
+                  onClick={() => void navigate({ search: { view: "design", mode: m } })}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 transition-colors",
+                    mode === m
+                      ? "bg-primary/10 font-semibold text-primary"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span className="text-[12px] text-muted-foreground">
+              Both edit the same design. Nothing is deployed until you save, review and deploy.
+            </span>
+          </div>
+        )}
+        {view === "design" && managed && mode === "guided" && (
+          <GuidedDesign
+            lib={lib}
+            answers={answers}
+            setAnswers={setAnswers}
+            placed={placed}
+            onCanvas={() => void navigate({ search: { view: "design", mode: "canvas" } })}
+            onTraffic={() => void navigate({ search: { view: "traffic" } })}
+          />
+        )}
+        {view === "design" && (!managed || mode === "canvas") && (
           <LandingZoneDesigner
             lib={lib}
             answers={current}

@@ -62,10 +62,10 @@ export type TEdge = {
   down?: boolean | undefined;
 };
 
-export const PART = { w: 256, h: 62 };
+export const PART = { w: 284, h: 72 };
 const FRAME_W = PART.w + 28;
-const HEAD = 52;
-const GAP = 10;
+const HEAD = 56;
+const GAP = 8;
 
 function gwTitle(t: Topology) {
   if (!t.gateway) return "Gateway";
@@ -139,12 +139,12 @@ export function trafficLayout(t: Topology, failure: Failure) {
 
   /* Column positions */
   const corpCols = t.corp.length > 4 ? 2 : 1;
-  const leftW = corpCols * (FRAME_W + 20) + 20;
-  const connX = leftW + 90;
+  const leftW = corpCols * (FRAME_W + 16) + 16;
+  const connX = leftW + 52;
   const hubW = FRAME_W;
-  const connW = hubW * 2 + 90 + 40;
-  const rightX = connX + connW + 90;
-  const rightW = 300;
+  const connW = hubW * 2 + 56 + 32;
+  const rightX = connX + connW + 34;
+  const rightW = 286;
   const totalW = rightX + rightW;
 
   nodes.push({
@@ -160,7 +160,7 @@ export function trafficLayout(t: Topology, failure: Failure) {
   /* Online installs, just under the internet */
   let y = 124;
   if (t.onlines.length) {
-    const rowW = t.onlines.length * (FRAME_W + 24) - 24;
+    const rowW = t.onlines.length * (FRAME_W + 18) - 18;
     let x = connX + connW / 2 - rowW / 2;
     let maxH = 0;
     t.onlines.forEach((id, i) => {
@@ -173,7 +173,7 @@ export function trafficLayout(t: Topology, failure: Failure) {
           i === 0 ? { text: "Online subscriptions", fill: "#fde2b8" } : undefined,
         ),
       );
-      x += FRAME_W + 24;
+      x += FRAME_W + 18;
     });
     y += maxH + 76;
   }
@@ -313,7 +313,7 @@ export function trafficLayout(t: Topology, failure: Failure) {
     return connY + 44 + h;
   };
   const h1 = drawHub(1, connX + 20);
-  const h2 = drawHub(2, connX + 20 + hubW + 90);
+  const h2 = drawHub(2, connX + 20 + hubW + 56);
   const connBottom = Math.max(h1, h2) + 20;
   nodes.unshift({
     id: "frame:connectivity",
@@ -346,7 +346,7 @@ export function trafficLayout(t: Topology, failure: Failure) {
     const fy = connY + row * (HEAD + 2 * (PART.h + GAP) + 4 + 22);
     const fh = framedSpoke(
       id,
-      20 + col * (FRAME_W + 20),
+      20 + col * (FRAME_W + 16),
       fy,
       i === 0 ? { text: "Prod subscriptions", fill: "#f5cfa6" } : undefined,
     );
@@ -431,7 +431,7 @@ export function trafficLayout(t: Topology, failure: Failure) {
   const has = (id: string) => nodes.some((n) => n.id === id && !n.absent);
   const bottom = Math.max(connBottom, corpBottom) + 70;
   const x1 = connX + 20 + 14;
-  const x2 = connX + 20 + hubW + 90 + 14;
+  const x2 = connX + 20 + hubW + 56 + 14;
   if (erEver) {
     part({
       id: "msee1",

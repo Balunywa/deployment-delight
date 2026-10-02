@@ -19,6 +19,12 @@ import {
   RESTRICT_PRIVILEGED_CONDITION,
   type RbacAssignment,
 } from "./governance";
+import {
+  DEFAULT_HUB_ADDRESS_SPACE,
+  DEFAULT_ON_PREM_RANGES,
+  DEFAULT_SECONDARY_HUB_ADDRESS_SPACE,
+  cidrOverlaps,
+} from "./ipplan";
 import { WORKLOADS } from "./workloads";
 
 export type Assignment = {
@@ -98,15 +104,24 @@ export type ExtraSubscription = {
   customerName?: string | undefined;
 };
 
-/** The next /24 from 10.100.0.0 that no added subscription's spoke uses yet. */
-export function nextSpokeCidr(answers: Pick<Answers, "extraSubscriptions">, taken: string[] = []) {
+/** The next /24 from 10.100.0.0 that no hub, on-premises range or added subscription's spoke uses yet. */
+export function nextSpokeCidr(
+  answers: Pick<Answers, "extraSubscriptions"> &
+    Partial<Pick<Answers, "hubAddressSpace" | "secondaryHubAddressSpace" | "onPremRanges">>,
+  taken: string[] = [],
+) {
   const used = new Set([
     ...answers.extraSubscriptions.map((x, i) => x.cidr || `10.${100 + i}.0.0/24`),
     ...taken,
   ]);
+  const reserved = [
+    answers.hubAddressSpace ?? DEFAULT_HUB_ADDRESS_SPACE,
+    answers.secondaryHubAddressSpace ?? DEFAULT_SECONDARY_HUB_ADDRESS_SPACE,
+    ...(answers.onPremRanges ?? DEFAULT_ON_PREM_RANGES),
+  ];
   for (let k = 100; k < 250; k++) {
     const c = `10.${k}.0.0/24`;
-    if (!used.has(c)) return c;
+    if (!used.has(c) && reserved.every((r) => !cidrOverlaps(c, r))) return c;
   }
   throw new Error("No free 10.x.0.0/24 range left for a spoke network.");
 }
@@ -128,6 +143,12 @@ export type Answers = {
   intermediateRootName: string;
   primaryRegion: string;
   connectivity: "hub_and_spoke" | "virtual_wan" | "none";
+  /** Address pool the AVM connectivity module subdivides for the primary hub. */
+  hubAddressSpace: string;
+  /** Address pool the AVM connectivity module subdivides for the second hub. */
+  secondaryHubAddressSpace: string;
+  /** Customer or corporate ranges advertised over VPN/ExpressRoute. */
+  onPremRanges: string[];
   firewall: "Premium" | "Standard" | "Basic" | "none";
   bastion: YesNo;
   vpnGateway: YesNo;
@@ -176,6 +197,9 @@ export const DEFAULT_ANSWERS: Answers = {
   intermediateRootName: "Azure Landing Zones",
   primaryRegion: "eastus2",
   connectivity: "hub_and_spoke",
+  hubAddressSpace: DEFAULT_HUB_ADDRESS_SPACE,
+  secondaryHubAddressSpace: DEFAULT_SECONDARY_HUB_ADDRESS_SPACE,
+  onPremRanges: [...DEFAULT_ON_PREM_RANGES],
   firewall: "Standard",
   bastion: "yes",
   vpnGateway: "no",
@@ -573,22 +597,33 @@ export function platformResources(answers: Answers): PlatformResource[] {
     hasHub(answers) &&
     !!answers.secondaryRegion &&
     answers.secondaryRegion !== answers.primaryRegion;
-  if (hub) conn("hubvnet", "Hub virtual network", `${answers.primaryRegion} · 10.0.0.0/16`, ccfg);
+  if (hub)
+    conn(
+      "hubvnet",
+      "Hub virtual network",
+      `${answers.primaryRegion} · ${answers.hubAddressSpace}`,
+      ccfg,
+    );
   if (hub && second)
     conn(
       "hubvnet2",
       "Hub virtual network (second region)",
-      `${answers.secondaryRegion} · 10.1.0.0/16, peered to the primary hub`,
+      `${answers.secondaryRegion} · ${answers.secondaryHubAddressSpace}, peered to the primary hub`,
       "hub_virtual_networks.secondary",
     );
   if (wan) {
     conn("vwan", "Virtual WAN", "Standard", "virtual_wan_settings.virtual_wan");
-    conn("vhub", "Virtual hub", `${answers.primaryRegion} · Microsoft-managed routing`, ccfg);
+    conn(
+      "vhub",
+      "Virtual hub",
+      `${answers.primaryRegion} · ${answers.hubAddressSpace}, Microsoft-managed routing`,
+      ccfg,
+    );
     if (second)
       conn(
         "vhub2",
         "Virtual hub (second region)",
-        `${answers.secondaryRegion} · hubs mesh automatically`,
+        `${answers.secondaryRegion} · ${answers.secondaryHubAddressSpace}, hubs mesh automatically`,
         "virtual_hubs.secondary",
       );
   }
@@ -978,7 +1013,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
         `    primary = {`,
         `      location                  = ${q(region)}`,
         `      default_parent_id         = azurerm_resource_group.connectivity.id`,
-        `      default_hub_address_space = "10.0.0.0/16"`,
+        `      default_hub_address_space = ${q(answers.hubAddressSpace)}`,
         ...enabledResources([`        dns_resolver_policy                   = ${b(dns)}`]),
         ...firewallSku,
         ...gatewayRouteTable,
@@ -988,7 +1023,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
               `    secondary = {`,
               `      location                  = ${q(answers.secondaryRegion)}`,
               `      default_parent_id         = azurerm_resource_group.connectivity.id`,
-              `      default_hub_address_space = "10.1.0.0/16"`,
+              `      default_hub_address_space = ${q(answers.secondaryHubAddressSpace)}`,
               `      # Private DNS zones are global and live with the primary hub.`,
               ...enabledResources(
                 [`        dns_resolver_policy                   = ${b(dns)}`],
@@ -1038,7 +1073,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
           `    primary = {`,
           `      location                  = ${q(region)}`,
           `      default_parent_id         = azurerm_resource_group.connectivity.id`,
-          `      default_hub_address_space = "10.0.0.0/16"`,
+          `      default_hub_address_space = ${q(answers.hubAddressSpace)}`,
           ...enabledResources([
             `        sidecar_virtual_network               = ${b(on(answers.bastion) || dns)}`,
           ]),
@@ -1050,7 +1085,7 @@ export function terraformFor(ref: string, answers: Answers): { path: string; con
                 `    secondary = {`,
                 `      location                  = ${q(answers.secondaryRegion)}`,
                 `      default_parent_id         = azurerm_resource_group.connectivity.id`,
-                `      default_hub_address_space = "10.1.0.0/16"`,
+                `      default_hub_address_space = ${q(answers.secondaryHubAddressSpace)}`,
                 `      # Private DNS zones are global and live with the primary hub.`,
                 ...enabledResources(
                   [

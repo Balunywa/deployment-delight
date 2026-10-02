@@ -32,6 +32,8 @@ import { Route as FoundationsFoundationIdRouteImport } from './routes/foundation
 import { Route as ProductsIndexRouteImport } from './routes/products.index'
 import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
 import { Route as RecapEngagementIdRouteImport } from './routes/recap.$engagementId'
+import { Route as FoundationsGuideIndexRouteImport } from './routes/foundations.guide.index'
+import { Route as FoundationsGuideTopicRouteImport } from './routes/foundations.guide.$topic'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -148,6 +150,16 @@ const RecapEngagementIdRoute = RecapEngagementIdRouteImport.update({
   path: '/recap/$engagementId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FoundationsGuideIndexRoute = FoundationsGuideIndexRouteImport.update({
+  id: '/foundations/guide/',
+  path: '/foundations/guide/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FoundationsGuideTopicRoute = FoundationsGuideTopicRouteImport.update({
+  id: '/foundations/guide/$topic',
+  path: '/foundations/guide/$topic',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -173,6 +185,8 @@ export interface FileRoutesByFullPath {
   '/engagements/': typeof EngagementsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/foundations/guide/$topic': typeof FoundationsGuideTopicRoute
+  '/foundations/guide/': typeof FoundationsGuideIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -198,6 +212,8 @@ export interface FileRoutesByTo {
   '/engagements': typeof EngagementsIndexRoute
   '/foundations': typeof FoundationsIndexRoute
   '/products': typeof ProductsIndexRoute
+  '/foundations/guide/$topic': typeof FoundationsGuideTopicRoute
+  '/foundations/guide': typeof FoundationsGuideIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -224,6 +240,8 @@ export interface FileRoutesById {
   '/engagements/': typeof EngagementsIndexRoute
   '/foundations/': typeof FoundationsIndexRoute
   '/products/': typeof ProductsIndexRoute
+  '/foundations/guide/$topic': typeof FoundationsGuideTopicRoute
+  '/foundations/guide/': typeof FoundationsGuideIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -251,6 +269,8 @@ export interface FileRouteTypes {
     | '/engagements/'
     | '/foundations/'
     | '/products/'
+    | '/foundations/guide/$topic'
+    | '/foundations/guide/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -276,6 +296,8 @@ export interface FileRouteTypes {
     | '/engagements'
     | '/foundations'
     | '/products'
+    | '/foundations/guide/$topic'
+    | '/foundations/guide'
   id:
     | '__root__'
     | '/'
@@ -301,6 +323,8 @@ export interface FileRouteTypes {
     | '/engagements/'
     | '/foundations/'
     | '/products/'
+    | '/foundations/guide/$topic'
+    | '/foundations/guide/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -327,6 +351,8 @@ export interface RootRouteChildren {
   EngagementsIndexRoute: typeof EngagementsIndexRoute
   FoundationsIndexRoute: typeof FoundationsIndexRoute
   ProductsIndexRoute: typeof ProductsIndexRoute
+  FoundationsGuideTopicRoute: typeof FoundationsGuideTopicRoute
+  FoundationsGuideIndexRoute: typeof FoundationsGuideIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -492,6 +518,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RecapEngagementIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/foundations/guide/': {
+      id: '/foundations/guide/'
+      path: '/foundations/guide'
+      fullPath: '/foundations/guide/'
+      preLoaderRoute: typeof FoundationsGuideIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/foundations/guide/$topic': {
+      id: '/foundations/guide/$topic'
+      path: '/foundations/guide/$topic'
+      fullPath: '/foundations/guide/$topic'
+      preLoaderRoute: typeof FoundationsGuideTopicRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -519,6 +559,8 @@ const rootRouteChildren: RootRouteChildren = {
   EngagementsIndexRoute: EngagementsIndexRoute,
   FoundationsIndexRoute: FoundationsIndexRoute,
   ProductsIndexRoute: ProductsIndexRoute,
+  FoundationsGuideTopicRoute: FoundationsGuideTopicRoute,
+  FoundationsGuideIndexRoute: FoundationsGuideIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

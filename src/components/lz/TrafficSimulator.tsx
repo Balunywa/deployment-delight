@@ -29,12 +29,13 @@ import {
   useReactFlow,
 } from "@xyflow/react";
 import { ChevronLeft, ChevronRight, Download, Pause, Play, Plus, RotateCcw } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import type { Answers, MgNode } from "@/lib/alz/engine";
 import {
   type Failure,
+  type Decision,
   type SimHop,
   type SimResult,
   type TrafficKind,
@@ -94,10 +95,18 @@ const FAILURES: [Failure, string, string][] = [
 ];
 const BACK = "#5c6bc0";
 
+type HopSummary = {
+  index: number;
+  dir: "fwd" | "back";
+  text: string;
+  result?: Decision["result"] | "drop" | undefined;
+};
 type Ctx = {
   active: string | null;
   drops: Set<string>;
   hopNums: Map<string, number[]>;
+  hopSummaries: Map<string, HopSummary[]>;
+  currentStep: number;
   color: string;
   focus: boolean;
   involved: Set<string>;
@@ -106,6 +115,8 @@ const TCtx = createContext<Ctx>({
   active: null,
   drops: new Set(),
   hopNums: new Map(),
+  hopSummaries: new Map(),
+  currentStep: 0,
   color: "#0078d4",
   focus: false,
   involved: new Set(),
@@ -137,7 +148,63 @@ function Handles() {
   );
 }
 
-function FrameNode({ data }: NodeProps<Node<TNode>>) {
+function hopSummary(h: SimHop): Omit<HopSummary, "index" | "dir"> {
+  const activeRoute = h.routes?.find((r) => r.active);
+  const decision = h.decisions?.[0];
+  if (h.drop) return { text: `Drop: ${h.drop.split(".")[0]}`, result: "drop" };
+  if (decision)
+    return {
+      text: `${decision.kind}: ${
+        decision.result === "needs-rule" ? "needs rule" : decision.result
+      }`,
+      result: decision.result,
+    };
+  if (activeRoute)
+    return {
+      text: `Route: ${activeRoute.prefix} → ${activeRoute.nextHop}`,
+      result: "inspect",
+    };
+  if (h.via) return { text: `Next: ${h.via}`, result: "inspect" };
+  return { text: h.title };
+}
+
+function HopBadges({ id }: { id: string }) {
+  const c = useContext(TCtx);
+  const summaries = c.hopSummaries.get(id);
+  if (!summaries?.length) return null;
+  return (
+    <div className="pointer-events-none absolute top-full right-1 left-1 z-30 mt-1 space-y-1">
+      {summaries.map((s) => {
+        const current = s.index === c.currentStep;
+        const cls =
+          s.result === "drop" || s.result === "deny"
+            ? "border-[#a4262c] bg-[#fde7e9] text-[#7a1d23]"
+            : s.result === "allow"
+              ? "border-[#107c10] bg-[#dff6dd] text-[#0b5a08]"
+              : s.result === "needs-rule"
+                ? "border-[#8a6100] bg-[#fff4ce] text-[#5c4400]"
+                : "border-[#0f6cbd] bg-[#e5f1fb] text-[#0f4f8c]";
+        return (
+          <span
+            key={`${s.dir}-${s.index}`}
+            className={cn(
+              "block rounded border px-1.5 py-0.5 text-[11.5px] leading-tight font-semibold shadow-sm",
+              cls,
+              current && "ring-2 ring-offset-1",
+            )}
+            style={{ ["--tw-ring-color" as string]: s.dir === "back" ? BACK : c.color }}
+          >
+            {s.index + 1}. {s.text}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function FrameNode({ id, data }: NodeProps<Node<TNode>>) {
+  const c = useContext(TCtx);
+  const dim = c.focus && !c.involved.has(id);
   return (
     <div
       className="relative h-full w-full rounded-lg border-[1.5px]"
@@ -145,7 +212,7 @@ function FrameNode({ data }: NodeProps<Node<TNode>>) {
         background: data.fill,
         borderColor: data.stroke,
         borderStyle: data.dashed ? "dashed" : "solid",
-        opacity: data.down ? 0.5 : 1,
+        opacity: data.down ? 0.5 : dim ? 0.22 : 1,
       }}
     >
       <Handles />
@@ -161,8 +228,8 @@ function FrameNode({ data }: NodeProps<Node<TNode>>) {
         <div className="flex items-center gap-2 px-3 pt-3">
           {data.icon && <img src={iconUrl(data.icon)} alt="" className="size-5 shrink-0" />}
           <div className="min-w-0 leading-tight">
-            <p className="truncate text-[13px] font-bold text-[#1b1b1b]">{data.title}</p>
-            {data.detail && <p className="truncate text-[11px] text-[#605e5c]">{data.detail}</p>}
+            <p className="truncate text-[15px] font-bold text-[#1b1b1b]">{data.title}</p>
+            {data.detail && <p className="truncate text-[12.5px] text-[#605e5c]">{data.detail}</p>}
           </div>
         </div>
       )}
@@ -183,7 +250,7 @@ function PartNode({ id, data }: NodeProps<Node<TNode>>) {
   return (
     <div
       className={cn(
-        "relative flex h-full w-full items-center gap-2.5 rounded-md border bg-white px-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-[opacity,box-shadow]",
+        "relative flex h-full w-full items-center gap-3 rounded-md border bg-white px-3 shadow-[0_1px_2px_rgba(0,0,0,0.08)] transition-[opacity,box-shadow]",
         data.absent ? "border-dashed border-[#a19f9d] bg-white/70" : "border-[#c8c6c4]",
         data.failed && "border-[#a4262c]",
         active && "ring-[3px] ring-offset-1",
@@ -199,21 +266,21 @@ function PartNode({ id, data }: NodeProps<Node<TNode>>) {
         <img
           src={iconUrl(data.icon)}
           alt=""
-          className={cn("size-8 shrink-0", data.absent && "opacity-40 grayscale")}
+          className={cn("size-9 shrink-0", data.absent && "opacity-40 grayscale")}
         />
       )}
       <div className="min-w-0 flex-1 leading-tight">
         <p
           className={cn(
-            "truncate text-[12.5px] font-semibold text-[#1b1b1b]",
+            "truncate text-[14px] font-semibold text-[#1b1b1b]",
             data.absent && "text-[#8a8886]",
           )}
         >
           {data.title}
         </p>
-        {data.detail && <p className="truncate text-[10.5px] text-[#605e5c]">{data.detail}</p>}
+        {data.detail && <p className="truncate text-[12.5px] text-[#605e5c]">{data.detail}</p>}
         {data.tag && !data.absent && (
-          <p className="truncate font-mono text-[9.5px] text-[#0f6cbd]">{data.tag}</p>
+          <p className="truncate font-mono text-[11.5px] text-[#0f6cbd]">{data.tag}</p>
         )}
       </div>
       {nums && (
@@ -221,14 +288,24 @@ function PartNode({ id, data }: NodeProps<Node<TNode>>) {
           {nums.map((n) => (
             <span
               key={n}
-              className="grid size-5 place-items-center rounded-full text-[10px] font-bold text-white shadow"
-              style={{ background: c.color }}
+              className={cn(
+                "grid place-items-center rounded-full border text-[10px] font-bold shadow",
+                n === c.currentStep
+                  ? "size-6 border-white text-white ring-2 ring-offset-1"
+                  : "size-5 border-current bg-white",
+              )}
+              style={{
+                color: n === c.currentStep ? "white" : n < c.currentStep ? c.color : "#605e5c",
+                background: n === c.currentStep ? c.color : "white",
+                ["--tw-ring-color" as string]: c.color,
+              }}
             >
               {n + 1}
             </span>
           ))}
         </span>
       )}
+      <HopBadges id={id} />
       {(data.failed || c.drops.has(id)) && (
         <span
           className="absolute -top-2.5 -right-2.5 grid size-6 place-items-center rounded-full bg-[#a4262c] text-[12px] font-bold text-white shadow ring-2 ring-white"
@@ -243,8 +320,9 @@ function PartNode({ id, data }: NodeProps<Node<TNode>>) {
 
 function CloudNode({ data }: NodeProps<Node<TNode>>) {
   const c = useContext(TCtx);
+  const dim = c.focus && !c.involved.has("internet");
   return (
-    <div className="relative h-full w-full">
+    <div className="relative h-full w-full" style={{ opacity: dim ? 0.25 : 1 }}>
       <svg
         viewBox="0 0 1000 74"
         preserveAspectRatio="none"
@@ -266,6 +344,7 @@ function CloudNode({ data }: NodeProps<Node<TNode>>) {
           ✕
         </span>
       )}
+      <HopBadges id="internet" />
       {Array.from({ length: 60 }, (_, k) => (
         <Handle
           key={k}
@@ -322,14 +401,14 @@ function CometEdge({
     <>
       <path d={path} fill="none" stroke="transparent" strokeWidth={14} className="cursor-pointer" />
       {d.current && (
-        <path d={path} fill="none" stroke={d.color} strokeOpacity={0.18} strokeWidth={12} />
+        <path d={path} fill="none" stroke={d.color} strokeOpacity={0.2} strokeWidth={16} />
       )}
       <path
         id={pid}
         d={path}
         fill="none"
         stroke={d.faint ? "#a19f9d" : d.color}
-        strokeWidth={d.current ? 3.4 : d.faint ? 1.4 : 2.2}
+        strokeWidth={d.current ? 4.8 : d.faint ? 1.6 : 3}
         strokeDasharray={d.faint ? "3 5" : d.dash}
         className={d.flowing ? "ts-flow" : undefined}
         opacity={d.faint ? 0.6 : 0.95}
@@ -353,7 +432,7 @@ function CometEdge({
         <EdgeLabelRenderer>
           <span
             className={cn(
-              "nodrag nopan pointer-events-none absolute rounded border bg-white px-1.5 font-mono text-[10px] whitespace-nowrap shadow-sm",
+              "nodrag nopan pointer-events-none absolute rounded border bg-white px-1.5 font-mono text-[11.5px] whitespace-nowrap shadow-sm",
               d.current ? "font-semibold" : "",
             )}
             style={{
@@ -491,8 +570,35 @@ function Inner({
   /* Nodes */
   const drops = new Set(hops.filter((h, i) => h.drop && i <= step).map((h) => h.at));
   const hopNums = new Map<string, number[]>();
-  hops.forEach((h, i) => hopNums.set(h.at, [...(hopNums.get(h.at) ?? []), i]));
+  const hopSummaries = new Map<string, HopSummary[]>();
+  hops.forEach((h, i) => {
+    hopNums.set(h.at, [...(hopNums.get(h.at) ?? []), i]);
+    const summary = hopSummary(h);
+    hopSummaries.set(h.at, [
+      ...(hopSummaries.get(h.at) ?? []),
+      { index: i, dir: h.dir, ...summary },
+    ]);
+  });
   const color = sim ? KIND_STYLE[sim.kind].color : "#0078d4";
+  const involved = new Set(hops.map((h) => h.at));
+  if (sim) {
+    const involvedParts = L.nodes.filter((n) => involved.has(n.id));
+    L.nodes
+      .filter((n) => n.kind === "frame")
+      .forEach((frame) => {
+        if (
+          involvedParts.some(
+            (n) =>
+              n.id === frame.id ||
+              (n.x + n.w / 2 >= frame.x &&
+                n.x + n.w / 2 <= frame.x + frame.w &&
+                n.y + n.h / 2 >= frame.y &&
+                n.y + n.h / 2 <= frame.y + frame.h),
+          )
+        )
+          involved.add(frame.id);
+      });
+  }
   const ctx: Ctx = {
     active: sim ? (hops[step]?.at ?? null) : null,
     drops: sim
@@ -503,9 +609,11 @@ function Inner({
           ),
         ),
     hopNums: sim ? hopNums : new Map(),
+    hopSummaries: sim ? hopSummaries : new Map(),
+    currentStep: step,
     color: hops[step]?.dir === "back" ? BACK : color,
     focus: !!sim,
-    involved: new Set(hops.map((h) => h.at)),
+    involved,
   };
   const nodes: Node[] = useMemo(
     () =>
@@ -534,10 +642,23 @@ function Inner({
     lanes.set(k, n + 1);
     return n;
   };
+  const selectedLinks = new Set<string>();
+  if (sim)
+    hops.forEach((h, i) => {
+      const prev = hops[i - 1];
+      if (!prev || prev.at === h.at || prev.dir !== h.dir) return;
+      legs(prev.at, h.at).forEach(([x, y]) => {
+        selectedLinks.add(`${x}>${y}`);
+        selectedLinks.add(`${y}>${x}`);
+      });
+    });
   for (const e of L.edges) {
     if (!byId.has(e.source) || !byId.has(e.target)) continue;
     const w = WIRE[e.kind];
     const [s, tg] = handlesFor(e.source, e.target);
+    const fixedInPath =
+      selectedLinks.has(`${e.source}>${e.target}`) ||
+      (involved.has(e.source) && involved.has(e.target));
     edges.push({
       id: `w:${e.id}`,
       source: e.source,
@@ -547,14 +668,14 @@ function Inner({
       type: "smoothstep",
       // While stepping through one path, its own hop labels are the ones to read.
       label: sim ? undefined : e.label,
-      labelStyle: { fontSize: 10.5, fontWeight: 600, fill: e.down ? "#a4262c" : w.color },
+      labelStyle: { fontSize: 11.5, fontWeight: 700, fill: e.down ? "#a4262c" : w.color },
       labelBgStyle: { fill: "#ffffff" },
       labelBgPadding: [3, 1] as [number, number],
       style: {
         stroke: e.down ? "#a4262c" : w.color,
         strokeWidth: w.width,
         strokeDasharray: e.down ? "3 4" : w.dash,
-        opacity: e.down ? 0.4 : sim ? 0.35 : 0.8,
+        opacity: e.down ? 0.4 : sim ? (fixedInPath ? 0.35 : 0.1) : 0.8,
       },
       ...(w.arrows
         ? {
@@ -640,27 +761,75 @@ function Inner({
   }
 
   /* Navigation */
-  const focusFlow = (ids: string[]) =>
-    void rf.fitView({
-      nodes: ids.filter((x) => byId.has(x)).map((x) => ({ id: x })),
-      padding: 0.25,
-      duration: 500,
-      maxZoom: 1.1,
-    });
+  // The internet and on-premises clouds span the whole canvas edge; fitting to them would zoom out to nothing.
+  const EDGE = useMemo(
+    () => new Set(["internet", "msee1", "msee2", "onprem", "onprem2", "remote"]),
+    [],
+  );
+  const pathNodeIds = useMemo(() => {
+    const ids = [...new Set(hops.map((h) => h.at))];
+    const inner = ids.filter((x) => !EDGE.has(x));
+    return inner.length ? inner : ids;
+  }, [EDGE, hops]);
+  const overviewNodeIds = useMemo(
+    () => L.nodes.filter((n) => !n.absent && !EDGE.has(n.id)).map((n) => n.id),
+    [EDGE, L],
+  );
+  const focusIds = useCallback(
+    (
+      ids: string[],
+      opts: { padding: number; duration: number; minZoom: number; maxZoom: number },
+    ) =>
+      void rf.fitView({
+        nodes: ids.filter((x) => byId.has(x)).map((x) => ({ id: x })),
+        padding: opts.padding,
+        duration: opts.duration,
+        minZoom: opts.minZoom,
+        maxZoom: opts.maxZoom,
+      }),
+    [byId, rf],
+  );
+  const focusOverview = useCallback(
+    () => focusIds(overviewNodeIds, { padding: 0.06, duration: 450, minZoom: 0.72, maxZoom: 1 }),
+    [focusIds, overviewNodeIds],
+  );
   useEffect(() => {
-    if (sim) setTimeout(() => focusFlow([...new Set(hops.map((h) => h.at))]), 60);
-    else setTimeout(() => void rf.fitView({ padding: 0.04, duration: 400 }), 60);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sim?.id, from, L]);
+    const timer = setTimeout(() => {
+      if (sim) focusIds(pathNodeIds, { padding: 0.22, duration: 500, minZoom: 0.6, maxZoom: 1.12 });
+      else focusOverview();
+    }, 80);
+    return () => clearTimeout(timer);
+  }, [focusIds, focusOverview, from, L, pathNodeIds, sim]);
+  useEffect(() => {
+    if (!sim || step === 0) return;
+    const around = [hops[step - 1]?.at, hops[step]?.at, hops[step + 1]?.at].filter(
+      Boolean,
+    ) as string[];
+    const ids = [...new Set(around)].filter((x) => !EDGE.has(x));
+    const timer = setTimeout(
+      () =>
+        focusIds(ids.length > 1 ? ids : pathNodeIds, {
+          padding: 0.38,
+          duration: 420,
+          minZoom: 0.6,
+          maxZoom: 1.22,
+        }),
+      40,
+    );
+    return () => clearTimeout(timer);
+  }, [EDGE, focusIds, hops, pathNodeIds, sim, step]);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement | null)?.closest("input, textarea, select, [role=dialog]"))
         return;
-      if (e.key === "Escape") setScenario("all");
+      if (e.key === "Escape") {
+        setScenario("all");
+        setTimeout(focusOverview, 0);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [focusOverview]);
 
   const exportDrawio = () => {
     const flows = all
@@ -696,11 +865,14 @@ function Inner({
 
   return (
     <TCtx.Provider value={ctx}>
-      <div className="grid gap-4 xl:grid-cols-[240px_minmax(0,1fr)] 2xl:grid-cols-[240px_minmax(0,1fr)_340px]">
+      <div className="grid gap-4 xl:grid-cols-[230px_minmax(0,1fr)]">
         {/* Scenarios and what-ifs */}
         <aside className="space-y-1.5" aria-label="Traffic scenarios">
           <button
-            onClick={() => setScenario("all")}
+            onClick={() => {
+              setScenario("all");
+              focusOverview();
+            }}
             className={cn(
               "w-full rounded-md border px-3 py-2 text-left text-[12.5px] font-medium",
               scenario === "all"
@@ -867,6 +1039,17 @@ function Inner({
             <Button size="sm" variant="outline" className="h-7" onClick={exportDrawio}>
               <Download className="size-3.5" /> draw.io
             </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7"
+              onClick={() => {
+                setScenario("all");
+                focusOverview();
+              }}
+            >
+              Whole picture
+            </Button>
           </header>
           {sim && (
             <div className="flex items-center gap-1.5 border-b border-border px-4 py-1.5 text-[11.5px]">
@@ -924,9 +1107,12 @@ function Inner({
               </span>
               <button
                 className="ml-auto text-primary hover:underline"
-                onClick={() => setScenario("all")}
+                onClick={() => {
+                  setScenario("all");
+                  focusOverview();
+                }}
               >
-                ← All traffic
+                Whole picture (Esc)
               </button>
             </div>
           )}
@@ -940,9 +1126,8 @@ function Inner({
               edges={edges}
               nodeTypes={nodeTypes}
               edgeTypes={edgeTypes}
-              fitView
-              fitViewOptions={{ padding: 0.04 }}
-              minZoom={0.15}
+              fitView={false}
+              minZoom={0.35}
               maxZoom={2}
               nodesDraggable={false}
               nodesConnectable={false}
@@ -958,7 +1143,7 @@ function Inner({
                 setSpokeSel(f.spoke);
                 setScenario(f.scenario);
               }}
-              className="bg-white"
+              className="bg-white [&_.react-flow__node]:overflow-visible"
             >
               <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#e1dfdd" />
               <Controls showInteractive={false} position="top-left" />
@@ -1063,7 +1248,7 @@ function Inner({
         </section>
 
         {/* This hop, or the overview */}
-        <aside className="space-y-3 xl:col-span-2 2xl:col-span-1" aria-label="This hop">
+        <aside className="space-y-3 xl:col-span-2" aria-label="This hop">
           {sim ? (
             <>
               <div

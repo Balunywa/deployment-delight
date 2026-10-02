@@ -1,7 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { ArrowUpCircle, Building2, ChevronRight, Eye, Network, Plus, Server } from "lucide-react";
+import {
+  ArrowUpCircle,
+  BookOpen,
+  Building2,
+  ChevronRight,
+  Eye,
+  Network,
+  Plus,
+  Server,
+} from "lucide-react";
 
 import { NewLandingZone } from "@/components/lz/NewLandingZone";
 import { EmptyState, Pill } from "@/components/Primitives";
@@ -74,9 +83,16 @@ function Foundations() {
             build, and customer landing zones you plug into.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus /> New landing zone
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button asChild variant="outline">
+            <Link to="/foundations/guide">
+              <BookOpen /> Design guide
+            </Link>
+          </Button>
+          <Button onClick={() => setCreating(true)}>
+            <Plus /> New landing zone
+          </Button>
+        </div>
       </div>
 
       {foundations.isLoading && <EmptyState title="Loading landing zones…" />}

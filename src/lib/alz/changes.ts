@@ -79,6 +79,16 @@ export function describeChanges(a: Answers, b: Answers): DesignChange[] {
   scalar("intermediateRootName", "Tenant", "mg", "Display name");
   scalar("primaryRegion", "Tenant", "connectivity", "Primary region");
   scalar("connectivity", "Network", "connectivity", "Network topology");
+  scalar("hubAddressSpace", "Network", "connectivity", "Primary hub address space");
+  scalar("secondaryHubAddressSpace", "Network", "connectivity", "Secondary hub address space");
+  if (a.onPremRanges.join() !== b.onPremRanges.join())
+    push({
+      id: "onPremRanges",
+      area: "Network",
+      section: "connectivity",
+      kind: "change",
+      text: `On-premises ranges: ${a.onPremRanges.join(", ") || "none"} → ${b.onPremRanges.join(", ") || "none"}`,
+    });
   if (a.firewall !== b.firewall)
     push({
       id: "firewall",

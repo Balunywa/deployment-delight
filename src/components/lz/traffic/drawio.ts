@@ -40,30 +40,30 @@ export function toDrawio(
   for (const n of nodes) {
     if (n.kind === "cloud") {
       cells.push(
-        `<mxCell id="${esc(n.id)}" value="&lt;b&gt;Internet&lt;/b&gt;" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fontSize=22;fillColor=#ffffff;strokeColor=#605e5c;" vertex="1" parent="1">${geo(n)}</mxCell>`,
+        `<mxCell id="${esc(n.id)}" value="&lt;b&gt;Internet&lt;/b&gt;" style="ellipse;shape=cloud;whiteSpace=wrap;html=1;fontSize=24;fillColor=#ffffff;strokeColor=#605e5c;" vertex="1" parent="1">${geo(n)}</mxCell>`,
       );
       continue;
     }
     if (n.kind === "frame") {
-      const label = `${n.chip ? `<span style="background:${n.chip.fill};padding:2px 8px;border:1px solid #8a8886">${esc(n.chip.text)}</span><br>` : ""}<b>${esc(n.title)}</b>${n.detail ? `<br><font color="#605e5c" style="font-size:11px">${esc(n.detail)}</font>` : ""}`;
+      const label = `${n.chip ? `<span style="background:${n.chip.fill};padding:2px 8px;border:1px solid #8a8886">${esc(n.chip.text)}</span><br>` : ""}<b>${esc(n.title)}</b>${n.detail ? `<br><font color="#605e5c" style="font-size:12px">${esc(n.detail)}</font>` : ""}`;
       cells.push(
-        `<mxCell id="${esc(n.id)}" value="${esc(label)}" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=4;fontSize=13;fillColor=${n.fill ?? "#ffffff"};strokeColor=${n.stroke ?? "#c8c6c4"};${n.dashed || n.absent ? "dashed=1;" : ""}${n.down ? "opacity=45;" : ""}" vertex="1" parent="1">${geo(n)}</mxCell>`,
+        `<mxCell id="${esc(n.id)}" value="${esc(label)}" style="rounded=1;arcSize=3;whiteSpace=wrap;html=1;verticalAlign=top;align=left;spacingLeft=12;spacingTop=4;fontSize=14;fillColor=${n.fill ?? "#ffffff"};strokeColor=${n.stroke ?? "#c8c6c4"};${n.dashed || n.absent ? "dashed=1;" : ""}${n.down ? "opacity=45;" : ""}" vertex="1" parent="1">${geo(n)}</mxCell>`,
       );
       continue;
     }
-    const label = `<b>${esc(n.title)}</b>${n.detail ? `<br><font color="#605e5c" style="font-size:10px">${esc(n.detail)}</font>` : ""}${n.tag ? `<br><font color="#0f6cbd" style="font-size:9px">${esc(n.tag)}</font>` : ""}`;
+    const label = `<b>${esc(n.title)}</b>${n.detail ? `<br><font color="#605e5c" style="font-size:12px">${esc(n.detail)}</font>` : ""}${n.tag ? `<br><font color="#0f6cbd" style="font-size:11px">${esc(n.tag)}</font>` : ""}`;
     cells.push(
-      `<mxCell id="${esc(n.id)}" value="${esc(label)}" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=48;fontSize=12;fillColor=#ffffff;strokeColor=${n.failed ? "#a4262c" : "#c8c6c4"};${n.absent ? "dashed=1;opacity=55;" : ""}${n.down ? "opacity=45;" : ""}" vertex="1" parent="1">${geo(n)}</mxCell>`,
+      `<mxCell id="${esc(n.id)}" value="${esc(label)}" style="rounded=1;arcSize=6;whiteSpace=wrap;html=1;align=left;verticalAlign=middle;spacingLeft=52;fontSize=14;fillColor=#ffffff;strokeColor=${n.failed ? "#a4262c" : "#c8c6c4"};${n.absent ? "dashed=1;opacity=55;" : ""}${n.down ? "opacity=45;" : ""}" vertex="1" parent="1">${geo(n)}</mxCell>`,
     );
     if (n.icon)
       cells.push(
-        `<mxCell id="${esc(n.id)}__icon" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/${ICONS[n.icon]};" vertex="1" parent="1"><mxGeometry x="${Math.round(n.x + 9)}" y="${Math.round(n.y + (n.h - 32) / 2)}" width="32" height="32" as="geometry"/></mxCell>`,
+        `<mxCell id="${esc(n.id)}__icon" value="" style="image;aspect=fixed;html=1;points=[];image=img/lib/azure2/${ICONS[n.icon]};" vertex="1" parent="1"><mxGeometry x="${Math.round(n.x + 10)}" y="${Math.round(n.y + (n.h - 36) / 2)}" width="36" height="36" as="geometry"/></mxCell>`,
       );
   }
   const has = new Set(nodes.map((n) => n.id));
   const edge = (id: string, source: string, target: string, style: string, label?: string) =>
     has.has(source) && has.has(target)
-      ? `<mxCell id="${esc(id)}" value="${esc(label ?? "")}" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=10;labelBackgroundColor=#ffffff;${style}" edge="1" parent="1" source="${esc(source)}" target="${esc(target)}"><mxGeometry relative="1" as="geometry"/></mxCell>`
+      ? `<mxCell id="${esc(id)}" value="${esc(label ?? "")}" style="edgeStyle=orthogonalEdgeStyle;rounded=1;html=1;fontSize=11;labelBackgroundColor=#ffffff;${style}" edge="1" parent="1" source="${esc(source)}" target="${esc(target)}"><mxGeometry relative="1" as="geometry"/></mxCell>`
       : "";
   for (const e of edges)
     cells.push(

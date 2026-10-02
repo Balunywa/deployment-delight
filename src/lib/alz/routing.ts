@@ -17,6 +17,13 @@
  */
 import { AZURE_REGIONS } from "../regions";
 import { type Answers, hasFirewall, hasHub, on } from "./engine";
+import {
+  DEFAULT_ON_PREM_RANGES,
+  cidrHost,
+  hubAllocation,
+  hubSubnets,
+  virtualWanAllocation,
+} from "./ipplan";
 import type { HopGap, Spoke } from "./scene";
 import type { SceneExtra } from "./scene";
 
@@ -85,6 +92,7 @@ export type Topology = {
   gateway: { er: boolean; vpn: boolean; erDown?: boolean } | null;
   routingIntent: boolean;
   onPrem: string;
+  onPremRanges: string[];
   /** The spokes the scenarios use. */
   corpA?: string | undefined;
   corpB?: string | undefined;
@@ -102,7 +110,6 @@ export type Topology = {
 /** Failures to simulate: an ExpressRoute circuit, one availability zone, or the whole primary region. */
 export type Failure = "none" | "er" | "zone" | "region";
 
-const ON_PREM = "192.168.0.0/16";
 const INTERNET_HOST = "52.160.10.20";
 const MONITOR_HOST = "20.42.65.90";
 const USER_HOST = "203.0.113.25";
@@ -123,11 +130,28 @@ export function topology(
   const vnets: Vnet[] = [];
   const subnets: Subnet[] = [];
   const gatewayRouted = new Set<string>();
+  const onPremRanges = answers.onPremRanges.length
+    ? answers.onPremRanges
+    : [...DEFAULT_ON_PREM_RANGES];
+  const onPrem = onPremRanges[0] ?? DEFAULT_ON_PREM_RANGES[0];
+  const primaryHubCidr = hubAllocation(answers.hubAddressSpace)?.cidr ?? "10.0.0.0/22";
+  const primaryHubSubnets = new Map(
+    hubSubnets(answers.hubAddressSpace, answers).map((s) => [s.key, s.cidr]),
+  );
+  const primaryHubSubnet = (key: Parameters<typeof primaryHubSubnets.get>[0], fallback: string) =>
+    primaryHubSubnets.get(key) ?? fallback;
+  const primaryVwan = virtualWanAllocation(answers.hubAddressSpace, answers);
+  const primaryVirtualHubCidr = primaryVwan.virtualHub?.cidr ?? "10.0.4.0/22";
+  const primarySidecarCidr = primaryVwan.sidecar?.cidr ?? "10.0.0.0/22";
+  const primarySidecarSubnets = new Map(primaryVwan.sidecarSubnets.map((s) => [s.key, s.cidr]));
+  const primarySidecarSubnet = (
+    key: Parameters<typeof primarySidecarSubnets.get>[0],
+    fallback: string,
+  ) => primarySidecarSubnets.get(key) ?? fallback;
 
-  // The AVM hub module takes the first /22 of 10.0.0.0/16 and allocates subnets by size, then name.
   const firewall = fw
     ? {
-        ip: hubNet ? "10.0.0.68" : "10.0.64.4",
+        ip: hubNet ? cidrHost(primaryHubSubnet("firewall", "10.0.0.64/26"), 4) : "10.0.64.4",
         publicIp: FW_PUBLIC,
         sku: answers.firewall,
         dnsProxy: hubNet && dns && answers.firewall !== "Basic",
@@ -137,7 +161,7 @@ export function topology(
     vnets.push({
       id: "hub",
       name: "vnet-hub",
-      cidr: "10.0.0.0/22",
+      cidr: primaryHubCidr,
       peers: [],
       role: "hub",
       label: `Hub virtual network · ${answers.primaryRegion}`,
@@ -147,8 +171,8 @@ export function topology(
         id: "hub-bastion",
         vnet: "hub",
         name: "AzureBastionSubnet",
-        cidr: "10.0.0.0/26",
-        ip: "10.0.0.4",
+        cidr: primaryHubSubnet("bastion", "10.0.0.0/26"),
+        ip: cidrHost(primaryHubSubnet("bastion", "10.0.0.0/26"), 4),
         what: "Azure Bastion",
         private: false,
         publicIp: BASTION_PUBLIC,
@@ -158,7 +182,7 @@ export function topology(
         id: "hub-fw",
         vnet: "hub",
         name: "AzureFirewallSubnet",
-        cidr: "10.0.0.64/26",
+        cidr: primaryHubSubnet("firewall", "10.0.0.64/26"),
         ip: firewall!.ip,
         what: `Azure Firewall ${answers.firewall}`,
         private: false,
@@ -174,8 +198,8 @@ export function topology(
         id: "hub-gw",
         vnet: "hub",
         name: "GatewaySubnet",
-        cidr: "10.0.0.192/27",
-        ip: "10.0.0.196",
+        cidr: primaryHubSubnet("gateway", "10.0.0.192/27"),
+        ip: cidrHost(primaryHubSubnet("gateway", "10.0.0.192/27"), 4),
         what: on(answers.expressRoute) ? "ExpressRoute gateway" : "VPN gateway",
         private: false,
       });
@@ -184,8 +208,8 @@ export function topology(
         id: "hub-dns",
         vnet: "hub",
         name: "DNS resolver inbound",
-        cidr: "10.0.0.224/28",
-        ip: "10.0.0.228",
+        cidr: primaryHubSubnet("dns_resolver", "10.0.0.224/28"),
+        ip: cidrHost(primaryHubSubnet("dns_resolver", "10.0.0.224/28"), 4),
         what: "DNS Private Resolver",
         private: true,
       });
@@ -194,23 +218,33 @@ export function topology(
     vnets.push({
       id: "hub",
       name: "Virtual hub",
-      cidr: "10.0.0.0/23",
+      cidr: primaryVirtualHubCidr,
       peers: [],
       role: "hub",
       label: `Virtual WAN hub · ${answers.primaryRegion}`,
     });
 
-  // A hub in a second region: the module's default for a second hub is 10.1.0.0/16 (first /22 used), and hub
-  // networks are mesh-peered (global peering). The generated design deploys the same hub services there.
+  // A hub in a second region uses the secondary address space from the design, and hub networks are
+  // mesh-peered (global peering). The generated design deploys the same hub services there.
   const second =
     hasHub(answers) &&
     !!answers.secondaryRegion &&
     answers.secondaryRegion !== answers.primaryRegion;
+  const secondaryHubCidr = hubAllocation(answers.secondaryHubAddressSpace)?.cidr ?? "10.1.0.0/22";
+  const secondaryHubSubnets = new Map(
+    hubSubnets(answers.secondaryHubAddressSpace, answers).map((s) => [s.key, s.cidr]),
+  );
+  const secondaryHubSubnet = (
+    key: Parameters<typeof secondaryHubSubnets.get>[0],
+    fallback: string,
+  ) => secondaryHubSubnets.get(key) ?? fallback;
+  const secondaryVwan = virtualWanAllocation(answers.secondaryHubAddressSpace, answers);
+  const secondaryVirtualHubCidr = secondaryVwan.virtualHub?.cidr ?? "10.1.4.0/22";
   if (second && hubNet) {
     vnets.push({
       id: "hub2",
       name: "vnet-hub-2",
-      cidr: "10.1.0.0/22",
+      cidr: secondaryHubCidr,
       peers: ["hub"],
       role: "hub",
       label: `Hub virtual network · ${answers.secondaryRegion}`,
@@ -221,8 +255,8 @@ export function topology(
         id: "hub2-bastion",
         vnet: "hub2",
         name: "AzureBastionSubnet",
-        cidr: "10.1.0.0/26",
-        ip: "10.1.0.4",
+        cidr: secondaryHubSubnet("bastion", "10.1.0.0/26"),
+        ip: cidrHost(secondaryHubSubnet("bastion", "10.1.0.0/26"), 4),
         what: "Azure Bastion",
         private: false,
         publicIp: "20.52.8.20",
@@ -232,8 +266,8 @@ export function topology(
         id: "hub2-fw",
         vnet: "hub2",
         name: "AzureFirewallSubnet",
-        cidr: "10.1.0.64/26",
-        ip: "10.1.0.68",
+        cidr: secondaryHubSubnet("firewall", "10.1.0.64/26"),
+        ip: cidrHost(secondaryHubSubnet("firewall", "10.1.0.64/26"), 4),
         what: `Azure Firewall ${answers.firewall}`,
         private: false,
         publicIp: "20.52.8.10",
@@ -248,8 +282,8 @@ export function topology(
         id: "hub2-gw",
         vnet: "hub2",
         name: "GatewaySubnet",
-        cidr: "10.1.0.192/27",
-        ip: "10.1.0.196",
+        cidr: secondaryHubSubnet("gateway", "10.1.0.192/27"),
+        ip: cidrHost(secondaryHubSubnet("gateway", "10.1.0.192/27"), 4),
         what: on(answers.expressRoute) ? "ExpressRoute gateway" : "VPN gateway",
         private: false,
       });
@@ -258,8 +292,8 @@ export function topology(
         id: "hub2-dns",
         vnet: "hub2",
         name: "DNS resolver inbound",
-        cidr: "10.1.0.224/28",
-        ip: "10.1.0.228",
+        cidr: secondaryHubSubnet("dns_resolver", "10.1.0.224/28"),
+        ip: cidrHost(secondaryHubSubnet("dns_resolver", "10.1.0.224/28"), 4),
         what: "DNS Private Resolver",
         private: true,
       });
@@ -268,7 +302,7 @@ export function topology(
     vnets.push({
       id: "hub2",
       name: "Virtual hub 2",
-      cidr: "10.1.0.0/23",
+      cidr: secondaryVirtualHubCidr,
       peers: [],
       role: "hub",
       label: `Virtual WAN hub · ${answers.secondaryRegion}`,
@@ -385,26 +419,37 @@ export function topology(
       ),
     );
   const online = onlineIds[0];
-  if (wan && on(answers.bastion)) {
+  if (wan && (on(answers.bastion) || dns)) {
     vnets.push({
       id: "sidecar",
       name: "vnet-sidecar",
-      cidr: "10.0.8.0/24",
+      cidr: primarySidecarCidr,
       peers: [],
       role: "sidecar",
       hubConnected: true,
-      label: "Sidecar network (Bastion)",
+      label: "Sidecar network",
     });
-    subnets.push({
-      id: "sidecar-bastion",
-      vnet: "sidecar",
-      name: "AzureBastionSubnet",
-      cidr: "10.0.8.0/26",
-      ip: "10.0.8.4",
-      what: "Azure Bastion",
-      private: false,
-      publicIp: BASTION_PUBLIC,
-    });
+    if (on(answers.bastion))
+      subnets.push({
+        id: "sidecar-bastion",
+        vnet: "sidecar",
+        name: "AzureBastionSubnet",
+        cidr: primarySidecarSubnet("bastion", "10.0.0.0/26"),
+        ip: cidrHost(primarySidecarSubnet("bastion", "10.0.0.0/26"), 4),
+        what: "Azure Bastion",
+        private: false,
+        publicIp: BASTION_PUBLIC,
+      });
+    if (dns)
+      subnets.push({
+        id: "sidecar-dns",
+        vnet: "sidecar",
+        name: "DNS resolver inbound",
+        cidr: primarySidecarSubnet("dns_resolver", "10.0.0.64/28"),
+        ip: cidrHost(primarySidecarSubnet("dns_resolver", "10.0.0.64/28"), 4),
+        what: "DNS Private Resolver",
+        private: true,
+      });
   }
   return {
     mode: hubNet ? "hub" : wan ? "vwan" : "none",
@@ -419,7 +464,8 @@ export function topology(
           : { er: on(answers.expressRoute), vpn: on(answers.vpnGateway) }
         : null,
     routingIntent: wan && fw,
-    onPrem: ON_PREM,
+    onPrem,
+    onPremRanges,
     corpA: corpIds[0],
     corpB: corpIds[1],
     online,
@@ -470,7 +516,8 @@ export function effectiveRoutes(t: Topology, s: Subnet): Route[] {
       for (const v of t.vnets.filter((x) => x.hubConnected && x.id !== vnet.id))
         routes.push({ prefix: v.cidr, nextHop: "HubConnection", source: "Hub route table" });
       if (t.gateway)
-        routes.push({ prefix: t.onPrem, nextHop: "HubConnection", source: "Hub route table" });
+        for (const prefix of t.onPremRanges)
+          routes.push({ prefix, nextHop: "HubConnection", source: "Hub route table" });
     }
   }
   const learns =
@@ -480,11 +527,12 @@ export function effectiveRoutes(t: Topology, s: Subnet): Route[] {
     (vnet.role === "hub" || vnet.useRemoteGateways) &&
     (s.routeTable?.propagation ?? true);
   if (learns)
-    routes.push({
-      prefix: t.onPrem,
-      nextHop: "VirtualNetworkGateway",
-      source: "Virtual network gateway",
-    });
+    for (const prefix of t.onPremRanges)
+      routes.push({
+        prefix,
+        nextHop: "VirtualNetworkGateway",
+        source: "Virtual network gateway",
+      });
   if (s.routeTable) routes.push(...s.routeTable.routes);
   // The GatewaySubnet route table: each added spoke's exact range → firewall.
   if (s.name === "GatewaySubnet" && t.firewall)
@@ -760,7 +808,7 @@ function trace(
         });
         continue;
       }
-      if (inCidr(p.dst, t.onPrem) && t.gateway) {
+      if (t.onPremRanges.some((range) => inCidr(p.dst, range)) && t.gateway) {
         hops.push({
           at: t.mode === "vwan" ? "vhub-gw" : "hub-gw",
           title: "Out through the hub gateway",
@@ -776,7 +824,7 @@ function trace(
       hop.title = hop.title || `${s.what} → hub router`;
       hop.via = "Hub connection";
       hops.push(hop);
-      if (inCidr(p.dst, t.onPrem) && t.gateway) {
+      if (t.onPremRanges.some((range) => inCidr(p.dst, range)) && t.gateway) {
         hops.push({
           at: "hub-router",
           title: "Hub router → gateway",
