@@ -14,6 +14,8 @@ import {
   Workflow,
   X,
 } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -27,9 +29,10 @@ import { relative } from "@/lib/format";
 import { FLAG_LABEL, fiscal, niceName } from "@/lib/msx-signals";
 import { DURATIONS, PURPOSES, PURPOSE_ORDER, type Purpose } from "@/lib/playbook";
 import { type CallPlan, agendaFor, buildPlan, cleanWorkload, draftPov, uid } from "@/lib/workspace";
+import { redraftPrep } from "@/lib/workspace.functions";
 
 import { Panel } from "./ui";
-import { useWs, useWsValue } from "./ws";
+import { discardPending, useWs, useWsValue } from "./ws";
 
 const SHOWN_QUESTIONS = 7;
 
@@ -43,6 +46,19 @@ export function PrepView() {
   const conn = useConnector();
   const pull = useRefreshFromMsx(data.customer?.id ?? null);
   const [newQ, setNewQ] = useState("");
+  const queryClient = useQueryClient();
+  const redraftFn = useServerFn(redraftPrep);
+  const redraft = useMutation({
+    mutationFn: async () => {
+      discardPending(e.id, ["pov", "plans"]);
+      await redraftFn({ data: { id: e.id } });
+      await queryClient.invalidateQueries({ queryKey: ["workspace", e.id] });
+    },
+    onSuccess: () =>
+      toast.success("Redrafted from the evidence. It keeps itself current until you edit it."),
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const held = plans.some((p) => p.held);
 
   if (!data.customer || !data.prep)
     return (
@@ -186,6 +202,24 @@ export function PrepView() {
             >
               <RefreshCw className="size-3.5" />
               {pull.isPending ? "Reading MSX…" : "Refresh from MSX"}
+            </Button>
+          )}
+          {!held && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={redraft.isPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Replace the opening, questions and agenda with a fresh draft from MSX and your notes? Your edits to them are replaced; the old point of view stays in its history.",
+                  )
+                )
+                  redraft.mutate();
+              }}
+            >
+              <RefreshCw className="size-3.5" />
+              {redraft.isPending ? "Redrafting…" : "Redraft from the evidence"}
             </Button>
           )}
           <Button

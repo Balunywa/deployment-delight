@@ -534,6 +534,44 @@ export const addEvidence = createServerFn({ method: "POST" })
   });
 
 /**
+ * Starts the prep over from the evidence: the point of view and the call plan go (the old point of view stays in its
+ * history) and the next load drafts both again, kept current until someone edits them. Not once a meeting was held:
+ * by then the plan is part of the record.
+ */
+export const redraftPrep = createServerFn({ method: "POST" })
+  .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
+  .handler(async ({ data }) => {
+    const db = await import("./db.server");
+    const by = await me();
+    const row = await db.maybeOne<{ workspace: Workspace | null; customer_id: string | null }>(
+      "select workspace, customer_id from public.engagements where id = $1 and organization_id = $2",
+      [data.id, ORG_ID],
+    );
+    if (!row) throw new Error("Engagement not found.");
+    const w = row.workspace ?? {};
+    if ((w.plans ?? []).some((p) => p.held))
+      throw new Error("A meeting was held with this plan, so it's part of the record now.");
+    const { pov: old, auto: _auto, plans: _plans, ...rest } = w;
+    const next: Workspace = {
+      ...rest,
+      ...(old
+        ? {
+            povHistory: [
+              ...(w.povHistory ?? []),
+              { at: new Date().toISOString(), by, reason: "Redrafted from the evidence", pov: old },
+            ].slice(-50),
+          }
+        : {}),
+    };
+    await db.query(
+      "update public.engagements set workspace = $1::jsonb, updated_at = now() where id = $2",
+      [JSON.stringify(next), data.id],
+    );
+    await audit("engagement.prep_redrafted", data.id, row.customer_id, {});
+    return { ok: true };
+  });
+
+/**
  * Opens the workspace for a new engagement with this customer, as a draft: under an MSX opportunity (one engagement
  * per opportunity, so an existing one is returned) or proactive (an open proactive draft is resumed).
  */

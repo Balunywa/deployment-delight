@@ -531,6 +531,13 @@ test.describe.serial("MSX link", () => {
       .locator("ol li span:first-child")
       .evaluateAll((els) => els.reduce((n, el) => n + parseInt(el.textContent ?? "0", 10), 0));
     expect(minutes).toBe(30);
+    // Redraft starts over from the evidence (after a confirmation).
+    page.once("dialog", (d) => void d.accept());
+    await page.getByRole("button", { name: "Redraft from the evidence" }).click();
+    await expect(page.getByLabel("Length")).toHaveValue("60");
+    await expect(page.getByRole("textbox", { name: "Question 1", exact: true })).toHaveValue(
+      /^What are the one or two outcomes that matter most to Fabrikam Energy/,
+    );
   });
 
   test("a proactive engagement links an opportunity later", async ({ page }) => {

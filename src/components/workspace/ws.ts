@@ -83,6 +83,17 @@ function flush(key: string) {
 export function flushAll() {
   for (const k of [...pending.keys()]) flush(k);
 }
+/** Drops waiting saves and unsaved edits of these parts (they're being replaced, as when the prep is redrafted). */
+export function discardPending(engagementId: string, keys: (keyof Workspace)[]) {
+  for (const k of keys) {
+    const slot = `${engagementId}:${String(k)}`;
+    const p = pending.get(slot);
+    if (p) clearTimeout(p.timer);
+    pending.delete(slot);
+  }
+  const u = unsaved.get(engagementId);
+  if (u) for (const k of keys) delete u[k];
+}
 if (typeof window !== "undefined") window.addEventListener("pagehide", flushAll);
 
 /**
