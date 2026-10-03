@@ -141,6 +141,27 @@ export type MsxSignals = {
   partners: { partner: string; opportunities: string[] }[];
   /** Open opportunities by the Microsoft team that owns them. */
   ownerTeams: { team: string; count: number }[];
+  /** Open opportunities, for the relationship view and to match a conversation. */
+  opportunities: {
+    id: string;
+    number: string | null;
+    name: string;
+    stage: string | null;
+    solutionArea: string | null;
+    salesPlay: string | null;
+    type: string | null;
+    ownerTeam: string | null;
+  }[];
+  /** Open opportunities by MCEM stage, in stage order. */
+  stages: { stage: string; count: number }[];
+  /** Open milestones (not completed), soonest first, and how many are committed or marked #RTC. */
+  open: MsxMilestone[];
+  committed: number;
+  uncommitted: number;
+  /** Milestones the specialist or SE marked ready to commit (#RTC in the title) for the CSU handoff. */
+  rtc: MsxMilestone[];
+  /** The Microsoft account team on the top-parent account. */
+  team: { name: string; role: string | null }[];
   /** What couldn't be read (null in the snapshot) or isn't in older snapshots. */
   missing: ("milestones" | "contacts" | "partners")[];
 };
@@ -236,6 +257,13 @@ export function msxSignals(s: MsxSnapshot, now = new Date()): MsxSignals {
   for (const o of s.opportunities)
     if (o.ownerTeam) teams.set(o.ownerTeam, (teams.get(o.ownerTeam) ?? 0) + 1);
 
+  const stageCount = new Map<string, number>();
+  for (const o of s.opportunities) {
+    const st = mcemStage(o.stage);
+    stageCount.set(st, (stageCount.get(st) ?? 0) + 1);
+  }
+  const openSorted = [...open].sort((a, b) => time(a) - time(b));
+
   return {
     industry: s.account?.industry ?? null,
     country: s.account?.country ?? null,
@@ -249,8 +277,46 @@ export function msxSignals(s: MsxSnapshot, now = new Date()): MsxSignals {
     ownerTeams: [...teams.entries()]
       .map(([team, count]) => ({ team, count }))
       .sort((a, b) => b.count - a.count),
+    opportunities: s.opportunities.map((o) => ({
+      id: o.id,
+      number: o.number,
+      name: o.name,
+      stage: o.stage,
+      solutionArea: o.solutionArea,
+      salesPlay: o.salesPlay,
+      type: o.type ?? null,
+      ownerTeam: o.ownerTeam ?? null,
+    })),
+    stages: [...MCEM_STAGES, "Stage not set"]
+      .map((stage) => ({ stage, count: stageCount.get(stage) ?? 0 }))
+      .filter((x) => x.count > 0),
+    open: openSorted,
+    committed: open.filter((m) => m.commitment === "Committed").length,
+    uncommitted: open.filter((m) => m.commitment !== "Committed").length,
+    rtc: openSorted.filter((m) => /#rtc\b/i.test(m.name)),
+    team: s.team ?? [],
     missing: (["milestones", "contacts", "partners"] as const).filter((k) => s[k] == null),
   };
+}
+
+/** The MCEM stages, in order (the FY27 GTM framework). */
+export const MCEM_STAGES = [
+  "Listen & Consult",
+  "Inspire & Design",
+  "Empower & Achieve",
+  "Realize Value",
+  "Manage & Optimize",
+] as const;
+
+/** An opportunity's MSX sales stage as an MCEM stage ("2 - Inspire & Design" → "Inspire & Design"). */
+export function mcemStage(stage: string | null | undefined) {
+  const s = (stage ?? "").toLowerCase();
+  if (s.includes("listen")) return "Listen & Consult";
+  if (s.includes("inspire")) return "Inspire & Design";
+  if (s.includes("empower")) return "Empower & Achieve";
+  if (s.includes("realize")) return "Realize Value";
+  if (s.includes("manage")) return "Manage & Optimize";
+  return "Stage not set";
 }
 
 export const TEAM_LABEL: Record<string, string> = {

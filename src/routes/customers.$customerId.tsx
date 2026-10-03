@@ -7,7 +7,8 @@ import { toast } from "sonner";
 
 import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
 import { CustomerProfileCard } from "@/components/customer/CustomerProfileCard";
-import { PrepPanel } from "@/components/customer/PrepPanel";
+import { KnowYourCustomer } from "@/components/customer/KnowYourCustomer";
+import { niceName } from "@/lib/msx-signals";
 import { StageBadge, VersionCell } from "@/components/Fleet";
 import {
   Dot,
@@ -198,6 +199,9 @@ function CustomerDetail() {
   if (!c) return <EmptyState title="Customer not found." />;
 
   const fc = fleet.find((f) => f.id === customerId);
+  const tpid = (c as { tpid?: string | null }).tpid ?? null;
+  // An SE account (a TPID, nothing installed): the install views would all be empty.
+  const seOnly = !!tpid && envs.length === 0;
   const connections = (c.customer_connections ?? []) as {
     id: string;
     connection_type: string;
@@ -251,17 +255,23 @@ function CustomerDetail() {
             </Link>{" "}
             / {c.customer_code}
           </p>
-          <h1 className="mt-0.5 text-[22px] font-semibold">{c.name}</h1>
-          <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-            {fc && <StageBadge stage={fc.stage} />}
-            <span>{titleize(c.industry ?? "Utility")}</span>
-            <span>{RUNS_IN[c.azure_model] ?? c.azure_model}</span>
-            <span className="font-mono">
-              {c.azure_model === "isv_hosted"
-                ? "no customer Azure needed"
-                : `tenant ${c.tenant_id ? `${c.tenant_id.slice(0, 8)}…` : "not connected"}`}
-            </span>
-          </div>
+          <h1 className="mt-0.5 text-[22px] font-semibold">{niceName(c.name)}</h1>
+          {seOnly ? (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              <span className="font-mono">TPID {tpid}</span>
+            </p>
+          ) : (
+            <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+              {fc && <StageBadge stage={fc.stage} />}
+              <span>{titleize(c.industry ?? "Utility")}</span>
+              <span>{RUNS_IN[c.azure_model] ?? c.azure_model}</span>
+              <span className="font-mono">
+                {c.azure_model === "isv_hosted"
+                  ? "no customer Azure needed"
+                  : `tenant ${c.tenant_id ? `${c.tenant_id.slice(0, 8)}…` : "not connected"}`}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex max-w-[60%] flex-wrap justify-end gap-2">
           {envs.map((e) => (
@@ -319,375 +329,385 @@ function CustomerDetail() {
         </>
       )}
 
+      <KnowYourCustomer customerId={customerId} tpid={tpid} />
       <CustomerProfileCard customerId={customerId} />
-      <PrepPanel customerId={customerId} />
       <CustomerEngagements customerId={customerId} />
 
-      <Tabs defaultValue="architecture">
-        <TabsList className="flex-wrap">
-          <TabsTrigger value="architecture">Architecture</TabsTrigger>
-          <TabsTrigger value="delivery">Delivery</TabsTrigger>
-          <TabsTrigger value="runs">Runs · {runs.length}</TabsTrigger>
-          <TabsTrigger value="drift">
-            Drift & compliance{openDrift.length ? ` · ${openDrift.length}` : ""}
-          </TabsTrigger>
-          <TabsTrigger value="access">Access</TabsTrigger>
-          <TabsTrigger value="activity">Activity</TabsTrigger>
-        </TabsList>
+      {!seOnly && (
+        <Tabs defaultValue="architecture">
+          <TabsList className="flex-wrap">
+            <TabsTrigger value="architecture">Architecture</TabsTrigger>
+            <TabsTrigger value="delivery">Delivery</TabsTrigger>
+            <TabsTrigger value="runs">Runs · {runs.length}</TabsTrigger>
+            <TabsTrigger value="drift">
+              Drift & compliance{openDrift.length ? ` · ${openDrift.length}` : ""}
+            </TabsTrigger>
+            <TabsTrigger value="access">Access</TabsTrigger>
+            <TabsTrigger value="activity">Activity</TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="architecture" className="mt-4">
-          {env && arch ? (
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-              <div>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    {env.offerings?.name} v{env.desired?.version} as bound to {c.name} ·{" "}
-                    {LANDING_LABEL[arch.topology.landing].title}
-                  </p>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={preflight.isPending}
-                      onClick={() => preflight.mutate({ data: { environmentId: env.id } })}
-                    >
-                      Check landing zone
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={drift.isPending}
-                      onClick={() => drift.mutate({ data: { environmentId: env.id } })}
-                    >
-                      Detect drift
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={deploy.isPending}
-                      onClick={() =>
-                        deploy.mutate({
-                          data: {
-                            environmentId: env.id,
-                            deploymentType: env.actual ? "upgrade" : "initial",
-                            requestedBy: "Sarah Chen",
-                          },
-                        })
-                      }
-                    >
-                      {env.actual?.version === env.desired?.version
-                        ? "Re-run pipeline"
-                        : env.actual
-                          ? `Plan upgrade to v${env.desired?.version}`
-                          : "Plan initial deploy"}
-                    </Button>
+          <TabsContent value="architecture" className="mt-4">
+            {env && arch ? (
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <div>
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      {env.offerings?.name} v{env.desired?.version} as bound to {c.name} ·{" "}
+                      {LANDING_LABEL[arch.topology.landing].title}
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={preflight.isPending}
+                        onClick={() => preflight.mutate({ data: { environmentId: env.id } })}
+                      >
+                        Check landing zone
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={drift.isPending}
+                        onClick={() => drift.mutate({ data: { environmentId: env.id } })}
+                      >
+                        Detect drift
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={deploy.isPending}
+                        onClick={() =>
+                          deploy.mutate({
+                            data: {
+                              environmentId: env.id,
+                              deploymentType: env.actual ? "upgrade" : "initial",
+                              requestedBy: "Sarah Chen",
+                            },
+                          })
+                        }
+                      >
+                        {env.actual?.version === env.desired?.version
+                          ? "Re-run pipeline"
+                          : env.actual
+                            ? `Plan upgrade to v${env.desired?.version}`
+                            : "Plan initial deploy"}
+                      </Button>
+                    </div>
                   </div>
+                  <ArchitectureCanvas
+                    selected={arch.selected}
+                    topology={arch.topology}
+                    bindings={bindings}
+                    installName={`${c.customer_code}-${env.name.toLowerCase()}`}
+                  />
                 </div>
-                <ArchitectureCanvas
-                  selected={arch.selected}
-                  topology={arch.topology}
-                  bindings={bindings}
-                  installName={`${c.customer_code}-${env.name.toLowerCase()}`}
-                />
-              </div>
-              <div className="space-y-4">
-                <Panel
-                  title="Bindings"
-                  description="Everything that is specific to this customer"
-                  bodyClassName="p-0"
-                >
-                  <ul className="divide-y divide-border">
-                    {required.map((i) => (
-                      <li key={i.key} className="px-4 py-2">
-                        <p className="text-xs text-muted-foreground">{i.label}</p>
-                        <p
-                          className="truncate font-mono text-[11.5px]"
-                          title={bindings[i.key] ?? ""}
-                        >
-                          {bindings[i.key] ? (
-                            String(bindings[i.key]).split("/").slice(-1)[0]
-                          ) : (
-                            <span className="text-warning">not bound yet</span>
-                          )}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                </Panel>
-                <Panel
-                  title="Customizations"
-                  description="How this install differs from the standard product"
-                >
-                  {deviations.length ? (
-                    <ul className="space-y-2 text-xs">
-                      {deviations.map((d) => (
-                        <li key={d.key} className="flex items-start justify-between gap-2">
-                          <span>{d.label}</span>
-                          <Pill
-                            tone={
-                              d.kind === "exception"
-                                ? "danger"
-                                : d.kind === "drift"
-                                  ? "warning"
-                                  : "info"
-                            }
+                <div className="space-y-4">
+                  <Panel
+                    title="Bindings"
+                    description="Everything that is specific to this customer"
+                    bodyClassName="p-0"
+                  >
+                    <ul className="divide-y divide-border">
+                      {required.map((i) => (
+                        <li key={i.key} className="px-4 py-2">
+                          <p className="text-xs text-muted-foreground">{i.label}</p>
+                          <p
+                            className="truncate font-mono text-[11.5px]"
+                            title={bindings[i.key] ?? ""}
                           >
-                            {d.actual}
-                          </Pill>
+                            {bindings[i.key] ? (
+                              String(bindings[i.key]).split("/").slice(-1)[0]
+                            ) : (
+                              <span className="text-warning">not bound yet</span>
+                            )}
+                          </p>
                         </li>
                       ))}
                     </ul>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      None — a pure product install. Upgrades apply without customer-specific
-                      review.
-                    </p>
-                  )}
-                </Panel>
+                  </Panel>
+                  <Panel
+                    title="Customizations"
+                    description="How this install differs from the standard product"
+                  >
+                    {deviations.length ? (
+                      <ul className="space-y-2 text-xs">
+                        {deviations.map((d) => (
+                          <li key={d.key} className="flex items-start justify-between gap-2">
+                            <span>{d.label}</span>
+                            <Pill
+                              tone={
+                                d.kind === "exception"
+                                  ? "danger"
+                                  : d.kind === "drift"
+                                    ? "warning"
+                                    : "info"
+                              }
+                            >
+                              {d.actual}
+                            </Pill>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        None — a pure product install. Upgrades apply without customer-specific
+                        review.
+                      </p>
+                    )}
+                  </Panel>
+                </div>
               </div>
-            </div>
-          ) : (
-            <EmptyState title="No installs yet." />
-          )}
-        </TabsContent>
+            ) : (
+              <EmptyState title="No installs yet." />
+            )}
+          </TabsContent>
 
-        <TabsContent value="runs" className="mt-4">
-          <Panel bodyClassName="p-0">
-            <ul className="divide-y divide-border">
-              {runs.map((d) => (
-                <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0">
-                    <Link
-                      to="/deployments/$deploymentId"
-                      params={{ deploymentId: d.id }}
-                      className="text-[13px] font-medium hover:underline"
+          <TabsContent value="runs" className="mt-4">
+            <Panel bodyClassName="p-0">
+              <ul className="divide-y divide-border">
+                {runs.map((d) => (
+                  <li key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <Link
+                        to="/deployments/$deploymentId"
+                        params={{ deploymentId: d.id }}
+                        className="text-[13px] font-medium hover:underline"
+                      >
+                        {statusLabel(d.deployment_type)} · {d.env.name} → v
+                        {d.desired_version ?? "—"}
+                      </Link>
+                      <p className="font-mono text-[11px] text-muted-foreground">
+                        {d.correlation_id.slice(0, 8)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <span className="text-xs text-muted-foreground">
+                        {relative(d.requested_at)}
+                      </span>
+                      <Pill tone={deploymentTone(d.status)}>
+                        <Dot tone={deploymentTone(d.status)} />
+                        {statusLabel(d.status)}
+                      </Pill>
+                    </div>
+                  </li>
+                ))}
+                {!runs.length && (
+                  <li className="px-4 py-6 text-sm text-muted-foreground">No pipeline runs yet.</li>
+                )}
+              </ul>
+            </Panel>
+          </TabsContent>
+
+          <TabsContent value="drift" className="mt-4 grid gap-4 lg:grid-cols-2">
+            <Panel
+              title="Open drift"
+              description="Differences between desired state and what is running"
+              bodyClassName="p-0"
+            >
+              <ul className="divide-y divide-border">
+                {openDrift.map((f) => (
+                  <li key={f.id} className="px-4 py-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[13px] font-medium">
+                        {titleize(f.category)} · {f.env.name}
+                      </p>
+                      <Pill tone={severityTone(f.severity)}>{titleize(f.severity)}</Pill>
+                    </div>
+                    <p
+                      className="truncate font-mono text-[11px] text-muted-foreground"
+                      title={f.resource_id}
                     >
-                      {statusLabel(d.deployment_type)} · {d.env.name} → v{d.desired_version ?? "—"}
-                    </Link>
-                    <p className="font-mono text-[11px] text-muted-foreground">
-                      {d.correlation_id.slice(0, 8)}
+                      {f.resource_id.split("/").slice(-1)[0]}
                     </p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3">
-                    <span className="text-xs text-muted-foreground">
-                      {relative(d.requested_at)}
-                    </span>
-                    <Pill tone={deploymentTone(d.status)}>
-                      <Dot tone={deploymentTone(d.status)} />
-                      {statusLabel(d.status)}
+                    <div className="mt-1.5 grid gap-1 text-[11px] sm:grid-cols-2">
+                      <span className="rounded-sm bg-muted px-2 py-1 text-muted-foreground">
+                        Desired · {describe(f.expected_json)}
+                      </span>
+                      <span className="rounded-sm bg-warning/10 px-2 py-1 text-warning">
+                        Running · {describe(f.actual_json)}
+                      </span>
+                    </div>
+                    {f.recommended_remediation && (
+                      <p className="mt-1.5 text-xs text-muted-foreground">
+                        {f.recommended_remediation}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {(["remediate", "accept", "ignore", "escalate"] as const).map((action) => (
+                        <Button
+                          key={action}
+                          size="sm"
+                          variant={action === "remediate" ? "default" : "outline"}
+                          disabled={resolve.isPending}
+                          onClick={() =>
+                            resolve.mutate({
+                              data: { findingId: f.id, action, actor: "Sarah Chen" },
+                            })
+                          }
+                        >
+                          {action === "accept" ? "Accept as customization" : titleize(action)}
+                        </Button>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+                {!openDrift.length && (
+                  <li className="px-4 py-6 text-sm text-muted-foreground">No open drift.</li>
+                )}
+              </ul>
+            </Panel>
+            <Panel
+              title={`Compliance · ${env?.name ?? ""}`}
+              description="Evidence-backed controls from the policy pack"
+              bodyClassName="p-0"
+            >
+              <ul className="divide-y divide-border">
+                {(env?.compliance_checks ?? []).map((check) => (
+                  <li key={check.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
+                    <div className="min-w-0">
+                      <p className="text-[13px] font-medium">
+                        <span className="mr-2 font-mono text-[11px] text-muted-foreground">
+                          {check.control_key}
+                        </span>
+                        {check.control_name}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {check.evidence_json
+                          ? describe(check.evidence_json)
+                          : "No evidence recorded"}
+                      </p>
+                    </div>
+                    <ResultPill result={check.result} />
+                  </li>
+                ))}
+                {!(env?.compliance_checks ?? []).length && (
+                  <li className="px-4 py-6 text-sm text-muted-foreground">
+                    No checks recorded for this install.
+                  </li>
+                )}
+              </ul>
+            </Panel>
+          </TabsContent>
+
+          <TabsContent value="delivery" className="mt-4 grid gap-4 lg:grid-cols-[1fr_300px]">
+            <div className="min-w-0">
+              <CustomerDelivery
+                code={c.customer_code}
+                envs={envs}
+                subscriptionId={conn?.subscription_id ?? null}
+                hosted={c.azure_model === "isv_hosted"}
+              />
+            </div>
+            <aside>
+              <UnitCard link={{ customerId: c.id }} />
+            </aside>
+          </TabsContent>
+
+          <TabsContent value="access" className="mt-4 grid gap-4 lg:grid-cols-2">
+            <Panel
+              title="Azure access"
+              description="How your pipeline reaches this customer's Azure. No secrets are stored."
+            >
+              {conn ? (
+                <>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[13px] font-semibold">
+                      {CONNECTION_LABEL[conn.connection_type] ?? titleize(conn.connection_type)}
+                    </p>
+                    <Pill tone={conn.status === "validated" ? "success" : "warning"}>
+                      {conn.status === "validated" ? "Validated" : "Waiting on customer"}
                     </Pill>
                   </div>
-                </li>
-              ))}
-              {!runs.length && (
-                <li className="px-4 py-6 text-sm text-muted-foreground">No pipeline runs yet.</li>
-              )}
-            </ul>
-          </Panel>
-        </TabsContent>
-
-        <TabsContent value="drift" className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Panel
-            title="Open drift"
-            description="Differences between desired state and what is running"
-            bodyClassName="p-0"
-          >
-            <ul className="divide-y divide-border">
-              {openDrift.map((f) => (
-                <li key={f.id} className="px-4 py-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[13px] font-medium">
-                      {titleize(f.category)} · {f.env.name}
-                    </p>
-                    <Pill tone={severityTone(f.severity)}>{titleize(f.severity)}</Pill>
-                  </div>
-                  <p
-                    className="truncate font-mono text-[11px] text-muted-foreground"
-                    title={f.resource_id}
+                  <dl className="mt-3 space-y-1.5 text-xs">
+                    <KV label="Tenant" value={conn.tenant_id ?? "—"} />
+                    <KV label="Subscription" value={conn.subscription_id ?? "—"} />
+                    <KV
+                      label="Credential"
+                      value={conn.credential_reference ?? "managed identity"}
+                    />
+                    <KV
+                      label="Last validated"
+                      value={conn.last_validated_at ? relative(conn.last_validated_at) : "never"}
+                    />
+                  </dl>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-3"
+                    disabled={validate.isPending}
+                    onClick={() => validate.mutate({ data: { connectionId: conn.id } })}
                   >
-                    {f.resource_id.split("/").slice(-1)[0]}
-                  </p>
-                  <div className="mt-1.5 grid gap-1 text-[11px] sm:grid-cols-2">
-                    <span className="rounded-sm bg-muted px-2 py-1 text-muted-foreground">
-                      Desired · {describe(f.expected_json)}
-                    </span>
-                    <span className="rounded-sm bg-warning/10 px-2 py-1 text-warning">
-                      Running · {describe(f.actual_json)}
-                    </span>
-                  </div>
-                  {f.recommended_remediation && (
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      {f.recommended_remediation}
-                    </p>
-                  )}
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {(["remediate", "accept", "ignore", "escalate"] as const).map((action) => (
-                      <Button
-                        key={action}
-                        size="sm"
-                        variant={action === "remediate" ? "default" : "outline"}
-                        disabled={resolve.isPending}
-                        onClick={() =>
-                          resolve.mutate({ data: { findingId: f.id, action, actor: "Sarah Chen" } })
-                        }
-                      >
-                        {action === "accept" ? "Accept as customization" : titleize(action)}
-                      </Button>
-                    ))}
-                  </div>
-                </li>
-              ))}
-              {!openDrift.length && (
-                <li className="px-4 py-6 text-sm text-muted-foreground">No open drift.</li>
+                    Test connection
+                  </Button>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">No connection recorded.</p>
               )}
-            </ul>
-          </Panel>
-          <Panel
-            title={`Compliance · ${env?.name ?? ""}`}
-            description="Evidence-backed controls from the policy pack"
-            bodyClassName="p-0"
-          >
-            <ul className="divide-y divide-border">
-              {(env?.compliance_checks ?? []).map((check) => (
-                <li key={check.id} className="flex items-start justify-between gap-3 px-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="text-[13px] font-medium">
-                      <span className="mr-2 font-mono text-[11px] text-muted-foreground">
-                        {check.control_key}
-                      </span>
-                      {check.control_name}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {check.evidence_json ? describe(check.evidence_json) : "No evidence recorded"}
-                    </p>
-                  </div>
-                  <ResultPill result={check.result} />
-                </li>
-              ))}
-              {!(env?.compliance_checks ?? []).length && (
-                <li className="px-4 py-6 text-sm text-muted-foreground">
-                  No checks recorded for this install.
-                </li>
-              )}
-            </ul>
-          </Panel>
-        </TabsContent>
-
-        <TabsContent value="delivery" className="mt-4 grid gap-4 lg:grid-cols-[1fr_300px]">
-          <div className="min-w-0">
-            <CustomerDelivery
-              code={c.customer_code}
-              envs={envs}
-              subscriptionId={conn?.subscription_id ?? null}
-              hosted={c.azure_model === "isv_hosted"}
-            />
-          </div>
-          <aside>
-            <UnitCard link={{ customerId: c.id }} />
-          </aside>
-        </TabsContent>
-
-        <TabsContent value="access" className="mt-4 grid gap-4 lg:grid-cols-2">
-          <Panel
-            title="Azure access"
-            description="How your pipeline reaches this customer's Azure. No secrets are stored."
-          >
-            {conn ? (
-              <>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[13px] font-semibold">
-                    {CONNECTION_LABEL[conn.connection_type] ?? titleize(conn.connection_type)}
-                  </p>
-                  <Pill tone={conn.status === "validated" ? "success" : "warning"}>
-                    {conn.status === "validated" ? "Validated" : "Waiting on customer"}
-                  </Pill>
-                </div>
-                <dl className="mt-3 space-y-1.5 text-xs">
-                  <KV label="Tenant" value={conn.tenant_id ?? "—"} />
-                  <KV label="Subscription" value={conn.subscription_id ?? "—"} />
-                  <KV label="Credential" value={conn.credential_reference ?? "managed identity"} />
-                  <KV
-                    label="Last validated"
-                    value={conn.last_validated_at ? relative(conn.last_validated_at) : "never"}
-                  />
-                </dl>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3"
-                  disabled={validate.isPending}
-                  onClick={() => validate.mutate({ data: { connectionId: conn.id } })}
-                >
-                  Test connection
-                </Button>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">No connection recorded.</p>
-            )}
-          </Panel>
-          {c.azure_model === "isv_hosted" ? (
-            <Panel
-              title="Hosted in your Azure"
-              description="This customer doesn't need Azure of their own"
-            >
-              <p className="text-[13px] text-muted-foreground">
-                Every install for {c.name} runs in a dedicated subscription in your Azure. Their
-                users only need to sign in with their work accounts — there is no install link and
-                no access for their IT team to grant.
-              </p>
             </Panel>
-          ) : (
-            <Panel
-              title="Customer install link"
-              description="What the customer's Azure admin opens to review the architecture and grant access"
-            >
-              <div className="flex items-center gap-2 rounded-sm border border-border bg-muted/50 px-3 py-2">
-                <code className="min-w-0 flex-1 truncate font-mono text-xs">{link}</code>
-                <button
-                  onClick={() => {
-                    void navigator.clipboard.writeText(link);
-                    toast.success("Install link copied");
-                  }}
-                  aria-label="Copy install link"
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <Copy className="size-3.5" />
-                </button>
-              </div>
-              <a
-                href={`/connect/${customerId}?preview=1`}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+            {c.azure_model === "isv_hosted" ? (
+              <Panel
+                title="Hosted in your Azure"
+                description="This customer doesn't need Azure of their own"
               >
-                <ExternalLink className="size-3" /> Preview what the customer sees
-              </a>
-            </Panel>
-          )}
-        </TabsContent>
+                <p className="text-[13px] text-muted-foreground">
+                  Every install for {c.name} runs in a dedicated subscription in your Azure. Their
+                  users only need to sign in with their work accounts — there is no install link and
+                  no access for their IT team to grant.
+                </p>
+              </Panel>
+            ) : (
+              <Panel
+                title="Customer install link"
+                description="What the customer's Azure admin opens to review the architecture and grant access"
+              >
+                <div className="flex items-center gap-2 rounded-sm border border-border bg-muted/50 px-3 py-2">
+                  <code className="min-w-0 flex-1 truncate font-mono text-xs">{link}</code>
+                  <button
+                    onClick={() => {
+                      void navigator.clipboard.writeText(link);
+                      toast.success("Install link copied");
+                    }}
+                    aria-label="Copy install link"
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <Copy className="size-3.5" />
+                  </button>
+                </div>
+                <a
+                  href={`/connect/${customerId}?preview=1`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                >
+                  <ExternalLink className="size-3" /> Preview what the customer sees
+                </a>
+              </Panel>
+            )}
+          </TabsContent>
 
-        <TabsContent value="activity" className="mt-4">
-          <Panel bodyClassName="p-0">
-            <ul className="divide-y divide-border">
-              {events.map((e) => (
-                <li key={e.id} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
-                  <p className="text-[13px]">
-                    <span className="font-medium">{e.actor_name ?? "system"}</span>{" "}
-                    <span className="text-muted-foreground">
-                      {e.event_type.replace(/[._]/g, " ")}
+          <TabsContent value="activity" className="mt-4">
+            <Panel bodyClassName="p-0">
+              <ul className="divide-y divide-border">
+                {events.map((e) => (
+                  <li key={e.id} className="flex items-baseline justify-between gap-3 px-4 py-2.5">
+                    <p className="text-[13px]">
+                      <span className="font-medium">{e.actor_name ?? "system"}</span>{" "}
+                      <span className="text-muted-foreground">
+                        {e.event_type.replace(/[._]/g, " ")}
+                      </span>
+                    </p>
+                    <span className="shrink-0 text-[11px] text-muted-foreground">
+                      {dateTime(e.timestamp)}
                     </span>
-                  </p>
-                  <span className="shrink-0 text-[11px] text-muted-foreground">
-                    {dateTime(e.timestamp)}
-                  </span>
-                </li>
-              ))}
-              {!events.length && (
-                <li className="px-4 py-6 text-sm text-muted-foreground">No activity yet.</li>
-              )}
-            </ul>
-          </Panel>
-        </TabsContent>
-      </Tabs>
+                  </li>
+                ))}
+                {!events.length && (
+                  <li className="px-4 py-6 text-sm text-muted-foreground">No activity yet.</li>
+                )}
+              </ul>
+            </Panel>
+          </TabsContent>
+        </Tabs>
+      )}
     </>
   );
 }

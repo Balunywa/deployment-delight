@@ -66,6 +66,9 @@ const plan = z.object({
   id,
   title: s(200),
   purpose,
+  conversation: z
+    .enum(["ubiquitous-innovation", "amplify-intelligence", "modernize", "data-ai-platform"])
+    .optional(),
   duration: z.number().int().min(15).max(480),
   date: s(20),
   outcome: s(800),
@@ -284,6 +287,7 @@ async function loadWorkspace(engagementId: string): Promise<WorkspaceData> {
     const plans = w.plans ?? [];
     const basis = hash({
       customer: customer.name,
+      conversation: w.conversation ?? null,
       items: items.map((i) => [i.id, i.status]),
       goals: prep.goals.map((q) => q.text),
       whyNow: prep.whyNow.map((q) => q.text),
@@ -311,6 +315,7 @@ async function loadWorkspace(engagementId: string): Promise<WorkspaceData> {
         pov,
         prep,
         customer: customer.name,
+        ...(w.conversation ? { conversation: w.conversation } : {}),
       });
       const auto = { basis, output: hash({ pov, plans: [plan] }) };
       const saved = await db.maybeOne<{ workspace: WorkspaceEngagement["workspace"] }>(
@@ -587,6 +592,9 @@ export const startDraft = createServerFn({ method: "POST" })
           .optional(),
         opportunityName: s(200).optional(),
         name: s(160).optional(),
+        conversation: z
+          .enum(["ubiquitous-innovation", "amplify-intelligence", "modernize", "data-ai-platform"])
+          .optional(),
       })
       .parse(d),
   )
@@ -607,7 +615,15 @@ export const startDraft = createServerFn({ method: "POST" })
            and status = 'draft' and msx_opportunity_id is null order by updated_at desc limit 1`,
           [ORG_ID, data.customerId],
         );
-    if (existing) return { id: existing.id, created: false, status: existing.status };
+    if (existing) {
+      // The SE picked a conversation to prepare: an untouched prep redrafts for it on the next load.
+      if (data.conversation && existing.status === "draft")
+        await db.query(
+          "update public.engagements set workspace = coalesce(workspace, '{}'::jsonb) || jsonb_build_object('conversation', $1::text) where id = $2",
+          [data.conversation, existing.id],
+        );
+      return { id: existing.id, created: false, status: existing.status };
+    }
     const name =
       data.name?.trim() || data.opportunityName?.trim() || `${customer.name}: first conversation`;
     const row = await db.insert<{ id: string }>("engagements", {
@@ -621,7 +637,10 @@ export const startDraft = createServerFn({ method: "POST" })
       msx_opportunity_id: data.opportunityId ?? null,
       msx_opportunity_name: data.opportunityName?.trim() || null,
       brief: { signals: [], words: "" },
-      workspace: { playbook: PLAYBOOK_VERSION },
+      workspace: {
+        playbook: PLAYBOOK_VERSION,
+        ...(data.conversation ? { conversation: data.conversation } : {}),
+      },
     } as never);
     await audit("engagement.draft_started", row.id, data.customerId, {
       name,

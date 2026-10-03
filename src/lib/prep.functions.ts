@@ -106,6 +106,83 @@ export const getCustomerPrep = createServerFn({ method: "GET" })
   .inputValidator((d: unknown) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data }) => prepFor(data.id));
 
+export type AccountRow = {
+  id: string;
+  name: string;
+  tpid: string;
+  industry: string | null;
+  country: string | null;
+  fetchedAt: string | null;
+  opportunities: number;
+  stages: { stage: string; count: number }[];
+  inMotion: string[];
+  attention: number;
+  committed: number;
+  uncommitted: number;
+  rtc: number;
+  leadWith: { id: string; title: string; reasons: string[] } | null;
+  engagements: number;
+  latestDraft: string | null;
+};
+
+/**
+ * The SE's accounts (customers with a TPID), each summarized from its last MSX snapshot: stage mix, what Microsoft
+ * is driving, what's stuck, milestones committed or not, and the conversation to lead with. No MSX call.
+ */
+export const listAccounts = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AccountRow[]> => {
+    const db = await import("./db.server");
+    const { buildPrep } = await import("./prep");
+    const { recommendConversations } = await import("./conversations");
+    const { cleanWorkload, niceName } = await import("./msx-signals");
+    const rows = await db.query<{
+      id: string;
+      name: string;
+      tpid: string;
+      msx_account_name: string | null;
+      context: import("./prep").PrepEntry[] | null;
+      engagements: number;
+      latest_draft: string | null;
+    }>(
+      `select c.id, c.name, c.tpid, c.msx_account_name, c.context,
+         (select count(*)::int from public.engagements e where e.customer_id = c.id) as engagements,
+         (select e.id from public.engagements e where e.customer_id = c.id and e.status = 'draft'
+           order by e.updated_at desc limit 1) as latest_draft
+       from public.customers c
+       where c.organization_id = '11111111-1111-1111-1111-111111111111' and c.tpid is not null
+       order by c.name`,
+    );
+    return rows.map((r) => {
+      const prep = buildPrep({
+        customer: { name: r.name, msx_account_name: r.msx_account_name },
+        context: r.context ?? [],
+        peers: [],
+      });
+      const s = prep.msx;
+      const top = recommendConversations(prep)[0];
+      return {
+        id: r.id,
+        name: niceName(r.name),
+        tpid: r.tpid,
+        industry: s?.industry ?? null,
+        country: s?.country ?? null,
+        fetchedAt: prep.account.fetchedAt,
+        opportunities: s?.opportunities.length ?? prep.origin.length,
+        stages: s?.stages ?? [],
+        inMotion: (s?.inMotion ?? []).slice(0, 3).map((w) => cleanWorkload(w.workload)),
+        attention: s?.attention.length ?? 0,
+        committed: s?.committed ?? 0,
+        uncommitted: s?.uncommitted ?? 0,
+        rtc: s?.rtc.length ?? 0,
+        leadWith:
+          top && top.score > 0 ? { id: top.id, title: top.title, reasons: top.reasons } : null,
+        engagements: r.engagements,
+        latestDraft: r.latest_draft,
+      };
+    });
+  },
+);
+
 const draftSchema = z.object({
   summary: z.string().max(1200).default(""),
   questions: z

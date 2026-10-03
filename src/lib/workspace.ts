@@ -17,7 +17,9 @@ import {
   RESOURCES,
   type Resource,
 } from "./playbook";
+import { conversationById, topConversation } from "./conversations";
 import type { MatchedArea, Prep, Quote } from "./prep";
+import type { ConversationId } from "./se-playbook";
 
 /* ----------------------------------------------------------------------------------------- evidence */
 
@@ -631,6 +633,8 @@ export type CallPlan = {
   id: string;
   title: string;
   purpose: Purpose;
+  /** The playbook conversation it leads with (Modernize with Confidence…), when one is chosen. */
+  conversation?: ConversationId | undefined;
   duration: number;
   date: string;
   outcome: string;
@@ -793,6 +797,8 @@ export function buildPlan(input: {
   prep: Prep;
   customer: string;
   audience?: Attendee[];
+  /** The playbook conversation; by default the one MSX and the notes point to. */
+  conversation?: ConversationId | null;
 }): CallPlan {
   const g = PURPOSES[input.purpose];
   const { pov, prep } = input;
@@ -805,7 +811,23 @@ export function buildPlan(input: {
     questions.push({ ...q, id: uid("q") });
   };
   // What to ask the customer. Our assumptions are tested separately in the meeting view, not read out as questions.
-  for (const q of conversationQuestions(prep, input.customer)) push(q);
+  const conv = conversationById(
+    input.conversation === undefined ? topConversation(prep) : input.conversation,
+  );
+  // Outcomes and what MSX shows stuck first, then the playbook's lead question for each customer outcome of the
+  // conversation, then what's in motion, live, the timing and who decides.
+  const mine = conversationQuestions(prep, input.customer);
+  const lead = mine.filter((q, i) => i === 0 || q.text.startsWith("Where are you with"));
+  for (const q of lead) push(q);
+  if (conv)
+    for (const d of conv.discovery)
+      if (d.questions[0])
+        push({
+          text: d.questions[0],
+          why: `Playbook, ${conv.title}: ${d.outcome}.`,
+          source: "playbook",
+        });
+  for (const q of mine.filter((q) => !lead.includes(q))) push(q);
   for (const a of prep.areas.slice(0, 2))
     if (a.ask[0])
       push({
@@ -866,10 +888,22 @@ export function buildPlan(input: {
       .slice(0, 10)
       .map((q) => ({ ...q, text: fit(q.text, 500), why: fit(q.why, 300) })),
     followUps: followUps.map((f) => ({ text: fit(f.text, 500), because: fit(f.because, 300) })),
-    listenFor: [...g.listenFor],
-    objections: [...g.objections],
+    listenFor: [...(conv?.signals.slice(0, 3) ?? []), ...g.listenFor].map((l) => fit(l, 300)),
+    objections: [
+      ...(conv?.objections.slice(0, 3).map((o) => ({
+        text: fit(o.hear, 300),
+        explore: fit(o.proof ? `${o.respond} Proof: ${o.proof}` : o.respond, 500),
+      })) ?? []),
+      ...g.objections,
+    ].slice(0, 10),
     constraints: prep.areas.slice(0, 3).map((a) => `${a.label}: ${a.ask[a.ask.length - 1]}`),
-    nextStep: g.nextStep,
+    nextStep: fit(
+      conv && input.purpose === "discovery" && conv.workshop.name
+        ? `${g.nextStep} For ${conv.title}: offer the ${conv.workshop.name}.`
+        : g.nextStep,
+      500,
+    ),
+    ...(conv ? { conversation: conv.id } : {}),
     participants: g.participants,
     agenda: agendaFor(input.purpose, input.duration),
     notes: "",
@@ -1026,6 +1060,8 @@ export type Workspace = {
    * draft itself, both hashed. While nobody has edited them, a change in the evidence redrafts them.
    */
   auto?: { basis: string; output: string };
+  /** The playbook conversation the SE chose to prepare (from the customer page); else the one MSX points to. */
+  conversation?: ConversationId;
 };
 
 export type WorkspaceEngagement = Engagement & {

@@ -512,9 +512,26 @@ test.describe.serial("MSX link", () => {
     await expect(page.getByRole("textbox", { name: "Question 1", exact: true })).toHaveValue(
       `What are the one or two outcomes that matter most to Fabrikam Energy ${RUN} this year, and how will you know you got there?`,
     );
-    await expect(page.getByRole("textbox", { name: "Question 2", exact: true })).toHaveValue(
-      /^What's driving your interest in Fabric, and what would success look like by /,
+    // The conversation MSX points to (a Fabric milestone), with its reasons; its discovery questions follow.
+    await expect(page.getByLabel("Conversation", { exact: true })).toHaveValue("data-ai-platform");
+    await expect(page.getByRole("region", { name: "The conversation" })).toContainText(
+      "MSX milestones in motion: Fabric",
     );
+    await expect(page.getByRole("textbox", { name: "Question 2", exact: true })).toHaveValue(
+      "Can your AI discover and safely access all the data of your organization? If not, what are the challenges?",
+    );
+    const asked = await page
+      .getByRole("textbox", { name: /^Question \d+$/ })
+      .evaluateAll((els) => els.map((el) => (el as HTMLTextAreaElement).value));
+    expect(
+      asked.some((q) =>
+        /^What's driving your interest in Fabric, and what would success look like by /.test(q),
+      ),
+    ).toBe(true);
+    await expect(page.getByRole("region", { name: "If you hear…" })).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "After the call: execute in MSX" }),
+    ).toContainText("Lakehouse pilot");
     await expect(page.getByRole("region", { name: "What Microsoft is driving" })).toContainText(
       "Fabric",
     );

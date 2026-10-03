@@ -166,6 +166,33 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 
 ## 4. What's built (high level; README has detail)
 
+- **Aligned to the FY27 Cloud + AI Solution Engineers Playbook (3 Oct)** (`src/lib/se-playbook.ts`: the four CAIP
+  conversations (Ubiquitous Innovation, Amplify your Intelligence, Modernize with Confidence, A Unified, Governed
+  Data and AI Platform) with their opportunity, why now, differentiation, customer outcomes, decision makers, metrics,
+  hook, ATU-validated discovery questions, signals, personas, objections (when you hear → respond → proof), compete,
+  scenarios and technical workshop; plus high-value activities, #RTC commitment criteria, STU→CSU handoff and TCP
+  guidance, MSX notes practice, stage guide; each block cites its slide. The deck is a sensitivity-labelled .pptx:
+  read it through PowerPoint COM). `src/lib/conversations.ts` ranks the conversations for an account from MSX (open
+  milestones by workload weigh most, then opportunity names, live workloads and the notes; solution areas and sales
+  plays are too broad), always with reasons.
+  - **Customers** (`/customers`): "your accounts" from MSX (`listAccounts`, `components/customer/Accounts.tsx`):
+    opportunities by MCEM stage, what Microsoft is driving, stuck or stale, milestones committed / uncommitted /
+    #RTC, the conversation to lead with, Open prep / Prepare. The ISV install views ("Deployments") show only for
+    customers with installs.
+  - **A customer** (`/customers/<id>`): **Know your customer** (`KnowYourCustomer.tsx`, the playbook's first prep
+    task): snapshot, key stakeholders, Microsoft relationship, and which conversation to lead with, each with "Prepare
+    this conversation" (`startDraft` takes the conversation; an untouched prep redrafts for it). SE accounts (a TPID,
+    nothing installed) don't show the ISV header or tabs.
+  - **Prep** follows Prepare → Engage → Handle objections → Execute: the conversation (recommended, switchable;
+    purpose and length), 1 Open (with the conversation's hook), 2 Discover (outcomes, what MSX shows stuck, the
+    conversation's lead discovery question per outcome, workloads in motion, live, timing, who decides), 3 Propose
+    (scenarios to go deeper, next step, the technical workshop to leave behind), 4 If you hear… (its objections); on
+    the right the agenda and listen-for, the account (stages, account team), what Microsoft is driving, who to talk to
+    (its decision makers matched to MSX contacts), **After the call: execute in MSX** (the high-value activity to log
+    for the meeting's purpose, the conversation's milestones to drive uncommitted → committed, the #RTC criteria) and
+    what's not known. The plan stores its `conversation`.
+  - **Engagements** cards say which conversation each leads with; drafts open on their prep.
+
 - **Prep, one click (3 Oct, after Lukman: "think like an SE; this is way too manual")**: Onboard customer → TPID →
   **Prepare my first conversation** saves the customer (MSX names in capitals become "Murphy Oil") and the MSX
   snapshot, opens the engagement draft and lands on its **Prep** tab (`components/workspace/Prep.tsx`), the default

@@ -39,6 +39,7 @@ import {
   type Phase,
   type WorkspaceEngagement,
 } from "@/lib/workspace";
+import { conversationById } from "@/lib/conversations";
 
 type Search = { new?: string; phase?: Phase };
 
@@ -193,6 +194,9 @@ function EngagementCard({ engagement: e }: { engagement: WorkspaceEngagement }) 
   const next = nextAction(e);
   const readiness = readinessOf(e);
   const outcome = e.workspace.charter?.outcome || e.brief.outcome;
+  const plans = e.workspace.plans ?? [];
+  const conv = conversationById((plans.find((p) => !p.held) ?? plans.at(-1))?.conversation);
+  const draft = e.status === "draft";
   return (
     <article className="group relative rounded-xl border border-border bg-card p-4 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_14px_32px_-18px_rgba(30,64,175,0.45)]">
       <div className="flex items-start justify-between gap-3">
@@ -208,6 +212,9 @@ function EngagementCard({ engagement: e }: { engagement: WorkspaceEngagement }) 
             {e.customer_name ?? "No customer yet"}
             {e.msx_opportunity_id ? ` · MSX ${e.msx_opportunity_id}` : " · Proactive"}
           </p>
+          {conv && (
+            <p className="mt-0.5 line-clamp-1 text-[12px] text-primary">Leads with {conv.title}</p>
+          )}
         </div>
         <Pill tone={phaseTone(phase.key)}>
           {phase.key === "preparing" ? "Preparing — not started with the customer" : phase.title}
@@ -226,10 +233,11 @@ function EngagementCard({ engagement: e }: { engagement: WorkspaceEngagement }) 
         <Link
           to="/engagements/$engagementId"
           params={{ engagementId: e.id }}
-          search={{ tab: next.tab }}
+          search={{ tab: draft ? "prep" : next.tab }}
           className="relative z-10 inline-flex items-center gap-1 font-medium text-foreground hover:text-primary"
         >
-          <ArrowRight className="size-3 text-primary" /> Next: {next.label}
+          <ArrowRight className="size-3 text-primary" />{" "}
+          {draft ? "Open the prep" : `Next: ${next.label}`}
         </Link>
         <span>
           {e.owner_name ?? "No owner"} · updated {relative(e.updated_at)}

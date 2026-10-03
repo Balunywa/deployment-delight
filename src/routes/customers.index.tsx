@@ -1,4 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { ArrowDown, ArrowUp, Building2, Cloud, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -16,7 +18,10 @@ import { RUNS_IN } from "@/lib/architecture";
 import { currency, relative } from "@/lib/format";
 import { modelOf, productOf } from "@/lib/product-catalog";
 import { type FleetCustomer, useFleet } from "@/lib/use-fleet";
+import { listAccounts } from "@/lib/prep.functions";
 import { cn } from "@/lib/utils";
+
+import { Accounts } from "@/components/customer/Accounts";
 
 export const Route = createFileRoute("/customers/")({
   head: () => ({
@@ -104,7 +109,14 @@ function Customers() {
   const [product, setProduct] = useState("any");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: "spend", desc: true });
 
-  const all = useMemo(() => fleet.map(toRow), [fleet]);
+  const loadAccounts = useServerFn(listAccounts);
+  const accounts = useQuery({ queryKey: ["accounts"], queryFn: () => loadAccounts() });
+  // SE accounts with nothing installed are listed under Accounts; the install views below are for deployments.
+  const seOnly = useMemo(() => new Set((accounts.data ?? []).map((a) => a.id)), [accounts.data]);
+  const all = useMemo(
+    () => fleet.filter((f) => !(seOnly.has(f.id) && !f.installs.length)).map(toRow),
+    [fleet, seOnly],
+  );
   const products = [...new Set(all.flatMap((r) => r.products.map((p) => p.name)))].sort();
   const counts = {
     all: all.length,
@@ -175,8 +187,8 @@ function Customers() {
         <div>
           <h1 className="text-[22px] font-semibold">Customers</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Who runs what, where it runs, whether it's current — and the Azure consumption it
-            drives.
+            Your accounts from MSX: what Microsoft is driving, what's stuck, and which conversation
+            to lead with.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -195,247 +207,259 @@ function Customers() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <Kpi label="Customers" value={String(counts.all)} hint={`${installs} installs`} />
-        <Kpi
-          label="Live"
-          value={String(counts.live)}
-          hint={`${counts.onboarding} onboarding`}
-          tone="success"
-        />
-        <Kpi
-          label="Azure consumption"
-          value={`${currency(spend, { compact: true })}/mo`}
-          hint={`${currency(spend * 12, { compact: true })} a year across customers' Azure`}
-        />
-        <Kpi
-          label="Behind on releases"
-          value={String(behind)}
-          hint="installs not on the latest release"
-          tone={behind ? "warning" : "success"}
-        />
-        <Kpi
-          label="Needs attention"
-          value={String(counts.attention)}
-          hint="blocked, deprecated, drift or low compliance"
-          tone={counts.attention ? "danger" : "success"}
-        />
-      </div>
+      <Accounts rows={accounts.data ?? []} loading={accounts.isLoading} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex rounded-md border border-border bg-card p-0.5 text-[12.5px]">
-          {(
-            [
-              ["all", "All"],
-              ["live", "Live"],
-              ["onboarding", "Onboarding"],
-              ["attention", "Needs attention"],
-            ] as const
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              onClick={() => setView(k)}
-              className={cn(
-                "rounded-sm px-2.5 py-1",
-                view === k
-                  ? "bg-accent font-medium text-accent-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {label} <span className="font-mono text-[11px] opacity-70">{counts[k]}</span>
-            </button>
-          ))}
-        </div>
-        <div className="relative w-64">
-          <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" />
-          <Input
-            placeholder="Search customers or products"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="h-9 pl-8"
-          />
-        </div>
-        <Select value={runsIn} onValueChange={setRunsIn}>
-          <SelectTrigger className="h-9 w-56">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="any">Runs anywhere</SelectItem>
-            {Object.entries(RUNS_IN).map(([k, v]) => (
-              <SelectItem key={k} value={k}>
-                {v}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <Select value={product} onValueChange={setProduct}>
-          <SelectTrigger className="h-9 w-64">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="any">Any product</SelectItem>
-            {products.map((p) => (
-              <SelectItem key={p} value={p}>
-                {p}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="ml-auto text-xs text-muted-foreground">
-          {rows.length} of {all.length}
-        </span>
-      </div>
+      {(all.length > 0 || isLoading) && (
+        <>
+          <h2 className="pt-2 text-[15px] font-semibold">Deployments</h2>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <Kpi label="Customers" value={String(counts.all)} hint={`${installs} installs`} />
+            <Kpi
+              label="Live"
+              value={String(counts.live)}
+              hint={`${counts.onboarding} onboarding`}
+              tone="success"
+            />
+            <Kpi
+              label="Azure consumption"
+              value={`${currency(spend, { compact: true })}/mo`}
+              hint={`${currency(spend * 12, { compact: true })} a year across customers' Azure`}
+            />
+            <Kpi
+              label="Behind on releases"
+              value={String(behind)}
+              hint="installs not on the latest release"
+              tone={behind ? "warning" : "success"}
+            />
+            <Kpi
+              label="Needs attention"
+              value={String(counts.attention)}
+              hint="blocked, deprecated, drift or low compliance"
+              tone={counts.attention ? "danger" : "success"}
+            />
+          </div>
 
-      {isLoading && <EmptyState title="Loading customers…" />}
-      {!isLoading && !rows.length && <EmptyState title="No customers match these filters." />}
-
-      {rows.length > 0 && (
-        <div className="overflow-x-auto rounded-md border border-border bg-card">
-          <table className="w-full text-left text-[13px]">
-            <thead className="border-b border-border bg-muted/50 text-[11.5px] text-muted-foreground">
-              <tr>
-                <Th k="name">Customer</Th>
-                <Th>Runs in</Th>
-                <Th>Products</Th>
-                <Th>Releases</Th>
-                <Th k="compliance">Compliance</Th>
-                <Th k="spend" right>
-                  Azure / month
-                </Th>
-                <Th>Stage</Th>
-                <Th k="activity">Last activity</Th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {rows.map((r) => (
-                <tr
-                  key={r.c.id}
-                  onClick={() =>
-                    void navigate({ to: "/customers/$customerId", params: { customerId: r.c.id } })
-                  }
-                  className="cursor-pointer align-top transition-colors hover:bg-muted/40"
-                >
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-accent-foreground">
-                        {initials(r.c.name)}
-                      </span>
-                      <div className="min-w-0 whitespace-nowrap">
-                        <Link
-                          to="/customers/$customerId"
-                          params={{ customerId: r.c.id }}
-                          onClick={(e) => e.stopPropagation()}
-                          className="font-medium hover:underline"
-                        >
-                          {r.c.name}
-                        </Link>
-                        <p className="font-mono text-[11px] text-muted-foreground">{r.c.code}</p>
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] whitespace-nowrap">
-                    <span className="inline-flex items-center gap-1.5">
-                      {r.c.azureModel === "isv_hosted" ? (
-                        <Cloud className="size-3.5 text-info" />
-                      ) : (
-                        <Building2 className="size-3.5 text-muted-foreground" />
-                      )}
-                      {r.c.azureModel === "isv_hosted"
-                        ? "Your Azure"
-                        : r.c.azureModel === "greenfield"
-                          ? "Their Azure (new)"
-                          : "Their landing zone"}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex min-w-[260px] flex-wrap gap-1">
-                      {r.products.map((p) => (
-                        <span
-                          key={p.name}
-                          title={`${p.name} · ${p.models.join(", ")} · ${p.envs} environment(s)`}
-                          className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-[11.5px]"
-                        >
-                          <span className="truncate">{p.name}</span>
-                          <span className="font-mono text-[10px] text-muted-foreground">
-                            {p.envs}
-                          </span>
-                        </span>
-                      ))}
-                      {!r.products.length && (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] whitespace-nowrap">
-                    {r.deprecated ? (
-                      <span className="text-danger">{r.deprecated} deprecated</span>
-                    ) : r.behind ? (
-                      <span className="text-warning">{r.behind} behind</span>
-                    ) : r.c.installs.some((i) => i.actual) ? (
-                      <span className="text-success">Current</span>
-                    ) : (
-                      <span className="text-muted-foreground">Not deployed</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    {r.compliance === null ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
-                          <span
-                            className={cn(
-                              "block h-full",
-                              r.compliance >= 98
-                                ? "bg-success"
-                                : r.compliance >= 95
-                                  ? "bg-warning"
-                                  : "bg-danger",
-                            )}
-                            style={{ width: `${r.compliance}%` }}
-                          />
-                        </span>
-                        <span className="font-mono text-[11.5px]">{r.compliance}%</span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-right font-mono text-[12.5px]">
-                    {currency(r.spend, { compact: true })}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <StageBadge stage={r.c.stage} />
-                    {r.attention.length > 0 && (
-                      <p
-                        className="mt-0.5 max-w-[180px] truncate text-[11px] text-danger"
-                        title={r.attention.join(" · ")}
-                      >
-                        {r.attention[0]}
-                        {r.attention.length > 1 ? ` +${r.attention.length - 1}` : ""}
-                      </p>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-[12px] whitespace-nowrap text-muted-foreground">
-                    {r.c.lastActivity ? relative(r.c.lastActivity) : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot className="border-t border-border bg-muted/30 text-[12px]">
-              <tr>
-                <td className="px-3 py-2 font-medium" colSpan={5}>
-                  {rows.length} customer{rows.length === 1 ? "" : "s"}
-                </td>
-                <td className="px-3 py-2 text-right font-mono font-semibold">
-                  {currency(
-                    rows.reduce((s, r) => s + r.spend, 0),
-                    { compact: true },
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-md border border-border bg-card p-0.5 text-[12.5px]">
+              {(
+                [
+                  ["all", "All"],
+                  ["live", "Live"],
+                  ["onboarding", "Onboarding"],
+                  ["attention", "Needs attention"],
+                ] as const
+              ).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setView(k)}
+                  className={cn(
+                    "rounded-sm px-2.5 py-1",
+                    view === k
+                      ? "bg-accent font-medium text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   )}
-                </td>
-                <td colSpan={2} />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
+                >
+                  {label} <span className="font-mono text-[11px] opacity-70">{counts[k]}</span>
+                </button>
+              ))}
+            </div>
+            <div className="relative w-64">
+              <Search className="absolute top-2.5 left-2.5 size-3.5 text-muted-foreground" />
+              <Input
+                placeholder="Search customers or products"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="h-9 pl-8"
+              />
+            </div>
+            <Select value={runsIn} onValueChange={setRunsIn}>
+              <SelectTrigger className="h-9 w-56">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Runs anywhere</SelectItem>
+                {Object.entries(RUNS_IN).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>
+                    {v}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={product} onValueChange={setProduct}>
+              <SelectTrigger className="h-9 w-64">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any">Any product</SelectItem>
+                {products.map((p) => (
+                  <SelectItem key={p} value={p}>
+                    {p}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {rows.length} of {all.length}
+            </span>
+          </div>
+
+          {isLoading && <EmptyState title="Loading customers…" />}
+          {!isLoading && !rows.length && <EmptyState title="No customers match these filters." />}
+
+          {rows.length > 0 && (
+            <div className="overflow-x-auto rounded-md border border-border bg-card">
+              <table className="w-full text-left text-[13px]">
+                <thead className="border-b border-border bg-muted/50 text-[11.5px] text-muted-foreground">
+                  <tr>
+                    <Th k="name">Customer</Th>
+                    <Th>Runs in</Th>
+                    <Th>Products</Th>
+                    <Th>Releases</Th>
+                    <Th k="compliance">Compliance</Th>
+                    <Th k="spend" right>
+                      Azure / month
+                    </Th>
+                    <Th>Stage</Th>
+                    <Th k="activity">Last activity</Th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {rows.map((r) => (
+                    <tr
+                      key={r.c.id}
+                      onClick={() =>
+                        void navigate({
+                          to: "/customers/$customerId",
+                          params: { customerId: r.c.id },
+                        })
+                      }
+                      className="cursor-pointer align-top transition-colors hover:bg-muted/40"
+                    >
+                      <td className="px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span className="grid size-8 shrink-0 place-items-center rounded-full bg-accent text-[11px] font-semibold text-accent-foreground">
+                            {initials(r.c.name)}
+                          </span>
+                          <div className="min-w-0 whitespace-nowrap">
+                            <Link
+                              to="/customers/$customerId"
+                              params={{ customerId: r.c.id }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="font-medium hover:underline"
+                            >
+                              {r.c.name}
+                            </Link>
+                            <p className="font-mono text-[11px] text-muted-foreground">
+                              {r.c.code}
+                            </p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1.5">
+                          {r.c.azureModel === "isv_hosted" ? (
+                            <Cloud className="size-3.5 text-info" />
+                          ) : (
+                            <Building2 className="size-3.5 text-muted-foreground" />
+                          )}
+                          {r.c.azureModel === "isv_hosted"
+                            ? "Your Azure"
+                            : r.c.azureModel === "greenfield"
+                              ? "Their Azure (new)"
+                              : "Their landing zone"}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="flex min-w-[260px] flex-wrap gap-1">
+                          {r.products.map((p) => (
+                            <span
+                              key={p.name}
+                              title={`${p.name} · ${p.models.join(", ")} · ${p.envs} environment(s)`}
+                              className="inline-flex max-w-full items-center gap-1 rounded-sm border border-border bg-background px-1.5 py-0.5 text-[11.5px]"
+                            >
+                              <span className="truncate">{p.name}</span>
+                              <span className="font-mono text-[10px] text-muted-foreground">
+                                {p.envs}
+                              </span>
+                            </span>
+                          ))}
+                          {!r.products.length && (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] whitespace-nowrap">
+                        {r.deprecated ? (
+                          <span className="text-danger">{r.deprecated} deprecated</span>
+                        ) : r.behind ? (
+                          <span className="text-warning">{r.behind} behind</span>
+                        ) : r.c.installs.some((i) => i.actual) ? (
+                          <span className="text-success">Current</span>
+                        ) : (
+                          <span className="text-muted-foreground">Not deployed</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        {r.compliance === null ? (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <span className="h-1.5 w-14 overflow-hidden rounded-full bg-muted">
+                              <span
+                                className={cn(
+                                  "block h-full",
+                                  r.compliance >= 98
+                                    ? "bg-success"
+                                    : r.compliance >= 95
+                                      ? "bg-warning"
+                                      : "bg-danger",
+                                )}
+                                style={{ width: `${r.compliance}%` }}
+                              />
+                            </span>
+                            <span className="font-mono text-[11.5px]">{r.compliance}%</span>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-mono text-[12.5px]">
+                        {currency(r.spend, { compact: true })}
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <StageBadge stage={r.c.stage} />
+                        {r.attention.length > 0 && (
+                          <p
+                            className="mt-0.5 max-w-[180px] truncate text-[11px] text-danger"
+                            title={r.attention.join(" · ")}
+                          >
+                            {r.attention[0]}
+                            {r.attention.length > 1 ? ` +${r.attention.length - 1}` : ""}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-[12px] whitespace-nowrap text-muted-foreground">
+                        {r.c.lastActivity ? relative(r.c.lastActivity) : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot className="border-t border-border bg-muted/30 text-[12px]">
+                  <tr>
+                    <td className="px-3 py-2 font-medium" colSpan={5}>
+                      {rows.length} customer{rows.length === 1 ? "" : "s"}
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono font-semibold">
+                      {currency(
+                        rows.reduce((s, r) => s + r.spend, 0),
+                        { compact: true },
+                      )}
+                    </td>
+                    <td colSpan={2} />
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
