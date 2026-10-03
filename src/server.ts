@@ -44,8 +44,20 @@ function isH3SwallowedErrorBody(body: string): boolean {
   }
 }
 
+/** Constant-time comparison, so the gate key can't be guessed from response timing. */
+function sameSecret(a: string, b: string) {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    // On the desktop, the app answers only its launcher's gate, never other programs on the PC calling the port.
+    const gate = process.env["CD_GATE_KEY"];
+    if (gate && !sameSecret(request.headers.get("x-cd-gate") ?? "", gate))
+      return new Response("Not allowed.", { status: 403 });
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

@@ -337,44 +337,56 @@ export const saveWorkspace = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const db = await import("./db.server");
     const by = await me();
-    const row = await db.maybeOne<{ workspace: Workspace }>(
-      "select workspace from public.engagements where id = $1 and organization_id = $2",
-      [data.id, ORG_ID],
-    );
-    if (!row) throw new Error("Engagement not found.");
-    const current = row.workspace ?? {};
-    const next: Workspace = {
-      ...current,
-      ...(data.patch as Workspace),
-      playbook: PLAYBOOK_VERSION,
-    };
-    if (data.patch.handoff)
-      next.handoff = { ...next.handoff!, accepted: current.handoff?.accepted ?? null };
-    if (
-      data.patch.pov &&
-      current.pov &&
-      JSON.stringify(current.pov) !== JSON.stringify(data.patch.pov)
-    ) {
-      const last = current.povHistory?.at(-1);
-      // Typing saves often; keep one revision per person per reason every ten minutes.
-      const recent =
-        last &&
-        last.by === by &&
-        last.reason === data.reason &&
-        Date.now() - new Date(last.at).getTime() < 10 * 60_000;
-      next.povHistory = recent
-        ? (current.povHistory ?? [])
-        : [
-            ...(current.povHistory ?? []),
-            { at: new Date().toISOString(), by, reason: data.reason, pov: current.pov },
-          ].slice(-50);
+    // Views save different parts at the same moment; lock the row so each save merges into the latest workspace
+    // instead of writing back a copy read before another save landed.
+    const client = await (await db.db()).connect();
+    try {
+      await client.query("begin");
+      const { rows } = await client.query<{ workspace: Workspace | null }>(
+        "select workspace from public.engagements where id = $1 and organization_id = $2 for update",
+        [data.id, ORG_ID],
+      );
+      if (!rows[0]) throw new Error("Engagement not found.");
+      const current = rows[0].workspace ?? {};
+      const next: Workspace = {
+        ...current,
+        ...(data.patch as Workspace),
+        playbook: PLAYBOOK_VERSION,
+      };
+      if (data.patch.handoff)
+        next.handoff = { ...next.handoff!, accepted: current.handoff?.accepted ?? null };
+      if (
+        data.patch.pov &&
+        current.pov &&
+        JSON.stringify(current.pov) !== JSON.stringify(data.patch.pov)
+      ) {
+        const last = current.povHistory?.at(-1);
+        // Typing saves often; keep one revision per person per reason every ten minutes.
+        const recent =
+          last &&
+          last.by === by &&
+          last.reason === data.reason &&
+          Date.now() - new Date(last.at).getTime() < 10 * 60_000;
+        next.povHistory = recent
+          ? (current.povHistory ?? [])
+          : [
+              ...(current.povHistory ?? []),
+              { at: new Date().toISOString(), by, reason: data.reason, pov: current.pov },
+            ].slice(-50);
+      }
+      const at = new Date().toISOString();
+      await client.query(
+        "update public.engagements set workspace = $1::jsonb, updated_at = $2 where id = $3",
+        [JSON.stringify(next), at, data.id],
+      );
+      await client.query("commit");
+      return { ok: true, at };
+    } catch (err) {
+      await client.query("rollback").catch(() => {});
+      throw err;
+    } finally {
+      client.release();
     }
-    const at = new Date().toISOString();
-    await db.query(
-      "update public.engagements set workspace = $1::jsonb, updated_at = $2 where id = $3",
-      [JSON.stringify(next), at, data.id],
-    );
-    return { ok: true, at };
   });
 
 /** Sets how far the customer has confirmed a brief item, keeping the history of its status. */

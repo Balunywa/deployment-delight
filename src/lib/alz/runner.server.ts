@@ -22,15 +22,34 @@ const home = () =>
 export const workDir = (key: string) =>
   key.includes("/") ? path.join(home(), ...key.split("/")) : path.join(home(), "foundations", key);
 
+const win = process.platform === "win32";
+
 async function which(bin: string) {
   return new Promise<string | null>((resolve) => {
-    const p = spawn(process.platform === "win32" ? "where" : "which", [bin]);
+    const p = spawn(win ? "where" : "which", [bin], { windowsHide: true });
     let out = "";
     p.stdout.on("data", (d) => (out += d));
-    p.on("close", (code) => resolve(code === 0 ? out.trim().split("\n")[0]! : null));
+    p.on("close", (code) => {
+      const found = out
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      // `where az` also lists the extensionless bash script; Windows can only start the .cmd/.exe.
+      const usable = win ? found.filter((f) => /\.(exe|cmd|bat)$/i.test(f)) : found;
+      resolve(code === 0 ? (usable[0] ?? null) : null);
+    });
     p.on("error", () => resolve(null));
   });
 }
+
+/** Node can't start .cmd/.bat files directly on Windows; run them through cmd.exe. */
+const launch = (bin: string, args: string[]): [string, string[]] =>
+  win && /\.(cmd|bat)$/i.test(bin)
+    ? [
+        process.env["ComSpec"] ?? "cmd.exe",
+        ["/d", "/s", "/c", `"${[bin, ...args].map((a) => `"${a}"`).join(" ")}"`],
+      ]
+    : [bin, args];
 
 /** Terraform on PATH, TERRAFORM_PATH, or downloaded once from releases.hashicorp.com. */
 export async function terraformBinary(log: (l: string) => void) {
@@ -39,9 +58,10 @@ export async function terraformBinary(log: (l: string) => void) {
   const onPath = await which("terraform");
   if (onPath) return onPath;
   const dir = path.join(home(), "tools", `terraform-${TF_VERSION}`);
-  const bin = path.join(dir, "terraform");
+  const exe = win ? "terraform.exe" : "terraform";
+  const bin = path.join(dir, exe);
   if (existsSync(bin)) return bin;
-  const osName = process.platform === "darwin" ? "darwin" : "linux";
+  const osName = win ? "windows" : process.platform === "darwin" ? "darwin" : "linux";
   const arch = process.arch === "arm64" ? "arm64" : "amd64";
   const url = `https://releases.hashicorp.com/terraform/${TF_VERSION}/terraform_${TF_VERSION}_${osName}_${arch}.zip`;
   log(`Downloading Terraform ${TF_VERSION} (${osName}/${arch})…`);
@@ -50,8 +70,8 @@ export async function terraformBinary(log: (l: string) => void) {
   const { unzipSync } = await import("fflate");
   const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
   await mkdir(dir, { recursive: true });
-  await writeFile(bin, files["terraform"]!);
-  await chmod(bin, 0o755);
+  await writeFile(bin, files[exe]!);
+  if (!win) await chmod(bin, 0o755);
   return bin;
 }
 
@@ -84,13 +104,19 @@ async function authEnv(): Promise<Record<string, string>> {
   if (!process.env["IDENTITY_ENDPOINT"]) {
     // Local runs use the Azure CLI sign-in; refresh it so subscriptions created a moment ago are known.
     const az = await which("az");
-    if (az)
+    if (az) {
+      const [cmd, args] = launch(az, [
+        "account",
+        "list",
+        "--refresh",
+        "--only-show-errors",
+        "-o",
+        "none",
+      ]);
       await new Promise((resolve) =>
-        spawn(az, ["account", "list", "--refresh", "--only-show-errors", "-o", "none"]).on(
-          "close",
-          resolve,
-        ),
+        spawn(cmd, args, { windowsHide: true, windowsVerbatimArguments: win }).on("close", resolve),
       );
+    }
   }
   if (process.env["IDENTITY_ENDPOINT"]) {
     if (!deployClientId())
@@ -113,11 +139,11 @@ type Logger = (line: string) => void;
 function run(bin: string, args: string[], cwd: string, env: Record<string, string>, log: Logger) {
   return new Promise<number>((resolve, reject) => {
     log(`$ terraform ${args.join(" ")}`);
-    const p = spawn(bin, args, { cwd, env: { ...process.env, ...env } });
+    const p = spawn(bin, args, { cwd, env: { ...process.env, ...env }, windowsHide: true });
     const pipe = (d: Buffer) =>
       d
         .toString()
-        .split("\n")
+        .split(/\r?\n/)
         .filter((l) => l.trim())
         .forEach((l) => log(l));
     p.stdout.on("data", pipe);
@@ -129,7 +155,7 @@ function run(bin: string, args: string[], cwd: string, env: Record<string, strin
 
 async function capture(bin: string, args: string[], cwd: string, env: Record<string, string>) {
   return new Promise<string>((resolve, reject) => {
-    const p = spawn(bin, args, { cwd, env: { ...process.env, ...env } });
+    const p = spawn(bin, args, { cwd, env: { ...process.env, ...env }, windowsHide: true });
     let out = "";
     let err = "";
     p.stdout.on("data", (d) => (out += d));

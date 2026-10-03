@@ -36,6 +36,31 @@ export function useWs() {
 
 /* Server saves waiting to go, one per engagement and workspace part. Module-level so every view shares them. */
 const pending = new Map<string, { timer: ReturnType<typeof setTimeout>; run: () => void }>();
+
+/*
+ * Edits the server hasn't confirmed yet, per engagement. A reload that started before an edit was saved would bring
+ * back the old value; laying these over every load keeps what the user typed.
+ */
+const unsaved = new Map<string, Partial<Workspace>>();
+function keepUnsaved(id: string, patch: Partial<Workspace>) {
+  unsaved.set(id, { ...unsaved.get(id), ...patch });
+}
+function confirmSaved(id: string, patch: Partial<Workspace>) {
+  const u = unsaved.get(id);
+  if (!u) return;
+  for (const k of Object.keys(patch) as (keyof Workspace)[]) if (u[k] === patch[k]) delete u[k];
+  if (!Object.keys(u).length) unsaved.delete(id);
+}
+/** A loaded workspace with this browser's unsaved edits on top. */
+export function withUnsaved(data: WorkspaceData): WorkspaceData {
+  const u = unsaved.get(data.engagement.id);
+  return u
+    ? {
+        ...data,
+        engagement: { ...data.engagement, workspace: { ...data.engagement.workspace, ...u } },
+      }
+    : data;
+}
 function schedule(key: string, run: () => void, delay = 900) {
   const p = pending.get(key);
   if (p) clearTimeout(p.timer);
@@ -75,6 +100,7 @@ export function useWsValue<K extends keyof Workspace>(key: K, reason: string) {
   const set = (u: V | ((current: Workspace[K] | undefined) => V)) => {
     const current = queryClient.getQueryData<WorkspaceData>(qk)?.engagement.workspace[key];
     const v = typeof u === "function" ? (u as (c: Workspace[K] | undefined) => V)(current) : u;
+    keepUnsaved(e.id, { [key]: v } as Partial<Workspace>);
     queryClient.setQueryData<WorkspaceData>(qk, (old) =>
       old
         ? {
@@ -99,6 +125,7 @@ export function useWorkspaceSave(id: string) {
   const [state, setState] = useState<SaveState>({ state: "idle", at: null });
   const pending = useRef(0);
   const saveWs = async (patch: Partial<Workspace>, reason = "Edited") => {
+    keepUnsaved(id, patch);
     queryClient.setQueryData<WorkspaceData>(["workspace", id], (old) =>
       old
         ? {
@@ -114,11 +141,13 @@ export function useWorkspaceSave(id: string) {
     setState((s) => ({ ...s, state: "saving" }));
     try {
       const r = await save({ data: { id, patch: patch as never, reason } });
+      confirmSaved(id, patch);
       pending.current--;
       if (!pending.current) setState({ state: "saved", at: r.at });
       void queryClient.invalidateQueries({ queryKey: ["engagements"] });
       void queryClient.invalidateQueries({ queryKey: ["engagement", id] });
     } catch (err) {
+      confirmSaved(id, patch);
       pending.current--;
       setState((s) => ({ ...s, state: "error" }));
       toast.error((err as Error).message);

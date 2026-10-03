@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Cloud Delivery</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font:
+          14px "Segoe UI",
+          system-ui,
+          sans-serif;
+        color: #1f2937;
+        background: #f7f8fa;
+      }
+      main {
+        height: 100%;
+        display: grid;
+        place-items: center;
+      }
+      .box {
+        text-align: center;
+      }
+      .spin {
+        width: 28px;
+        height: 28px;
+        margin: 0 auto 14px;
+        border: 3px solid #d6deec;
+        border-top-color: #2f5fb3;
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      p {
+        margin: 4px 0;
+        color: #6b7280;
+      }
+      h1 {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="box">
+        <div class="spin"></div>
+        <h1>Starting Cloud Delivery</h1>
+        <p>Opening your local workspace. The first start takes a little longer.</p>
+      </div>
+    </main>
+  </body>
+</html>

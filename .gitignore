@@ -44,3 +44,8 @@ dist-ssr
 # Demo video output
 /demo/out/
 scripts/.catalog-cache/
+
+# Desktop app build output
+/desktop-dist/
+/src-tauri/target/
+/src-tauri/gen/

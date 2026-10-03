@@ -34,6 +34,9 @@ const ORIGINS = new Set([
     .filter(Boolean),
 ]);
 const HOSTS = new Set([`127.0.0.1:${PORT}`, `localhost:${PORT}`]);
+/** Cloud Delivery's pages: the Azure site, extra origins, and the desktop app (always on a loopback port). */
+const allowed = (origin) =>
+  ORIGINS.has(origin) || /^http:\/\/(127\.0\.0\.1|localhost):\d{2,5}$/.test(origin);
 const TPID = /^\d{3,12}$/;
 const F = "@OData.Community.Display.V1.FormattedValue";
 
@@ -141,6 +144,7 @@ function start() {
     );
   child = spawn(process.execPath, [MSX_MCP], {
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
     // Reads never open a browser on their own; signing in is an explicit click in the app.
     env: { ...process.env, MSX_MCP_DATAVERSE_AUTH_MODE: "silent" },
   });
@@ -320,7 +324,7 @@ function serve() {
   createServer(async (req, res) => {
     const origin = req.headers.origin;
     // Only Cloud Delivery's pages may read MSX through this, and only via this host name (no DNS rebinding).
-    if (!HOSTS.has(String(req.headers.host)) || (origin && !ORIGINS.has(origin)))
+    if (!HOSTS.has(String(req.headers.host)) || (origin && !allowed(origin)))
       return send(res, null, 403, { error: "Not allowed." });
     if (req.method === "OPTIONS") {
       res.writeHead(204, {

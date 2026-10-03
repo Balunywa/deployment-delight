@@ -44,7 +44,14 @@ export async function migrate(pool: pg.Pool) {
       }
     }
 
-    if (/^true$/i.test(process.env["SEED_DEMO_DATA"] ?? "")) {
+    if (!/^true$/i.test(process.env["SEED_DEMO_DATA"] ?? "")) {
+      // Without demo data nothing else creates the workspace organization that every record belongs to.
+      await client.query(
+        `insert into public.organizations (id, name, slug, portal_title, demo_mode)
+         values ('11111111-1111-1111-1111-111111111111', 'Cloud Delivery', 'cloud-delivery', 'Cloud Delivery', false)
+         on conflict do nothing`,
+      );
+    } else {
       // Each seed runs once, tracked as "seed/<file>". A database seeded before tracking existed already
       // has the base data, so the first seed is recorded rather than re-run.
       const seeded = new Set(

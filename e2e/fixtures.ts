@@ -77,6 +77,10 @@ export { expect };
 
 /** Waits until nothing on the page says it's still loading. */
 export async function loaded(page: Page) {
+  // A click before React hydrates the page is lost.
+  await page.waitForFunction(() => document.documentElement.dataset["hydrated"] === "true", null, {
+    timeout: 30_000,
+  });
   await expect(page.getByText(/^Loading\b.*…$/)).toHaveCount(0, { timeout: 30_000 });
 }
 

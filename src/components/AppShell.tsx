@@ -34,6 +34,7 @@ import {
   CommandList,
   CommandShortcut,
 } from "@/components/ui/command";
+import { TeamSyncIndicator } from "@/components/TeamSpace";
 import { currentUserQuery, customersQuery, organizationQuery } from "@/lib/queries";
 import { initials } from "@/lib/solutions";
 import { cn } from "@/lib/utils";
@@ -105,8 +106,14 @@ const flatNav = nav.flatMap((g) => g.items);
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const org = useQuery(organizationQuery);
-  const me = useQuery(currentUserQuery).data;
+  // The server renders the shell without these queries; using them only after hydration keeps the first client
+  // render identical even when another component has already fetched them (React hydrates the shell late).
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const orgQuery = useQuery(organizationQuery);
+  const org = hydrated ? orgQuery.data : undefined;
+  const meData = useQuery(currentUserQuery).data;
+  const me = hydrated ? meData : undefined;
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [railOverride, setRailOverride] = useState<boolean | null>(null);
 
@@ -124,8 +131,8 @@ export function AppShell({ children }: { children: ReactNode }) {
   // Customer-facing pages (the install page, an engagement recap) have no ISV chrome.
   if (pathname.startsWith("/connect") || pathname.startsWith("/recap")) return <>{children}</>;
 
-  const isvName = org.data?.name ?? "GridWorks";
-  const demo = org.data?.demo_mode ?? true;
+  const isvName = org?.name ?? "GridWorks";
+  const demo = org?.demo_mode ?? true;
   const isActive = (to: Path) => (to === "/" ? pathname === "/" : pathname.startsWith(to));
   // Canvas-heavy screens default to an icon rail so the workspace gets the full width.
   const rail =
@@ -233,6 +240,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <kbd className="rounded-sm border border-border px-1 font-mono text-[10px]">⌘K</kbd>
           </button>
           <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
+            <TeamSyncIndicator />
             <span className="hidden sm:inline">
               {me ? [me.name, me.role].filter(Boolean).join(" · ") : ""}
             </span>

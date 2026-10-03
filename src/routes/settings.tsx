@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { PageHeader, Panel, Pill } from "@/components/Primitives";
+import { TeamSpacePanel } from "@/components/TeamSpace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -131,6 +132,7 @@ function Settings() {
         </Panel>
 
         <CopilotPanel />
+        <TeamSpacePanel />
 
         <Panel title="Execution mode" description="The active mode is always shown in the header.">
           <div className="space-y-3 text-sm">

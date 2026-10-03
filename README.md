@@ -6,9 +6,11 @@ Cloud Delivery is for software companies that deliver their product on Azure. To
 usually means weeks of custom cloud work: network design, security reviews, new infrastructure scripts
 and pipelines. Cloud Delivery lets you do that work once.
 
-[![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2Fazuredeploy.json/createUIDefinitionUri/https%3A%2F%2Fraw.githubusercontent.com%2FBalunywa%2Fdeployment-delight%2Fmain%2Fdeploy%2Fazure%2FcreateUiDefinition.json)
+**For SEs and CSAs: Cloud Delivery is a desktop app.** Install it on your Windows PC from this repository's releases:
+see [docs/INSTALL-DESKTOP.md](docs/INSTALL-DESKTOP.md). Your data stays on your PC; you share with your team through
+a Microsoft Teams team's files. Product overview: **https://balunywa.github.io/deployment-delight/**
 
-Deploy the Cloud Delivery console into any Azure tenant in one click — see [deploy/azure](deploy/azure/README.md). Product overview: **https://balunywa.github.io/deployment-delight/**
+To self-host the web console instead (the hosted instance is retired), see [deploy/azure](deploy/azure/README.md).
 
 ## Two ways to run it
 

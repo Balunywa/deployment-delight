@@ -1,25 +1,13 @@
-name: Release Cloud Delivery app
+name: Release Cloud Delivery app (web, retired)
 
-# Builds a self-contained, prebuilt package of the Cloud Delivery console, once per trigger, with a build
-# provenance attestation (verify with: gh attestation verify cloud-delivery-app.zip --repo <owner>/<repo>).
+# RETIRED: the Azure-hosted console is no longer run; Cloud Delivery ships as the desktop app (desktop.yml), and
+# version tags publish the desktop installers. This builds the web package only when run by hand (artifact only),
+# for anyone who self-hosts it with deploy/azure.
 #
-#   Tag vX.Y.Z  → an immutable release vX.Y.Z. Pin this in production:
-#                 https://github.com/<owner>/<repo>/releases/download/vX.Y.Z/cloud-delivery-app.zip
-#   Push to main → the "app-latest" edge build the demo Deploy to Azure button uses. It moves on every push;
-#                 don't use it where you need a fixed version.
+# Builds a self-contained, prebuilt package of the Cloud Delivery console with a build provenance attestation
+# (verify with: gh attestation verify cloud-delivery-app.zip --repo <owner>/<repo>).
 
 on:
-  push:
-    branches: [main]
-    tags: ["v*.*.*"]
-    paths:
-      - "src/**"
-      - "db/**"
-      - "public/**"
-      - "package.json"
-      - "bun.lock"
-      - "vite.config.ts"
-      - ".github/workflows/release-app.yml"
   workflow_dispatch: {}
 
 permissions: {}

@@ -1,7 +1,8 @@
 # Handoff: Cloud Delivery (deployment-delight)
 
-The context another agent needs to continue this work. Written 2 October 2026; the latest commit at the time was `af04162`.
-Read this whole file before changing anything, then `README.md` for the product detail.
+The context another agent needs to continue this work. Updated 3 October 2026: Cloud Delivery is now a **desktop
+app** (§2, §5b); the Azure-hosted console is retired. Read this whole file before changing anything, then `README.md`
+for the product detail.
 
 ---
 
@@ -49,27 +50,42 @@ interaction rather than building an MSX integration.
 
 ---
 
-## 2. Live environments and how to ship
+## 2. Where it runs and how to ship
 
-- **Azure (the one Lukman uses)**: https://clouddelivery-nzdefv.azurewebsites.net, App Service `clouddelivery-nzdefv`
-  in resource group `oneplatform`. Azure Database for PostgreSQL with Entra auth (`AZURE_POSTGRES_ENTRA_AUTH`).
-  `AUTO_MIGRATE=true`: migrations in `db/migrations` apply on startup. `SEED_DEMO_DATA=false` (demo data must not come
-  back).
-- **Local**: `http://localhost:3000`, built server from `.output`. Ports 5174 and 5175 are dead old tabs; ignore them.
-- **Repo**: `Balunywa/deployment-delight`, branch `main`. Pushing to `main` builds the release zip.
+- **The desktop app (the product, since 3 Oct)**: each SE/CSA installs Cloud Delivery on their Windows PC
+  (`docs/INSTALL-DESKTOP.md`). Data is local (PGlite in `%LOCALAPPDATA%\CloudDelivery\db`); sharing between SEs goes
+  through a Microsoft Teams team's SharePoint files (§5b). Lukman chose this for an internal tool: no customer data in
+  a hosted service.
+- **Azure: retired.** App Service `clouddelivery-nzdefv` (resource group `oneplatform`) is stopped. It had no
+  sign-in: anyone with the URL could use it. Don't deploy there or put data there. `release-app.yml` (the web zip)
+  now only runs by hand; `deploy/azure` stays for anyone who self-hosts.
+- **Repo**: `Balunywa/deployment-delight`, branch `main`. Lukman will make it private once the desktop app is done.
 
-### Deploy to Azure (always do this after a change, then verify)
+### Ship a desktop build
 
 ```bash
 git push   # commit messages end with: Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
-id=$(gh run list --workflow release-app.yml --limit 1 --json databaseId -q '.[0].databaseId'); gh run watch $id --exit-status
-SHA=$(git rev-parse --short HEAD)
-az webapp config appsettings set -g oneplatform -n clouddelivery-nzdefv \
-  --settings "WEBSITE_RUN_FROM_PACKAGE=https://github.com/Balunywa/deployment-delight/releases/download/app-latest/cloud-delivery-app.zip?v=$SHA" -o none
-az webapp restart -g oneplatform -n clouddelivery-nzdefv
-sleep 75; curl -s -o /dev/null -w "%{http_code}\n" https://clouddelivery-nzdefv.azurewebsites.net/   # poll until 200
-E2E_BASE_URL=https://clouddelivery-nzdefv.azurewebsites.net npx playwright test --grep @readonly   # 27 pass
+gh workflow run desktop.yml --ref main   # a test build: installers as artifacts, version 0.1.<run>
+gh run watch <id> --exit-status; gh run download <id> -D desktop-build
+git tag vX.Y.Z && git push origin vX.Y.Z   # a release: desktop.yml publishes both architectures' installers
 ```
+
+`desktop.yml` builds on `windows-latest` and cross-compiles ARM64, so it keeps working when the repo is private
+(GitHub's ARM64 Windows runners are free for public repos only). The installers aren't code-signed yet.
+
+Verify a build by installing it (`-setup.exe`, per user, no admin), starting it from the Start menu and walking the
+pages; the window's log is `%LOCALAPPDATA%\CloudDelivery\logs\desktop.log`.
+
+### Run the desktop runtime from the repo
+
+```bash
+npx vite build
+node desktop/launcher.mjs --open         # = npm run desktop; data in %LOCALAPPDATA%\CloudDelivery
+CD_DATA_DIR=%TEMP%\cd-se-a CATALOG_USER_NAME="SE A (test)" node desktop/launcher.mjs   # a second, separate "SE"
+```
+
+It prints `{"event":"ready","url":"http://127.0.0.1:<port>/__cd/session?k=..."}`; open that URL (Playwright too).
+Two launchers on the same data folder are refused (the database would be corrupted).
 
 ### Local build, run and test
 
@@ -104,10 +120,13 @@ npx playwright test            # full suite: 76 pass, 1 skipped (pre-existing). 
   `node node_modules/@playwright/test/cli.js test`.
 - Postgres: Docker container `cd-postgres` (`postgres:14`, trust auth, port 5433). Start Docker Desktop, then
   `docker start cd-postgres`, and set `E2E_DATABASE_URL=postgres://postgres@localhost:5433/cloud_delivery_e2e`.
-- Full suite here: 74 pass, 1 skipped, 2 fail: the landing-zone "deploy: readiness" and "deploy: Apply" tests. They
-  pass alone and time out on "Checking your Azure access" in a full run; the local deploy runner
-  (`src/lib/alz/runner.server.ts`) isn't Windows-ready (e.g. Terraform download is linux/darwin only). Not a
-  regression; Azure runs Linux.
+- Full suite here (3 Oct): 78 pass, 1 skipped. The landing-zone deploy tests wait on a live Azure CLI check
+  ("Checking your Azure access"), which can take a while on this laptop. The local deploy runner
+  (`src/lib/alz/runner.server.ts`) now works on Windows: it downloads the Windows Terraform build, starts `az.cmd`
+  through `cmd.exe`, and hides console windows.
+- Hydration: the server renders without query data. A component that renders from a query shared with the header
+  (which hydrates first) must wait until it has mounted (see `useMounted` in `TeamSpace.tsx`), or a click during
+  hydration fails with React error 418.
 
 ---
 
@@ -133,8 +152,12 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 | `src/routes/customers.onboard.tsx` | Customer onboarding: Find → What MSX says → Add context → Prep and start |
 | `src/lib/prep.ts`, `prep.functions.ts` | Prep engine (rules) and server functions (snapshot, prep, AI draft) |
 | `src/lib/msx-connector.ts`, `public/msx-connector.mjs` | Browser client for, and the source of, the local MSX connector |
+| `desktop/launcher.mjs` | Desktop runtime: PGlite + socket, app server, gate, MSX connector (§5b) |
+| `desktop/shell/index.html`, `src-tauri/` | The Tauri window (Rust `main.rs`: starts the launcher, shows its URL, stops it on close) |
+| `scripts/stage-desktop.mjs`, `.github/workflows/desktop.yml` | Stage the bundled runtime (incl. Node LTS, SHA-256 checked); build the installers |
+| `src/lib/team.server.ts`, `team.functions.ts`, `src/components/TeamSpace.tsx` | Team space sync over Microsoft Graph (§5b) |
 | `src/components/engagement/` | Engagement UI incl. `MsxLink`, `Realize` |
-| `db/migrations/` | 0001–0016. 0014 = MSX keys; 0015/0016 = demo customer removal |
+| `db/migrations/` | 0001–0018. 0014 = MSX keys; 0015/0016 = demo customer removal; 0017 = workspace; 0018 = team space |
 | `db/seed/` | Demo data, used **only** by the e2e database now |
 | `.github/skills/prep-customer/SKILL.md` | Copilot skill pairing msx-mcp with Cloud Delivery's MCP server |
 | `e2e/` | Playwright specs; `fixtures.ts` fails tests on console/page errors |
@@ -257,6 +280,50 @@ signed-in device (an app registration would need MSX team approval). So:
 
 ---
 
+## 5b. The desktop app and the team space
+
+Modelled on `mcaps-microsoft/caip-ssp-dashboard` (Tauri, per-user installers on GitHub Releases, local data), but the
+app itself is unchanged: the same TanStack Start build runs locally.
+
+- **Shell** (`src-tauri/src/main.rs`): opens a splash (`desktop/shell/index.html`), starts the bundled `node.exe` with
+  `desktop/launcher.mjs --shell`, and navigates to the URL from its `ready` line. Closing the window closes the
+  launcher's stdin, so it stops the server and closes the database cleanly (killed after 10 s). Links to other sites
+  open in the default browser. One instance (single-instance plugin). Logs:
+  `%LOCALAPPDATA%\CloudDelivery\logs\desktop.log`. There is no local Rust toolchain on Lukman's laptop: the shell is
+  only compiled in `desktop.yml`.
+- **Launcher** (`desktop/launcher.mjs`): PGlite (Postgres in WebAssembly) in `<data>/db`, served on a random loopback
+  port through `pglite-socket`, so the app's `pg` code is unchanged (`PGPOOL_MAX=1`: PGlite is one session). The app
+  server runs with `AUTO_MIGRATE=true`, `DB_DIR` = the bundled `db/`, `SEED_DEMO_DATA=false`; the migrator then
+  creates the workspace organization (`1111…`). A **gate** proxy on a second port is the only way in: Host must be
+  the loopback port, and the session cookie comes from a one-time `/__cd/session?k=` link that only the window gets.
+  The app server rejects requests without the gate's header (`CD_GATE_KEY`, `src/server.ts`). It starts the MSX
+  connector with the app's origin allowed (no Local Network Access prompt: the page is itself on loopback). The
+  user's name and email come from the msx-mcp Azure CLI profile (`~/.azure-msx`). `app.lock` in the data folder
+  stops a second launcher.
+- **Azure from the desktop**: ARM calls use `DefaultAzureCredential` (the user's own `az login`); Terraform deploys
+  use the same sign-in.
+- **Team space** (`src/lib/team.server.ts`): Settings → Team space lists the user's Microsoft 365 groups that have a
+  Team (Graph `memberOf`), using a Graph token from the msx-mcp Azure CLI profile (Azure CLI client; it has
+  `Group.ReadWrite.All` but no `Sites.*`/`Files.*` scopes). The data lives in the team's document library, folder
+  `Cloud Delivery/{customers,engagements}`: one `<tpid>.json` or `<engagement id>.json` per record.
+  - **The Microsoft tenant blocks downloading file content with this sign-in** (`/content` and its pre-signed URL
+    both return 401; a SharePoint token gets 403), and creating lists is denied. Uploading files and reading or
+    writing list fields works. So each upload also writes the document into the file's hidden Description column
+    (`_ExtendedDescription`), and sync reads that column with the folder listing (one Graph call). SharePoint
+    HTML-encodes that column, even `:`, so the value is `cdv1` + base64url(JSON). Writing the column changes the
+    file's eTag. Tested up to 1 MB.
+  - Sync (`syncNow`, one at a time per app): pull customers (match by TPID, merge context and evidence marks), pull
+    engagements (a local change since the last exchange plus a remote change = conflict; the newer `updated_at`
+    wins, the older stays in SharePoint's version history), then push what changed locally (`If-Match` on the eTag;
+    a 412 means someone else wrote first, so the next sync merges). `sync_state` (migration 0018) keeps eTag and
+    content hash per record. Runs at start (unless it ran in the last 2 minutes), every 10 minutes, and from the
+    header button. Deletions aren't synced yet.
+  - Test team: "Cloud Delivery – SE team space" (M365 group `2ebe2e89-8d38-4ac2-8005-c67bd342b300`, private, only
+    Lukman). Verified 3 Oct with two launchers (separate data folders): SE A's customer and engagement reached SE B,
+    SE B's point-of-view edit reached SE A. Its `Cloud Delivery` folder holds test records (TPID 99000001).
+
+---
+
 ## 6. Data state
 
 - **All made-up demo customers are removed** from Azure and local (migrations 0015 and 0016: the 24 utilities and
@@ -274,7 +341,8 @@ signed-in device (an app registration would need MSX team approval). So:
 
 - He's blunt and wants premium, non-"vibe-coded" results with honest copy: **no invented numbers**, say what isn't
   automated, cite Microsoft sources for Azure facts.
-- **Always deploy to Azure and verify with Playwright** after a change; take screenshots and look at them.
+- **Always build, run the desktop app and verify with Playwright** after a change; take screenshots and look at them.
+  (The Azure deploy step is retired with the Azure app.)
 - Use parallel agents for big research or build pushes.
 - Plain language in UI copy and responses; short sentences.
 - Keep MSX as the system of record; store keys and context only.
@@ -284,11 +352,15 @@ signed-in device (an app registration would need MSX team approval). So:
 
 ## 8. Recommended next work (in order)
 
-1. **First real MSX run with Lukman** (§5 next step 1), then the full journey on a real customer.
-2. **Workspace, next**: an AI-suggested POV and call plan from the same evidence (labelled, human-reviewed; the
+1. **First real MSX run with Lukman** (§5 next step 1), then the full journey on a real customer, in the desktop app.
+2. **Desktop app, next**: code-sign the installers (SmartScreen warns today); an "update available" notice (check
+   GitHub Releases at start, like caip-ssp-dashboard); sync deletions; show who changed a shared engagement and when;
+   a first-run checklist (msx-mcp found, az signed in, team chosen). The MCP endpoint and the Copilot skill still
+   point at the retired Azure URL: point them at the desktop app (or drop them).
+3. **Workspace, next**: an AI-suggested POV and call plan from the same evidence (labelled, human-reviewed; the
    Azure OpenAI path exists); mark brief items confirmed automatically when a meeting confirms the matching
    assumption; read .docx attachments; per-person sign-in so "who confirmed" and handoff acceptance are real
    identities; MSX milestone post from the Findings view (confirmed text only, through the connector).
-3. **Customer-ready PDF** (follow-up 9) from `design-doc.ts` + the diagram SVGs (`WorkloadStory` can export SVG/PNG).
-4. **SE-first navigation** (follow-up 10): started; the catalog, releases and delivery units are still ISV-shaped.
-5. **Drag-and-drop canvas** (follow-up 7) and a written explanation of the flows/WAF logic (follow-up 8).
+4. **Customer-ready PDF** (follow-up 9) from `design-doc.ts` + the diagram SVGs (`WorkloadStory` can export SVG/PNG).
+5. **SE-first navigation** (follow-up 10): started; the catalog, releases and delivery units are still ISV-shaped.
+6. **Drag-and-drop canvas** (follow-up 7) and a written explanation of the flows/WAF logic (follow-up 8).

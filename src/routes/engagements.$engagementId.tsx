@@ -35,7 +35,7 @@ import { PovView } from "@/components/workspace/Pov";
 import { Rail } from "@/components/workspace/Rail";
 import { ValidateView } from "@/components/workspace/Validate";
 import { SaveIndicator } from "@/components/workspace/ui";
-import { WsProvider, useWorkspaceSave } from "@/components/workspace/ws";
+import { WsProvider, useWorkspaceSave, withUnsaved } from "@/components/workspace/ws";
 import { advance } from "@/lib/conversation";
 import type { Engagement } from "@/lib/engagements";
 import { saveEngagement } from "@/lib/engagements.functions";
@@ -109,7 +109,10 @@ function EngagementPage() {
   const navigate = useNavigate({ from: Route.fullPath });
   const queryClient = useQueryClient();
   const load = useServerFn(getWorkspace);
-  const ws = useQuery({ queryKey: ["workspace", id], queryFn: () => load({ data: { id } }) });
+  const ws = useQuery({
+    queryKey: ["workspace", id],
+    queryFn: async () => withUnsaved(await load({ data: { id } })),
+  });
   const legacy = useQuery(engagementQuery(id));
   const catalog = useQuery(productsQuery);
   const { saveWs, state } = useWorkspaceSave(id);

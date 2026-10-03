@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "start": "node --env-file-if-exists=.env .output/server/index.mjs",
+    "desktop": "node desktop/launcher.mjs --open",
     "db:migrate": "node --env-file-if-exists=.env scripts/db.mjs migrate",
     "db:seed": "node --env-file-if-exists=.env scripts/db.mjs seed",
     "test:e2e": "vite build && playwright test",
@@ -22,6 +23,8 @@
   },
   "dependencies": {
     "@azure/identity": "^4.13.3",
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
     "@hookform/resolvers": "^5.2.2",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",

@@ -23,6 +23,51 @@ export function OverviewView() {
   );
   const assumptions = w.pov?.assumptions ?? [];
   const open = e.actions.filter((a) => !a.done);
+  const empty = !c?.outcome.trim() && !w.pov && !plans.length && !open.length;
+
+  if (empty)
+    return (
+      <div className="space-y-4">
+        <Panel
+          title="Start here"
+          sub="Nothing prepared for this engagement yet. Three steps get you ready for a useful conversation."
+          tone="primary"
+        >
+          <ol className="grid gap-3 md:grid-cols-3">
+            {(
+              [
+                [
+                  "context",
+                  "1. Understand the context",
+                  "What MSX and your notes say, and what isn't confirmed yet.",
+                ],
+                [
+                  "pov",
+                  "2. Shape a point of view",
+                  "A hypothesis to test, drafted from the evidence.",
+                ],
+                [
+                  "plan",
+                  "3. Prepare the conversation",
+                  "Purpose, opening, questions and an agenda that fits the time.",
+                ],
+              ] as const
+            ).map(([tab, title, sub]) => (
+              <li key={tab}>
+                <button
+                  type="button"
+                  onClick={() => go(tab)}
+                  className="h-full w-full rounded-lg border border-border bg-card p-3 text-left transition-colors hover:border-primary"
+                >
+                  <span className="block text-[13.5px] font-semibold">{title}</span>
+                  <span className="mt-0.5 block text-[12px] text-muted-foreground">{sub}</span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </Panel>
+      </div>
+    );
 
   return (
     <div className="space-y-4">
