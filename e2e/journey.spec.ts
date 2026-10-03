@@ -31,7 +31,8 @@ test("an SE and a CSA take a customer from first conversation to realized value"
   await loaded(page);
   const id = page.url().match(/engagements\/([0-9a-f-]{36})/)![1]!;
   const tabs = page.getByRole("navigation", { name: "Engagement" });
-  await expect(page.getByText("Preparing: not started with the customer.")).toBeVisible();
+  // A new engagement opens on its prep, already drafted.
+  await expect(page.getByRole("heading", { name: /^Your prep for / })).toBeVisible();
 
   // Create it with the team named, so the handoff has a name on it; then listen.
   await tabs.getByRole("button", { name: "Confirm and create" }).click();

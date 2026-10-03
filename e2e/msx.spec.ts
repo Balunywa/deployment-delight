@@ -115,7 +115,7 @@ test.describe.serial("MSX link", () => {
     );
     const cd = page.getByRole("region", { name: "In Cloud Delivery" });
     await expect(cd).toContainText(`Already onboarded as E2E Account ${RUN}`);
-    await cd.getByRole("button", { name: "This is the customer: continue" }).click();
+    await cd.getByRole("button", { name: "Pick an engagement or opportunity" }).click();
 
     // The existing engagement is one click away; a new one starts as a draft.
     await expect(page.getByRole("region", { name: "Continue an engagement" })).toContainText(
@@ -124,8 +124,10 @@ test.describe.serial("MSX link", () => {
     const start = page.getByRole("region", { name: "Start a new engagement" });
     await start.getByRole("radio", { name: /Proactive/ }).check();
     await start.getByRole("button", { name: /Prepare discovery/ }).click();
-    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}\?tab=context/);
+    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}\?tab=prep/);
     await loaded(page);
+    const tabs = page.getByRole("navigation", { name: "Engagement" });
+    await tabs.getByRole("button", { name: "Context" }).click();
     await expect(page.getByText("Preparing: not started with the customer.")).toBeVisible();
 
     // Context: add the account team's notes; the brief reads them, with source and status.
@@ -151,10 +153,8 @@ test.describe.serial("MSX link", () => {
       page.getByRole("region", { name: "What matters for this conversation" }),
     ).toContainText("lease ends in June 2027");
 
-    // Point of view from the evidence; the opening is a working hypothesis built from it.
-    const tabs = page.getByRole("navigation", { name: "Engagement" });
+    // Point of view: redrafted from the new notes on its own (nobody had edited it), as a working hypothesis.
     await tabs.getByRole("button", { name: "Point of view" }).click();
-    await page.getByRole("button", { name: "Draft from the evidence" }).click();
     await expect(page.getByRole("textbox", { name: "Opening" })).toHaveValue(
       /^From what we've seen, .*Oracle.*What are we missing\?$/,
     );
@@ -167,9 +167,8 @@ test.describe.serial("MSX link", () => {
       .getByRole("region", { name: "Opening statement" })
       .getByRole("button", { name: "Prepare the conversation" })
       .click();
-    await page.getByRole("button", { name: "Prepare initial discovery" }).click();
     const plan = page.getByRole("region", { name: "Questions, in priority order" });
-    await expect(plan).toContainText("Tests an assumption");
+    await expect(plan).toContainText("From MSX and notes");
     const questions = await page
       .getByRole("textbox", { name: /^Question \d+$/ })
       .evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
@@ -179,6 +178,19 @@ test.describe.serial("MSX link", () => {
       "Oracle Database@Azure",
     );
     await expect(page.getByRole("region", { name: "Agenda" })).toContainText("60 of 60 minutes");
+
+    // Once the SE edits the prep it's theirs: a later change in the evidence doesn't redraft it.
+    await tabs.getByRole("button", { name: "Prep" }).click();
+    const opening = page.getByRole("textbox", { name: "Opening" });
+    await opening.fill("Thanks for the time. My own opening for this call.");
+    await tabs.getByRole("button", { name: "Context" }).click();
+    await priorities
+      .getByRole("listitem")
+      .filter({ hasText: "lease ends in June 2027" })
+      .getByRole("combobox")
+      .selectOption("needs-validation");
+    await tabs.getByRole("button", { name: "Prep" }).click();
+    await expect(opening).toHaveValue("Thanks for the time. My own opening for this call.");
 
     await open(page, "/engagements");
     await page.getByRole("link", { name: "Maintenance planning in days" }).first().click();
@@ -307,14 +319,26 @@ test.describe.serial("MSX link", () => {
       "Dana Ortiz · VP, Operations Technology",
     );
     await page.getByLabel("Name the team uses").fill(`Contoso Energy ${RUN}`);
-    await page.getByRole("button", { name: "Save customer draft" }).click();
+    await page.getByRole("button", { name: "Link an MSX opportunity first" }).click();
     const start = page.getByRole("region", { name: "Start a new engagement" });
     await start.getByRole("radio", { name: /Azure Local for refinery sites/ }).check();
     await start.getByRole("button", { name: /Prepare discovery/ }).click();
-    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}/);
+    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}\?tab=prep/);
     await loaded(page);
     const id = page.url().match(/engagements\/([0-9a-f-]{36})/)![1]!;
     const tabs = page.getByRole("navigation", { name: "Engagement" });
+
+    // The prep is drafted already: an opening from what MSX shows, and questions grounded in it.
+    await expect(
+      page.getByRole("heading", { name: `Your prep for Contoso Energy ${RUN}` }),
+    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Opening" })).toHaveValue(
+      /you're looking at Azure Local with Microsoft, and you already run SQL on Azure/,
+    );
+    await expect(page.getByRole("textbox", { name: "Question 2", exact: true })).toHaveValue(
+      "Where are you with Azure Local, and what's getting in the way?",
+    );
+    await tabs.getByRole("button", { name: "Context" }).click();
 
     // B. Context: the opportunity leads; MSX facts need validation until the customer says so.
     const matters = page.getByRole("region", { name: "What matters for this conversation" });
@@ -332,9 +356,8 @@ test.describe.serial("MSX link", () => {
       "Already in production per MSX: Data: SQL",
     );
 
-    // C. Point of view: the opportunity's own topic leads.
+    // C. Point of view: drafted already; the opportunity's own topic leads.
     await tabs.getByRole("button", { name: "Point of view" }).click();
-    await page.getByRole("button", { name: "Draft from the evidence" }).click();
     await expect(page.getByRole("textbox", { name: "Opening" })).toHaveValue(
       /From what we've seen, you want to run control-room apps .*Azure Local/,
     );
@@ -345,10 +368,9 @@ test.describe.serial("MSX link", () => {
       .getByRole("region", { name: "Opening statement" })
       .getByRole("button", { name: "Prepare the conversation" })
       .click();
-    await page.getByRole("button", { name: "Prepare initial discovery" }).click();
     await page.getByRole("button", { name: "Open meeting view" }).click();
     await page
-      .getByLabel("Answer to question 1")
+      .getByLabel("Answer to question 1", { exact: true })
       .fill("Mostly right; the real pain is reports that arrive days late.");
     await page
       .getByRole("radiogroup", { name: /Result: The goal as written still holds/ })
@@ -407,6 +429,108 @@ test.describe.serial("MSX link", () => {
     await expect(page.getByText(/control-room apps at 12 refinery sites/).first()).toBeVisible();
     await expect(page.getByText("Share the site connectivity map")).toBeVisible();
     await expect(page.getByText(/MSX opportunity reflects/)).toHaveCount(0);
+  });
+
+  test("one click from a TPID to a ready prep: opening, questions, agenda, who and what MSX shows", async ({
+    page,
+  }) => {
+    const tpid = `7${RUN}`;
+    const snapshot = {
+      tpid,
+      fetchedAt: new Date().toISOString(),
+      account: {
+        id: "a0000000-0000-4000-8000-000000000009",
+        name: `FABRIKAM ENERGY ${RUN}`,
+        industry: "Oil & Gas",
+        country: "United States",
+      },
+      accounts: 2,
+      team: [{ name: "Sam Seller", role: "Account Executive" }],
+      opportunities: [
+        {
+          id: "b0000000-0000-4000-8000-000000000009",
+          number: `7-ONE${RUN}`,
+          name: "Fabric for operations data",
+          stage: "Listen & Consult",
+          solutionArea: "Data & AI",
+          salesPlay: null,
+          closeDate: null,
+          createdOn: "2026-09-01T00:00:00Z",
+          owner: "Sam Seller",
+          account: null,
+          description: null,
+          forecastComments: null,
+          type: "Consumption",
+          ownerTeam: "STU",
+        },
+      ],
+      milestones: [
+        {
+          id: "c0000000-0000-4000-8000-000000000009",
+          number: `7-MS9${RUN}`,
+          name: "Lakehouse pilot",
+          opportunityId: "b0000000-0000-4000-8000-000000000009",
+          workload: "Data: Data Platform - Fabric",
+          status: "On Track",
+          category: "POC/Pilot",
+          commitment: "Uncommitted",
+          date: new Date(Date.now() + 60 * 864e5).toISOString(),
+          owner: "Sam Seller",
+          ownerTeam: "STU",
+          modifiedOn: new Date().toISOString(),
+        },
+      ],
+      contacts: [{ name: "Ari Chen", title: "Chief Information Officer" }],
+      partners: [],
+    };
+    await page.route(`${CONNECTOR}/**`, (r) => {
+      const path = new URL(r.request().url()).pathname;
+      return r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify(
+          path === "/status" ? { connector: "2", msx: "ready", detail: null } : snapshot,
+        ),
+      });
+    });
+
+    await open(page, "/customers/onboard");
+    await page.getByLabel("TPID").fill(tpid);
+    await page.getByRole("button", { name: "Look up" }).click();
+    await expect(page.getByLabel("Name the team uses")).toHaveValue(`Fabrikam Energy ${RUN}`);
+    await page.getByRole("button", { name: "Prepare my first conversation" }).click();
+    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}\?tab=prep/);
+    await loaded(page);
+
+    await expect(
+      page.getByRole("heading", { name: `Your prep for Fabrikam Energy ${RUN}` }),
+    ).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Opening" })).toHaveValue(
+      /^Thanks for making the time\. From what we've seen, you're looking at Fabric with Microsoft\./,
+    );
+    await expect(page.getByRole("textbox", { name: "Question 1", exact: true })).toHaveValue(
+      `What are the one or two outcomes that matter most to Fabrikam Energy ${RUN} this year, and how will you know you got there?`,
+    );
+    await expect(page.getByRole("textbox", { name: "Question 2", exact: true })).toHaveValue(
+      /^What's driving your interest in Fabric, and what would success look like by /,
+    );
+    await expect(page.getByRole("region", { name: "What Microsoft is driving" })).toContainText(
+      "Fabric",
+    );
+    await expect(page.getByRole("region", { name: "Who to talk to" })).toContainText(
+      "Ari Chen · Chief Information Officer",
+    );
+    await expect(page.getByRole("region", { name: "The account" })).toContainText(
+      "Sam Seller · Account Executive",
+    );
+    // A shorter meeting reshapes the agenda.
+    await page.getByLabel("Length").selectOption("30");
+    const agenda = page.getByRole("region", { name: "Agenda" });
+    const minutes = await agenda
+      .locator("ol li span:first-child")
+      .evaluateAll((els) => els.reduce((n, el) => n + parseInt(el.textContent ?? "0", 10), 0));
+    expect(minutes).toBe(30);
   });
 
   test("a proactive engagement links an opportunity later", async ({ page }) => {

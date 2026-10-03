@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { relative } from "@/lib/format";
 import { type MsxSnapshot, msxCustomer, opportunityKey } from "@/lib/msx-connector";
+import { niceName } from "@/lib/msx-signals";
 import { findCustomersByTpid, getCustomerProfile, upsertCustomerByTpid } from "@/lib/msx.functions";
 import { getPrepAssist, saveMsxSnapshot } from "@/lib/prep.functions";
 import { cn } from "@/lib/utils";
@@ -47,14 +48,6 @@ export const Route = createFileRoute("/customers/onboard")({
   }),
   component: OnboardCustomer,
 });
-
-const JOURNEY = [
-  "Resolve the customer",
-  "Understand the context",
-  "Shape the point of view",
-  "Prepare the conversation",
-  "Confirm findings and create",
-];
 
 const ago = (iso: string) => relative(iso);
 
@@ -159,50 +152,54 @@ function OnboardCustomer() {
       void navigate({
         to: "/engagements/$engagementId",
         params: { engagementId: r.id },
-        search: { tab: r.status === "draft" ? "context" : "overview" },
+        search: { tab: r.status === "draft" ? "prep" : "overview" },
       });
     },
     onError: (err: Error) => toast.error(err.message),
   });
 
   const confirmed = !!search.customer;
-  const finalName = name ?? found?.name ?? snap?.account?.name ?? "";
+  const finalName = name ?? found?.name ?? (snap?.account ? niceName(snap.account.name) : "");
   const linked = new Set((engagements.data ?? []).map((x) => x.msx_opportunity_id).filter(Boolean));
+
+  // One click from a TPID to a ready prep: keep the customer and the MSX snapshot, open the engagement, draft it.
+  const prepareNow = useMutation({
+    mutationFn: async () => {
+      const id =
+        found?.id ??
+        (
+          await upsert({
+            data: {
+              tpid: term,
+              name: finalName.trim(),
+              ...(snap?.account ? { accountName: snap.account.name } : {}),
+            },
+          })
+        ).customer.id;
+      if (msx.data) await save({ data: { customerId: id, snapshot: msx.data } });
+      return open({ data: { customerId: id } });
+    },
+    onSuccess: (r) => {
+      void queryClient.invalidateQueries({ queryKey: ["find-customer", term] });
+      void navigate({
+        to: "/engagements/$engagementId",
+        params: { engagementId: r.id },
+        search: { tab: "prep" },
+      });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
 
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <div className="max-w-3xl">
-        <h1 className="text-[22px] font-semibold">Onboard a customer</h1>
+        <h1 className="text-[22px] font-semibold">Prepare for a customer</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">
-          Understand the customer well enough to lead a useful first conversation. MSX stays the
-          record; Cloud Delivery keeps the TPID, a dated MSX snapshot and what you learn.
+          Enter the TPID. Cloud Delivery reads MSX and drafts your prep: the account, what Microsoft
+          is driving there and what's stuck, who to talk to, your opening, the questions and the
+          agenda. MSX is never changed.
         </p>
       </div>
-
-      <ol aria-label="Journey" className="grid gap-2 sm:grid-cols-5">
-        {JOURNEY.map((s, i) => (
-          <li
-            key={s}
-            aria-current={i === 0 ? "step" : undefined}
-            className={cn(
-              "flex items-center gap-2 rounded-lg border px-3 py-2 text-[12.5px]",
-              i === 0
-                ? "border-primary bg-primary/5 font-semibold"
-                : "border-border text-muted-foreground",
-            )}
-          >
-            <span
-              className={cn(
-                "grid size-5 shrink-0 place-items-center rounded-full text-[11px]",
-                i === 0 && confirmed ? "bg-success text-white" : "bg-muted text-muted-foreground",
-              )}
-            >
-              {i === 0 && confirmed ? <Check className="size-3" /> : String.fromCharCode(65 + i)}
-            </span>
-            {s}
-          </li>
-        ))}
-      </ol>
 
       <form
         className="flex max-w-xl items-end gap-2"
@@ -356,8 +353,10 @@ function OnboardCustomer() {
                 </li>
               </ul>
               {!confirmed && (
-                <div className="mt-3 flex justify-end">
+                <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                   <Button
+                    variant="ghost"
+                    size="sm"
                     disabled={
                       confirm.isPending ||
                       existing.isLoading ||
@@ -366,7 +365,22 @@ function OnboardCustomer() {
                     }
                     onClick={() => confirm.mutate()}
                   >
-                    {found ? "This is the customer: continue" : "Save customer draft"}
+                    {found ? "Pick an engagement or opportunity" : "Link an MSX opportunity first"}
+                  </Button>
+                  <Button
+                    disabled={
+                      prepareNow.isPending ||
+                      existing.isLoading ||
+                      msx.isFetching ||
+                      (!found && finalName.trim().length < 2)
+                    }
+                    onClick={() => prepareNow.mutate()}
+                  >
+                    {prepareNow.isPending
+                      ? "Preparing…"
+                      : found
+                        ? "Prepare a conversation"
+                        : "Prepare my first conversation"}
                   </Button>
                 </div>
               )}

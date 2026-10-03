@@ -61,6 +61,49 @@ export const FLAG_LABEL: Record<MilestoneFlag, string> = {
 const day = (iso: string | null) => (iso ? iso.slice(0, 10) : "no date");
 const workloadOf = (m: MsxMilestone) => m.workload?.trim() || "Workload not set";
 
+const KEEP_UPPER = new Set([
+  "BMW",
+  "IBM",
+  "USA",
+  "US",
+  "UK",
+  "LLC",
+  "LP",
+  "PLC",
+  "AG",
+  "SA",
+  "NV",
+  "BP",
+  "GE",
+]);
+/**
+ * A customer name as people write it. MSX often stores names in capitals ("MURPHY OIL" → "Murphy Oil"); acronyms
+ * without vowels or on a short list stay as they are ("HNTB", "BMW"). Names with any lowercase are left alone.
+ */
+export function niceName(name: string) {
+  if (!name || /[a-z]/.test(name)) return name;
+  return name
+    .split(/(\s+|-|\/)/)
+    .map((w) => {
+      const bare = w.replace(/[.,]/g, "");
+      if (!/[A-Z]/.test(w) || KEEP_UPPER.has(bare) || !/[AEIOUY]/.test(w)) return w;
+      if (bare === "INC") return "Inc";
+      return w[0] + w.slice(1).toLowerCase();
+    })
+    .join("");
+}
+
+/** An MSX workload as a customer would say it: "Data: Analytics - Azure Databricks" → "Azure Databricks". */
+export function cleanWorkload(w: string | null | undefined) {
+  const t = (w ?? "").trim().replace(/^[A-Za-z&]+:\s*/, "");
+  const last =
+    t
+      .split(/\s+-\s+/)
+      .at(-1)
+      ?.trim() ?? t;
+  return last.length >= 3 ? last : t;
+}
+
 /** One line about a flagged milestone, in plain words, with the facts it rests on. */
 export function flagText(m: MsxMilestone, flags: MilestoneFlag[], now = new Date()) {
   const what = `“${m.name}” (${workloadOf(m)})`;

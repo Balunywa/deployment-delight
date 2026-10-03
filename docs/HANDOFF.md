@@ -166,6 +166,19 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 
 ## 4. What's built (high level; README has detail)
 
+- **Prep, one click (3 Oct, after Lukman: "think like an SE; this is way too manual")**: Onboard customer → TPID →
+  **Prepare my first conversation** saves the customer (MSX names in capitals become "Murphy Oil") and the MSX
+  snapshot, opens the engagement draft and lands on its **Prep** tab (`components/workspace/Prep.tsx`), the default
+  for drafts: the opening (built from facts, never internal seller notes: what they're looking at with Microsoft and
+  what already runs), the questions to ask in order (outcomes, the stuck workload, workloads in motion with a date,
+  the live one, timing, who decides; then technical and playbook ones; `conversationQuestions` in `workspace.ts`), the
+  agenda (purpose and length selectors), what to listen for and the next step to ask for; on the right the account and
+  account team, what Microsoft is driving (in motion, in production, stuck, partners), who to talk to (MSX contacts,
+  senior first) and what we don't know. "Copy meeting brief" puts it all on the clipboard as text. The server drafts
+  the point of view and a discovery call plan when a draft is opened (`loadWorkspace`), and **redrafts them when the
+  evidence changes until someone edits them** (`workspace.auto` keeps hashes of the evidence and of the draft; the
+  update is guarded on the draft's hash). Our assumptions are tested in the meeting view, not read out as questions.
+  The detailed tabs are under "Details" and "After the call".
 - **The engagement workspace** (`/engagements/<id>`, redesigned 3 Oct from Lukman's "SE/CSA workflow" prompt): one
   record from the first look at a customer to production. Persistent header (customer, TPID, MSX link, phase, save
   state), journey nav, a side rail (next action, transparent readiness checks, working hypothesis, evidence, open
@@ -370,6 +383,15 @@ registration), one token per resource: MSX `https://microsoftsales.crm.dynamics.
 
 ## 6. Data state
 
+- **3 Oct: the Azure database's data is in Lukman's desktop app.** `pg_dump --data-only --column-inserts
+  --on-conflict-do-nothing` from `clouddelivery-pg-nzdefv` (as Lukman, through a temporary Entra admin and firewall
+  rule, both removed afterwards) loaded into `%LOCALAPPDATA%\CloudDelivery\db` with PGlite (app closed; psql `\restrict`
+  lines stripped). 160 rows: products, offerings, versions, delivery units, the landing zone and its runs, modules,
+  policy packs, the engagements "grid" and two "AKS POC", 57 audit events. His app already had Exxon Mobil (TPID
+  641837) and two XOM drafts, so the Azure copy of Exxon was merged into it (context entries combined, newest MSX
+  snapshot last; a delivery unit and two audit events repointed). Backups: `CloudDelivery\db.backup-before-import`
+  and `CloudDelivery\backups\azure-export-2026-10-03.sql`. **The Azure database is kept, as Lukman asked** (server
+  running; only the retired web app's identity can sign in).
 - **All made-up demo customers are removed** from Azure and local (migrations 0015 and 0016: the 24 utilities and
   numbered "Metro Energy" duplicates, with their landing zones, installs, deployments, delivery units, engagements and
   related audit events). Azure had 0 customers after cleanup.

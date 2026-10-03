@@ -79,7 +79,7 @@ const plan = z.object({
         id,
         text: s(500),
         why: s(300),
-        source: z.enum(["pov", "assumption", "playbook", "area", "own"]),
+        source: z.enum(["pov", "assumption", "playbook", "area", "prep", "own"]),
         assumption: id.optional(),
       }),
     )
@@ -260,17 +260,83 @@ async function loadWorkspace(engagementId: string): Promise<WorkspaceData> {
         }
       : null,
   );
+  const items = briefItems({
+    prep,
+    evidence: customer.evidence ?? {},
+    engagements: others,
+    installs,
+    foundation,
+  });
+  // A new draft starts prepared: a point of view and a discovery call plan drafted from the evidence, ready to edit.
+  // The app's own draft keeps itself current (new notes, a fresher MSX snapshot) until someone edits it; from the
+  // first edit on it's the SE's, and nothing here replaces it.
+  if (e.status === "draft") {
+    const { draftPov, buildPlan } = await import("./workspace");
+    const { createHash } = await import("node:crypto");
+    const stable = (v: unknown) =>
+      JSON.stringify(v, (_k, x: unknown) =>
+        x && typeof x === "object" && !Array.isArray(x)
+          ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1)))
+          : x,
+      );
+    const hash = (v: unknown) => createHash("sha256").update(stable(v)).digest("hex").slice(0, 32);
+    const w = e.workspace;
+    const plans = w.plans ?? [];
+    const basis = hash({
+      customer: customer.name,
+      items: items.map((i) => [i.id, i.status]),
+      goals: prep.goals.map((q) => q.text),
+      whyNow: prep.whyNow.map((q) => q.text),
+      people: prep.people.map((q) => q.text),
+      areas: prep.areas.map((a) => a.id),
+      questions: prep.questions,
+      gaps: prep.gaps,
+      msx: prep.msx
+        ? {
+            motion: prep.msx.inMotion.map((x) => [x.workload, x.next.id, x.next.status]),
+            attention: prep.msx.attention.map((x) => [x.milestone.id, x.flags]),
+            live: prep.msx.live.map((x) => x.workload),
+            contacts: prep.msx.contacts.slice(0, 3),
+          }
+        : null,
+    });
+    const fresh = !w.pov && !plans.length;
+    const untouched =
+      !!w.auto && !!w.pov && plans.length === 1 && hash({ pov: w.pov, plans }) === w.auto.output;
+    if (fresh || (untouched && w.auto!.basis !== basis)) {
+      const pov = draftPov(prep, items);
+      const plan = buildPlan({
+        purpose: "discovery",
+        duration: 60,
+        pov,
+        prep,
+        customer: customer.name,
+      });
+      const auto = { basis, output: hash({ pov, plans: [plan] }) };
+      const saved = await db.maybeOne<{ workspace: WorkspaceEngagement["workspace"] }>(
+        `update public.engagements set workspace = coalesce(workspace, '{}'::jsonb) || $1::jsonb, updated_at = now()
+         where id = $2 and (
+           ($3::text is null and workspace->'pov' is null and coalesce(jsonb_array_length(workspace->'plans'), 0) = 0)
+           or workspace->'auto'->>'output' = $3)
+         returning workspace`,
+        [
+          JSON.stringify({ pov, plans: [plan], auto, playbook: PLAYBOOK_VERSION }),
+          e.id,
+          fresh ? null : w.auto!.output,
+        ],
+      );
+      if (saved) {
+        e.workspace = saved.workspace;
+        if (fresh)
+          await audit("engagement.prep_drafted", e.id, e.customer_id, { plan: plan.title });
+      }
+    }
+  }
   return {
     engagement: e,
     customer,
     prep,
-    items: briefItems({
-      prep,
-      evidence: customer.evidence ?? {},
-      engagements: others,
-      installs,
-      foundation,
-    }),
+    items,
     changes: snap?.changes ?? [],
     team: snap?.msx?.team ?? null,
     others,

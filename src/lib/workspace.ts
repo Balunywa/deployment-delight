@@ -7,7 +7,7 @@
  */
 import type { Action, Engagement, Finding } from "./engagements";
 import type { MsxSnapshot } from "./msx-connector";
-import { milestoneFacts, TEAM_LABEL } from "./msx-signals";
+import { cleanWorkload, milestoneFacts, niceName, TEAM_LABEL } from "./msx-signals";
 import {
   ENGAGEMENT_TYPES,
   type EngagementType,
@@ -431,7 +431,13 @@ export const emptyPov = (): Pov => ({
 });
 
 const uid = (p: string) => `${p}-${Math.random().toString(36).slice(2, 9)}`;
-const lowerFirst = (s: string) => (s ? s[0]!.toLowerCase() + s.slice(1) : s);
+// Lowercase a sentence's first word to continue a sentence, unless it's a name ("Murphy Oil", "Azure Local").
+const COMMON_START =
+  /^(the|a|an|we|they|our|their|customer|customers|it|its|this|these|there|you|your|in|on|for|to|if|when|most|some|many|more|less)\b/i;
+const lowerFirst = (s: string) =>
+  s && COMMON_START.test(s) ? s[0]!.toLowerCase() + s.slice(1) : s;
+/** Cut to the save schema's limit (workspace.functions.ts), so a drafted value always saves. */
+const fit = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 const sentence = (s: string) => {
   const t = s.trim();
   return t && !/[.!?]$/.test(t) ? `${t}.` : t;
@@ -463,6 +469,10 @@ function inThePicture(areas: MatchedArea[]) {
     terms.length === 1 ? terms[0]! : `${terms.slice(0, -1).join(", ")} and ${terms.at(-1)!}`;
   return `We understand ${list} ${terms.length === 1 ? "is" : "are"} in the picture.`;
 }
+
+const listOf = (xs: string[]) =>
+  xs.length <= 1 ? (xs[0] ?? "") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)!}`;
+export { cleanWorkload };
 
 /** A first draft from the evidence: quotes, not conclusions. Every field stays editable. */
 export function draftPov(prep: Prep, items: BriefItem[]): Pov {
@@ -497,6 +507,29 @@ export function draftPov(prep: Prep, items: BriefItem[]): Pov {
       text: "The owner of the outcome and the decision maker are known.",
       status: "open",
     });
+  // What MSX shows the account team driving.
+  const s = prep.msx;
+  const stuck = s?.attention.find((a) =>
+    a.flags.some((f) => f === "blocked" || f === "at-risk" || f === "overdue"),
+  );
+  if (stuck)
+    assumptions.push({
+      id: uid("as"),
+      text: `${cleanWorkload(stuck.milestone.workload) || stuck.milestone.name} is still a priority for them, and we know what's holding it up.`,
+      status: "open",
+    });
+  const live = (s?.live ?? []).slice(0, 2).map((l) => cleanWorkload(l.workload));
+  const moving = (s?.inMotion ?? [])
+    .slice(0, 3)
+    .map((w) => cleanWorkload(w.workload))
+    .filter((w) => w && w !== "Workload not set" && !live.includes(w));
+  const msxPicture = [
+    live.length && `You already run ${listOf(live)} in production`,
+    moving.length &&
+      `${live.length ? "and" : "We know"} ${listOf(moving)} ${moving.length === 1 ? "is" : "are"} being planned with Microsoft`,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const paths: PathOption[] = [
     {
@@ -532,11 +565,21 @@ export function draftPov(prep: Prep, items: BriefItem[]): Pov {
       evidenceNeeded: top.ask[0] ?? "",
     });
 
+  const senior = (s?.contacts ?? []).slice(0, 3);
   const pov: Pov = {
     pressure,
-    stakeholders: prep.people.map((q) => q.text).join(" "),
+    stakeholders: [
+      prep.people.map((q) => q.text).join(" "),
+      senior.length
+        ? `MSX lists ${senior.map((c) => (c.title ? `${c.name} (${c.title})` : c.name)).join(", ")} among the customer's contacts; who owns this decision isn't confirmed.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(" "),
     consequence: "",
-    technical: inThePicture(prep.areas),
+    technical: [inThePicture(prep.areas), msxPicture && sentence(msxPicture)]
+      .filter(Boolean)
+      .join(" "),
     evidence: [
       byText(goalQ?.text),
       byText(whyQ?.text),
@@ -548,7 +591,14 @@ export function draftPov(prep: Prep, items: BriefItem[]): Pov {
     opening: "",
     paths: paths.slice(0, 3),
   };
-  return { ...pov, opening: composeOpening(pov) };
+  return {
+    ...pov,
+    pressure: fit(pov.pressure, 1500),
+    stakeholders: fit(pov.stakeholders, 1500),
+    technical: fit(pov.technical, 1500),
+    assumptions: pov.assumptions.map((a) => ({ ...a, text: fit(a.text, 500) })),
+    opening: fit(composeOpening(pov), 2000),
+  };
 }
 
 /** Material claims in the POV that have no evidence linked: shown as hypotheses. */
@@ -565,7 +615,7 @@ export type PlanQuestion = {
   id: string;
   text: string;
   why: string;
-  source: "pov" | "assumption" | "playbook" | "area" | "own";
+  source: "pov" | "assumption" | "playbook" | "area" | "prep" | "own";
   /** The assumption it tests, when it tests one. */
   assumption?: string | undefined;
 };
@@ -622,6 +672,119 @@ export function agendaFor(purpose: Purpose, duration: number) {
   return rows;
 }
 
+const monthOf = (iso: string | null) =>
+  iso
+    ? new Date(iso).toLocaleDateString("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+    : null;
+
+/**
+ * What to say first, to the customer. Built from facts (what they work on with Microsoft, what already runs), never
+ * from internal seller notes, and it ends by inviting correction.
+ */
+export function customerOpening(prep: Prep, customerName: string) {
+  const customer = niceName(customerName);
+  const s = prep.msx;
+  const live = [...new Set((s?.live ?? []).map((l) => cleanWorkload(l.workload)))].slice(0, 2);
+  const topics = [
+    ...new Set(
+      (s?.inMotion ?? [])
+        .map((w) => cleanWorkload(w.workload))
+        .filter((w) => w && w !== "Workload not set" && !live.includes(w)),
+    ),
+  ].slice(0, 3);
+  const areas = topics.length
+    ? []
+    : prep.areas.slice(0, 2).map((a) => a.label.replace(/ \(.*\)$/, ""));
+  const working = topics.length
+    ? `you're looking at ${listOf(topics)} with Microsoft`
+    : areas.length
+      ? `${listOf(areas)} ${areas.length === 1 ? "is" : "are"} on your agenda`
+      : "";
+  const running = live.length
+    ? `you already run ${listOf(live)}${live.every((l) => /^Azure\b/i.test(l)) ? "" : " on Azure"}`
+    : "";
+  const known = [working, running].filter(Boolean).join(", and ");
+  return [
+    "Thanks for making the time.",
+    known && sentence(`From what we've seen, ${known}`),
+    `Before we talk about any solution, we'd like to understand what matters most to ${customer} right now, what's driving the timing, and what a good outcome looks like.`,
+    "Here's how we see it so far. What are we missing?",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/**
+ * Discovery questions to ask the customer, in order: outcomes, then what MSX shows (stuck, in motion, live), the
+ * timing, and who decides. Open questions in the customer's terms; the reason for each stays with the SE.
+ */
+export function conversationQuestions(
+  prep: Prep,
+  customerName: string,
+): Omit<PlanQuestion, "id">[] {
+  const customer = niceName(customerName);
+  const s = prep.msx;
+  const out: Omit<PlanQuestion, "id">[] = [];
+  const goal = prep.goals[0];
+  out.push({
+    text: `What are the one or two outcomes that matter most to ${customer} this year, and how will you know you got there?`,
+    why: goal
+      ? `Hear it in their words. What we hold says: "${goal.text.slice(0, 140)}" (${goal.from}).`
+      : "Nothing we hold states the outcome.",
+    source: "prep",
+  });
+  const stuck = s?.attention.find((a) =>
+    a.flags.some((f) => f === "blocked" || f === "at-risk" || f === "overdue"),
+  );
+  if (stuck)
+    out.push({
+      text: `Where are you with ${cleanWorkload(stuck.milestone.workload) || "this work"}, and what's getting in the way?`,
+      why: `MSX: ${stuck.text}`,
+      source: "prep",
+    });
+  const seen = new Set(stuck ? [cleanWorkload(stuck.milestone.workload)] : []);
+  for (const w of s?.inMotion ?? []) {
+    const name = cleanWorkload(w.workload);
+    if (!name || name === "Workload not set" || seen.has(name)) continue;
+    seen.add(name);
+    const by = monthOf(w.next.date);
+    out.push({
+      text: `What's driving your interest in ${name}, and what would success look like${by ? ` by ${by}` : ""}?`,
+      why: `MSX: ${w.milestones.length} open milestone${w.milestones.length === 1 ? "" : "s"} for ${w.workload}; next “${w.next.name}” (${milestoneFacts(w.next)}).`,
+      source: "prep",
+    });
+    if (seen.size >= 3) break;
+  }
+  const live = s?.live[0];
+  if (live)
+    out.push({
+      text: `How is ${cleanWorkload(live.workload)} working for you today, and what would you change?`,
+      why: `MSX shows it in production (“${live.milestone.name}”, ${live.milestone.date?.slice(0, 10) ?? "no date"}).`,
+      source: "prep",
+    });
+  out.push(
+    prep.whyNow[0]
+      ? {
+          text: "What's behind the timing, and what happens if this waits six months?",
+          why: `What we hold says: "${prep.whyNow[0].text.slice(0, 140)}" (${prep.whyNow[0].from}).`,
+          source: "prep",
+        }
+      : {
+          text: "Why now? Is there a deadline, renewal or event that sets the timing?",
+          why: "Nothing we hold says why now.",
+          source: "prep",
+        },
+  );
+  out.push({
+    text: "Who else needs to be involved in a decision like this, and how do you usually decide?",
+    why: prep.people.length
+      ? "Confirms who owns it and who has to say yes."
+      : "No owner or decision maker is named.",
+    source: "prep",
+  });
+  return out;
+}
+
 /** A call plan for this customer and purpose, from the POV, the playbook and what the context mentions. */
 export function buildPlan(input: {
   purpose: Purpose;
@@ -641,20 +804,8 @@ export function buildPlan(input: {
     seen.add(k);
     questions.push({ ...q, id: uid("q") });
   };
-  if (pov.invite.trim())
-    push({
-      text: pov.invite.trim(),
-      why: "Invites them to correct our point of view.",
-      source: "pov",
-    });
-  for (const a of pov.assumptions.filter((x) => x.status === "open").slice(0, 3))
-    push({
-      text: `We understand that ${lowerFirst(a.text.replace(/[.!?]$/, ""))}. Is that right?`,
-      why: "Tests an assumption in our point of view.",
-      source: "assumption",
-      assumption: a.id,
-    });
-  for (const q of g.questions.slice(0, 3)) push({ ...q, source: "playbook" });
+  // What to ask the customer. Our assumptions are tested separately in the meeting view, not read out as questions.
+  for (const q of conversationQuestions(prep, input.customer)) push(q);
   for (const a of prep.areas.slice(0, 2))
     if (a.ask[0])
       push({
@@ -662,7 +813,7 @@ export function buildPlan(input: {
         why: `The context mentions ${a.matched.join(", ")}.`,
         source: "area",
       });
-  for (const q of g.questions.slice(3)) push({ ...q, source: "playbook" });
+  for (const q of g.questions) push({ ...q, source: "playbook" });
 
   const followUps: CallPlan["followUps"] = [];
   if (pov.disprove.trim())
@@ -683,6 +834,20 @@ export function buildPlan(input: {
     else if (/no description/i.test(gap))
       followUps.push({ text: "How did this request start, and who raised it?", because: gap });
   }
+  for (const a of prep.msx?.attention.slice(0, 2) ?? [])
+    followUps.push({
+      text: `Ask where ${a.milestone.workload?.trim() || a.milestone.name} stands on their side.`,
+      because: `MSX: ${a.text}`,
+    });
+
+  // Suggested from MSX contacts (senior first) until the SE says who's coming.
+  const suggested: Attendee[] = (prep.msx?.contacts ?? []).slice(0, 3).map((c) => ({
+    id: uid("at"),
+    name: c.name,
+    role: c.title ?? "",
+    priorities: "",
+    inferred: true,
+  }));
 
   return {
     id: uid("plan"),
@@ -691,10 +856,16 @@ export function buildPlan(input: {
     duration: input.duration,
     date: "",
     outcome: g.aim,
-    audience: input.audience ?? [],
-    opening: pov.opening || composeOpening(pov),
-    questions: questions.slice(0, 9),
-    followUps,
+    audience: (input.audience ?? suggested).map((a) => ({
+      ...a,
+      name: fit(a.name, 120),
+      role: fit(a.role, 120),
+    })),
+    opening: customerOpening(prep, input.customer),
+    questions: questions
+      .slice(0, 10)
+      .map((q) => ({ ...q, text: fit(q.text, 500), why: fit(q.why, 300) })),
+    followUps: followUps.map((f) => ({ text: fit(f.text, 500), because: fit(f.because, 300) })),
     listenFor: [...g.listenFor],
     objections: [...g.objections],
     constraints: prep.areas.slice(0, 3).map((a) => `${a.label}: ${a.ask[a.ask.length - 1]}`),
@@ -850,6 +1021,11 @@ export type Workspace = {
   handoff?: Handoff;
   tcp?: Tcp;
   playbook?: string;
+  /**
+   * Set while the point of view and call plan are the app's own draft: the evidence it was drafted from and the
+   * draft itself, both hashed. While nobody has edited them, a change in the evidence redrafts them.
+   */
+  auto?: { basis: string; output: string };
 };
 
 export type WorkspaceEngagement = Engagement & {
@@ -881,6 +1057,7 @@ export function phaseOf(e: WorkspaceEngagement): Phase {
 }
 
 export type Tab =
+  | "prep"
   | "overview"
   | "context"
   | "pov"
@@ -898,6 +1075,7 @@ export type Tab =
 export type Check = { id: string; label: string; ok: boolean; fix: Tab; hint: string };
 
 export const TAB_TITLE: Record<Tab, string> = {
+  prep: "Prep",
   overview: "Overview",
   context: "Context",
   pov: "Point of view",
@@ -1107,9 +1285,12 @@ export function whatMatters(e: WorkspaceEngagement, items: BriefItem[], changes:
   const pov = e.workspace.pov;
   return {
     why:
-      plan?.outcome ||
-      (e.msx_opportunity_name ? `The opportunity: ${e.msx_opportunity_name}.` : "") ||
-      "Not set: choose the meeting's purpose in the call plan.",
+      [
+        e.msx_opportunity_name ? `The opportunity: ${e.msx_opportunity_name}.` : "",
+        plan?.outcome ?? "",
+      ]
+        .filter(Boolean)
+        .join(" ") || "Not set: choose the meeting's purpose in the call plan.",
     changed: changes,
     know: items.filter((i) => i.status === "confirmed").slice(0, 4),
     dontAssume: [

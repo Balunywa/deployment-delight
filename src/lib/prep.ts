@@ -4,7 +4,7 @@
  * solution) and similar engagements by peers. Rules only, grounded in the stored text: it quotes, it doesn't invent.
  */
 import type { MsxSnapshot } from "./msx-connector";
-import { type MsxSignals, msxSignals } from "./msx-signals";
+import { type MsxSignals, cleanWorkload, msxSignals } from "./msx-signals";
 
 export type PrepEntry = {
   id?: string | undefined;
@@ -544,12 +544,12 @@ export function buildPrep(input: {
   const live = signals?.live[0];
   if (stuck)
     questions.push({
-      text: `Where does ${stuck.milestone.workload?.trim() || "this work"} stand on your side, and what's in the way?`,
+      text: `Where are you with ${cleanWorkload(stuck.milestone.workload) || "this work"}, and what's getting in the way?`,
       because: `MSX: ${stuck.text}`,
     });
   else if (live)
     questions.push({
-      text: `How is ${live.workload} working for you in production, and what would you change?`,
+      text: `How is ${cleanWorkload(live.workload)} working for you in production, and what would you change?`,
       because: `MSX shows a completed production milestone, “${live.milestone.name}” (${live.milestone.date?.slice(0, 10) ?? "no date"}).`,
     });
   if (top)

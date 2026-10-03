@@ -130,10 +130,7 @@ test.describe("every page loads @readonly", () => {
 
   test("customer onboarding opens: TPID, MSX, context, prep", async ({ page }) => {
     await open(page, "/customers/onboard");
-    await heading(page, "Onboard a customer");
-    await expect(page.getByRole("list", { name: "Journey" })).toContainText(
-      "Shape the point of view",
-    );
+    await heading(page, "Prepare for a customer");
     await expect(page.getByLabel("TPID")).toBeVisible();
   });
 

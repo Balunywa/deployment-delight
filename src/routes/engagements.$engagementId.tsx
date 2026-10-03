@@ -32,6 +32,7 @@ import { HandoffPlanView } from "@/components/workspace/Handoff";
 import { OverviewView } from "@/components/workspace/Overview";
 import { MeetingView, PlanView } from "@/components/workspace/Plan";
 import { PovView } from "@/components/workspace/Pov";
+import { PrepView } from "@/components/workspace/Prep";
 import { Rail } from "@/components/workspace/Rail";
 import { ValidateView } from "@/components/workspace/Validate";
 import { SaveIndicator } from "@/components/workspace/ui";
@@ -52,6 +53,7 @@ import {
 import { type WorkspaceData, getWorkspace } from "@/lib/workspace.functions";
 
 const TABS: Tab[] = [
+  "prep",
   "overview",
   "context",
   "pov",
@@ -70,8 +72,7 @@ const TITLE = TAB_TITLE;
 
 export const Route = createFileRoute("/engagements/$engagementId")({
   validateSearch: (s: Record<string, unknown>): { tab?: Tab } => {
-    // "prep" was the old preparation tab; the brief is its successor.
-    const t = s["tab"] === "prep" ? "context" : s["tab"];
+    const t = s["tab"];
     return typeof t === "string" && (TABS as string[]).includes(t) ? { tab: t as Tab } : {};
   },
   head: () => ({ meta: [{ title: "Engagement · Cloud Delivery" }] }),
@@ -138,7 +139,7 @@ function EngagementPage() {
   const data = ws.data;
   const e = data.engagement;
   const draft = e.status === "draft";
-  const tab: Tab = search.tab ?? (draft ? nextAction(e).tab : "overview");
+  const tab: Tab = search.tab ?? (draft ? "prep" : "overview");
   const go = (t: Tab) => void navigate({ search: { tab: t } });
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["workspace", id] });
@@ -197,11 +198,12 @@ function EngagementPage() {
   const phase = phaseOf(e);
   const groups: { label: string; tabs: Tab[] }[] = draft
     ? [
-        { label: "Prepare", tabs: ["context", "pov", "plan"] },
-        { label: "Engage", tabs: ["meeting", "findings", "charter"] },
+        { label: "", tabs: ["prep"] },
+        { label: "Details", tabs: ["context", "pov", "plan"] },
+        { label: "After the call", tabs: ["meeting", "findings", "charter"] },
       ]
     : [
-        { label: "", tabs: ["overview"] },
+        { label: "", tabs: ["overview", "prep"] },
         { label: "Prepare", tabs: ["context", "pov", "plan"] },
         { label: "Engage", tabs: ["meeting", "findings", "charter"] },
         { label: "Deliver", tabs: ["prove", "handoff", "realize"] },
@@ -281,7 +283,7 @@ function EngagementPage() {
           </div>
         </header>
 
-        {draft && (
+        {draft && tab !== "prep" && (
           <div className="rounded-lg border border-warning/40 bg-warning/5 px-4 py-2 text-[12.5px]">
             <span className="font-semibold">Preparing: not started with the customer.</span> Nothing
             here is a commitment, and MSX is never changed from this workspace.
@@ -352,8 +354,14 @@ function EngagementPage() {
           )}
         </nav>
 
-        <div className={cn("grid gap-5", rail && "xl:grid-cols-[minmax(0,1fr)_300px]")}>
+        <div
+          className={cn(
+            "grid gap-5",
+            rail && tab !== "prep" && "xl:grid-cols-[minmax(0,1fr)_300px]",
+          )}
+        >
           <div className="min-w-0" key={`${e.id}-${tab}`}>
+            {tab === "prep" && <PrepView />}
             {tab === "overview" && <OverviewView />}
             {tab === "context" && <ContextView />}
             {tab === "pov" && <PovView />}
@@ -423,7 +431,7 @@ function EngagementPage() {
               />
             )}
           </div>
-          {rail && (
+          {rail && tab !== "prep" && (
             <div className="xl:sticky xl:top-16 xl:self-start">
               <Rail />
             </div>

@@ -42,6 +42,7 @@ const SOURCE_LABEL: Record<PlanQuestion["source"], string> = {
   assumption: "Tests an assumption",
   playbook: "Playbook",
   area: "Technical",
+  prep: "From MSX and notes",
   own: "Yours",
 };
 
