@@ -54,7 +54,7 @@ export function CustomerProfileCard({ customerId }: { customerId: string }) {
   const saveTpid = useMutation({
     mutationFn: useServerFn(setCustomerTpid),
     onSuccess: () => {
-      toast.success("TPID saved. Copilot with msx-mcp can now find this customer by it.");
+      toast.success("TPID saved.");
       setTpid(null);
       void refresh();
     },
@@ -136,8 +136,8 @@ export function CustomerProfileCard({ customerId }: { customerId: string }) {
       <div className="mt-3 space-y-2">
         {entries.length === 0 && !adding && (
           <p className="rounded-lg border border-dashed border-border px-3 py-3 text-[12.5px] text-muted-foreground">
-            No context yet. Add meeting notes, an email, a call transcript, or a brief in your own
-            words, or let Copilot with msx-mcp add what MSX has.
+            No context yet. Pull from MSX, or add meeting notes, an email, a call transcript, or a
+            brief in your own words.
           </p>
         )}
         {entries.map((x) => {

@@ -49,7 +49,10 @@ export const test = base.extend<{ problems: Problems }>({
       });
       page.on("pageerror", (e) => problems.list.push(`pageerror: ${e.message}`));
       page.on("console", (m) => {
-        if (m.type() === "error") problems.list.push(`console: ${m.text()}`);
+        // The MSX connector runs only on an SE's PC; the app checks for it and copes when it isn't there.
+        const connector = /127\.0\.0\.1:47615/;
+        if (m.type() === "error" && !connector.test(m.text()) && !connector.test(m.location().url))
+          problems.list.push(`console: ${m.text()}`);
       });
       page.on("response", (r) => {
         const u = new URL(r.url());

@@ -105,13 +105,13 @@ export const Route = createFileRoute("/onboard")({
   }),
   head: () => ({
     meta: [
-      { title: "Onboard customer · Cloud Delivery" },
+      { title: "Deployment onboarding · Cloud Delivery" },
       {
         name: "description",
         content:
           "Onboard a customer onto a published offering: environments and targets, placement in the landing zone, and a GitHub Actions or Azure Pipelines run.",
       },
-      { property: "og:title", content: "Onboard customer · Cloud Delivery" },
+      { property: "og:title", content: "Deployment onboarding · Cloud Delivery" },
       {
         property: "og:description",
         content: "Customer onboarding is a pull request, not a project.",
@@ -808,13 +808,14 @@ function Onboard() {
   return (
     <div className="mx-auto max-w-6xl">
       <div className="mb-5">
-        <p className="text-xs text-muted-foreground">Customers / Onboard</p>
-        <h1 className="text-[22px] font-semibold">Onboard a customer</h1>
+        <p className="text-xs text-muted-foreground">Platform / Deployment onboarding</p>
+        <h1 className="text-[22px] font-semibold">Deployment onboarding</h1>
         <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-          Pick a published offering, choose where each environment lands, and launch. The customer
-          gets its own repository, and onboarding adds a file per environment pinning the version —{" "}
-          {tool.title} plans and deploys it ring by ring with the same pinned template for every
-          customer.
+          Put a customer onto a published offering: pick it, choose where each environment lands,
+          and launch. The customer gets its own repository, and onboarding adds a file per
+          environment pinning the version — {tool.title} plans and deploys it ring by ring with the
+          same pinned template for every customer. (To onboard a customer for an engagement by TPID,
+          use Onboard customer.)
         </p>
       </div>
 

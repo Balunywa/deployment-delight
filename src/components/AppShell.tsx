@@ -59,14 +59,17 @@ type Path =
 type NavItem = { to: Path; label: string; icon: LucideIcon };
 
 /*
- * Navigation mirrors the ISV lifecycle: define the product once, bring customers onto it,
- * then operate the installed base. Labels here are the page titles — keep them identical.
+ * SE-first: onboard and prepare for customers, run engagements, design; the deployment (ISV vending) screens follow.
+ * Labels here are the page titles — keep them identical.
  */
 const nav: { label: string; items: NavItem[] }[] = [
   { label: "", items: [{ to: "/", label: "Home", icon: LayoutDashboard }] },
   {
     label: "Engage",
-    items: [{ to: "/engagements", label: "Engagements", icon: Ear }],
+    items: [
+      { to: "/customers", label: "Customers", icon: Building2 },
+      { to: "/engagements", label: "Engagements", icon: Ear },
+    ],
   },
   {
     label: "Product",
@@ -82,12 +85,7 @@ const nav: { label: string; items: NavItem[] }[] = [
     items: [
       { to: "/foundations", label: "Landing zones", icon: Landmark },
       { to: "/delivery", label: "Delivery units", icon: GitFork },
-    ],
-  },
-  {
-    label: "Customers",
-    items: [
-      { to: "/customers", label: "Customers", icon: Building2 },
+      { to: "/onboard", label: "Deployment onboarding", icon: UserPlus },
       { to: "/estate", label: "Installed base", icon: Activity },
     ],
   },
@@ -164,7 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className={cn("pb-2", rail ? "px-2" : "px-3")}>
           <Link
-            to="/onboard"
+            to="/customers/onboard"
             title="Onboard customer"
             className="flex items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-[13px] font-medium text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.16),0_1px_3px_rgb(0_0_0/0.3)] transition-colors hover:bg-primary/90"
           >
@@ -287,8 +285,11 @@ function CommandPalette({
       <CommandList>
         <CommandEmpty>No matches.</CommandEmpty>
         <CommandGroup heading="Actions">
+          <CommandItem onSelect={() => go(() => navigate({ to: "/customers/onboard" }))}>
+            <UserPlus className="size-4" /> Onboard a customer (TPID, MSX, prep)
+          </CommandItem>
           <CommandItem onSelect={() => go(() => navigate({ to: "/onboard" }))}>
-            <UserPlus className="size-4" /> Onboard a customer
+            <Rocket className="size-4" /> Deployment onboarding
           </CommandItem>
           <CommandItem onSelect={() => go(() => navigate({ to: "/upgrades" }))}>
             <GitBranch className="size-4" /> Roll out a release

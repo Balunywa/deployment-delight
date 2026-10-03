@@ -236,7 +236,7 @@ test.describe.serial("solution catalog", () => {
     await card.getByRole("link", { name: "Deploy" }).click();
     await expect(page).toHaveURL(/\/onboard\?product=/);
     await loaded(page);
-    await expect(page.getByRole("heading", { name: "Onboard a customer" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Deployment onboarding" })).toBeVisible();
     await expect(page.getByText(CLEAN_NAME).first()).toBeVisible();
   });
 

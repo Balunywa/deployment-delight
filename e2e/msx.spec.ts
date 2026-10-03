@@ -1,6 +1,7 @@
 /*
- * The MSX link: customers keyed by TPID with their context, engagements under an MSX opportunity or proactive, and
- * the MCP endpoint Copilot uses beside msx-mcp. Writes to the e2e database, so not @readonly.
+ * The MSX link: customer onboarding by TPID (MSX through the connector, context, prep, engagement under an MSX
+ * opportunity or proactive), and the MCP endpoint Copilot uses beside msx-mcp. Writes to the e2e database, so not
+ * @readonly.
  */
 import { type APIRequestContext } from "@playwright/test";
 
@@ -10,6 +11,7 @@ const TOKEN = "e2e-mcp-token";
 const RUN = Date.now().toString().slice(-7);
 const TPID = `9${RUN}`;
 const OPP = `7-E2E${RUN}`;
+const CONNECTOR = "http://127.0.0.1:47615";
 
 async function rpc(request: APIRequestContext, method: string, params?: unknown, token = TOKEN) {
   const r = await request.post("/api/mcp", {
@@ -100,25 +102,49 @@ test.describe.serial("MSX link", () => {
     expect(bad.body.result.isError).toBe(true);
   });
 
-  test("the profile, its context and the linked engagement show in the app", async ({ page }) => {
-    await open(page, "/customers");
-    await page.getByRole("button", { name: "Find or add by TPID" }).click();
-    const dialog = page.getByRole("dialog", { name: "Find or add a customer" });
-    await dialog.getByLabel("TPID or name").fill(TPID);
-    await dialog
-      .getByRole("list", { name: "Matches" })
-      .getByRole("button", { name: new RegExp(`E2E Account ${RUN}`) })
-      .click();
-    await loaded(page);
-    const profile = page.getByRole("region", { name: "Customer profile" });
-    await expect(profile.getByRole("button", { name: TPID })).toBeVisible();
-    await expect(profile).toContainText("Opportunity notes");
+  test("onboarding reuses the profile by TPID; added context drives the prep", async ({ page }) => {
+    // No MSX connector on this machine: the page says so and onboarding still works.
+    await page.route(`${CONNECTOR}/**`, (r) => r.abort());
+    await open(page, "/customers/onboard");
+    await page.getByLabel("TPID").fill(TPID);
+    await page.getByRole("button", { name: "Look up" }).click();
+    await expect(page.getByRole("region", { name: "MSX connection" })).toContainText(
+      "MSX isn't connected on this PC.",
+    );
+    await expect(page.getByRole("region", { name: "In Cloud Delivery" })).toContainText(
+      `Already onboarded as E2E Account ${RUN}`,
+    );
+    await page.getByRole("button", { name: "Continue with this customer" }).click();
 
+    await expect(page.getByRole("radio", { name: /Proactive/ })).toBeChecked();
+    await page.getByRole("button", { name: "Next: add context" }).click();
+    const profile = page.getByRole("region", { name: "Customer profile" });
+    await expect(profile).toContainText("Opportunity notes");
     await profile.getByRole("button", { name: "Add context" }).click();
     await profile.getByLabel("Title").fill("Discovery call");
-    await profile.getByLabel("Context").fill("They measure rework after scheduling.");
+    await profile
+      .getByLabel("Context")
+      .fill(
+        "They want to move 40 Oracle databases off Exadata before the datacenter lease ends in June 2027. The CIO sponsors it. New apps would run on AKS.",
+      );
     await profile.getByRole("button", { name: "Save context" }).click();
     await expect(profile).toContainText("Discovery call");
+
+    await page.getByRole("button", { name: "Next: prep" }).click();
+    const prep = page.getByRole("region", { name: "Prep" });
+    const questions = prep.getByRole("group", { name: "Discovery questions" });
+    await expect(questions).toContainText("Wants maintenance planning off spreadsheets");
+    await expect(questions).toContainText("Which Oracle features do they depend on");
+    const areas = prep.getByRole("group", { name: "Technical areas" });
+    await expect(areas).toContainText("Oracle workloads");
+    await expect(areas).toContainText("Containers and AKS");
+    await expect(areas.getByRole("link", { name: /Oracle Database@Azure/ })).toHaveAttribute(
+      "href",
+      /^https:\/\/learn\.microsoft\.com\//,
+    );
+    const map = prep.getByRole("group", { name: "Context map" });
+    await expect(map).toContainText("lease ends in June 2027");
+    await expect(map).toContainText("The CIO sponsors it.");
 
     await open(page, "/engagements");
     await page.getByRole("link", { name: "Maintenance planning in days" }).first().click();
@@ -126,19 +152,102 @@ test.describe.serial("MSX link", () => {
     await expect(page.getByRole("button", { name: new RegExp(`MSX ${OPP}`) })).toBeVisible();
   });
 
-  test("a new TPID creates the profile; a proactive engagement links an opportunity later", async ({
+  test("with MSX: pull by TPID, pick the opportunity, prep, start the engagement", async ({
     page,
   }) => {
     const tpid = `8${RUN}`;
-    await open(page, "/customers");
-    await page.getByRole("button", { name: "Find or add by TPID" }).click();
-    const dialog = page.getByRole("dialog", { name: "Find or add a customer" });
-    await dialog.getByLabel("TPID or name").fill(tpid);
-    await dialog.getByLabel("Name", { exact: true }).fill(`E2E New ${RUN}`);
-    await dialog.getByRole("button", { name: "Add customer" }).click();
-    await expect(page.getByText(`E2E New ${RUN} added.`)).toBeVisible();
-    const customerUrl = page.url();
+    const opp = `7-MSX${RUN}`;
+    const snapshot = {
+      tpid,
+      fetchedAt: new Date().toISOString(),
+      account: { id: "a0000000-0000-4000-8000-000000000001", name: `CONTOSO ENERGY ${RUN}` },
+      accounts: 3,
+      opportunities: [
+        {
+          id: "b0000000-0000-4000-8000-000000000001",
+          number: opp,
+          name: "Azure Local for refinery sites",
+          stage: "2 - Qualify",
+          solutionArea: "Infrastructure",
+          salesPlay: "Migrate and Modernize",
+          closeDate: "2027-03-31T00:00:00Z",
+          createdOn: "2026-09-01T00:00:00Z",
+          owner: "Pat Seller",
+          account: `Contoso Energy ${RUN}`,
+          description:
+            "Customer wants to run control-room apps at 12 refinery sites when disconnected. Hardware refresh is due by Q2 2027.",
+          forecastComments: null,
+        },
+        {
+          id: "b0000000-0000-4000-8000-000000000002",
+          number: `7-OTHER${RUN}`,
+          name: "Data platform",
+          stage: "1 - Listen & Consult",
+          solutionArea: "Data & AI",
+          salesPlay: null,
+          closeDate: null,
+          createdOn: null,
+          owner: null,
+          account: null,
+          description: null,
+          forecastComments: null,
+        },
+      ],
+    };
+    // The connector on the SE's PC, stood in for: signed in, and MSX knows this TPID.
+    await page.route(`${CONNECTOR}/**`, (r) => {
+      const path = new URL(r.request().url()).pathname;
+      return r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        headers: { "access-control-allow-origin": "*" },
+        body: JSON.stringify(
+          path === "/status" ? { connector: "1", msx: "ready", detail: null } : snapshot,
+        ),
+      });
+    });
 
+    await open(page, "/customers/onboard");
+    await page.getByLabel("TPID").fill(tpid);
+    await page.getByRole("button", { name: "Look up" }).click();
+    await expect(page.getByText("MSX connected")).toBeVisible();
+    const inMsx = page.getByRole("region", { name: "In MSX" });
+    await expect(inMsx).toContainText(`CONTOSO ENERGY ${RUN}`);
+    await expect(inMsx).toContainText("3 active accounts · 2 open opportunities");
+    await expect(page.getByLabel("Name the team uses")).toHaveValue(`CONTOSO ENERGY ${RUN}`);
+    await page.getByLabel("Name the team uses").fill(`Contoso Energy ${RUN}`);
+    await page.getByRole("button", { name: "Create profile and continue" }).click();
+
+    await page.getByRole("radio", { name: /Azure Local for refinery sites/ }).check();
+    await page.getByRole("button", { name: "Next: add context" }).click();
+    await expect(page.getByRole("region", { name: "Customer profile" })).toContainText(
+      `MSX: CONTOSO ENERGY ${RUN}`,
+    );
+    await page.getByRole("button", { name: "Next: prep" }).click();
+
+    const prep = page.getByRole("region", { name: "Prep" });
+    const map = prep.getByRole("group", { name: "Context map" });
+    await expect(map).toContainText("Azure Local for refinery sites · 2 - Qualify");
+    await expect(map).toContainText("owner Pat Seller");
+    await expect(map).toContainText("Hardware refresh is due by Q2 2027.");
+    await expect(map).toContainText("No sponsor or decision maker is named.");
+    await expect(prep.getByRole("group", { name: "Technical areas" })).toContainText(
+      "Azure Local (edge and on-premises)",
+    );
+    await expect(prep.getByRole("group", { name: "Discovery questions" })).toContainText(
+      "Customer wants to run control-room apps",
+    );
+
+    const start = page.getByRole("region", { name: "Start the engagement" });
+    await expect(start).toContainText(`Linked to MSX opportunity ${opp}`);
+    await expect(start.getByLabel("Engagement")).toHaveValue("Azure Local for refinery sites");
+    await start.getByRole("button", { name: "Start the engagement" }).click();
+    await loaded(page);
+    await expect(page).toHaveURL(/\/engagements\//);
+    await expect(page.getByRole("button", { name: new RegExp(`MSX ${opp}`) })).toBeVisible();
+  });
+
+  test("a proactive engagement links an opportunity later", async ({ page }) => {
     await open(page, "/engagements");
     await page
       .getByRole("button", { name: /Start an engagement|New engagement/ })
@@ -155,6 +264,5 @@ test.describe.serial("MSX link", () => {
     await page.getByLabel("Opportunity ID").fill(`7-NEW${RUN}`);
     await page.getByRole("button", { name: "Link opportunity" }).click();
     await expect(page.getByRole("button", { name: new RegExp(`MSX 7-NEW${RUN}`) })).toBeVisible();
-    expect(customerUrl).toContain("/customers/");
   });
 });

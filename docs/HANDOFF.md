@@ -36,16 +36,16 @@ interaction rather than building an MSX integration.
 
 | # | Follow-up | Status |
 |---|---|---|
-| 1 | Onboarding by TPID: search, reuse an existing profile, retrieve MSX info, create if new | **Partly done.** TPID profiles exist; "retrieve MSX info" works through Copilot + msx-mcp, now wired in `.vscode/mcp.json` (see §5) |
+| 1 | Onboarding by TPID: search, reuse an existing profile, retrieve MSX info, create if new | **Done in the web app**: `/customers/onboard` (Onboard customer). MSX is read through the local MSX connector (see §5). Not yet run against real MSX (needs Lukman's MSX sign-in) |
 | 2 | Postgres model for engagement state and metadata, MSX as source of truth | **Done** (migration 0014) |
 | 3 | MSX integration spec: link engagements to opportunities; milestone, deal team and ACR updates via MSX Helper | **Done for link + milestone update text** via MCP; posting to MSX is msx-mcp's job and isn't verified yet |
-| 4 | Manual context (notes, recordings, emails, prompts) → context map | **Storage and UI done** (customer profile context). The context map itself isn't built |
+| 4 | Manual context (notes, recordings, emails, prompts) → context map | **Done.** Context entries (paste text; recordings as transcripts) feed the context map in the prep |
 | 5 | Engagement from an existing opportunity or proactive | **Done** |
-| 6 | Prep output: discovery questions, technical areas to review, similar prior engagements | **Not started.** Recommended next |
+| 6 | Prep output: discovery questions, technical areas to review, similar prior engagements | **Done (v1).** `src/lib/prep.ts`: rules grounded in stored text (quotes with sources, gaps, 3 questions, 17 technical areas with Microsoft Learn links, similar customers by shared areas) plus an optional "Draft a brief with AI" (Azure OpenAI, context only) |
 | 7 | Drag-and-drop canvas with real-time changes and scoring | **Not started** (today: click to add, fixed placement) |
 | 8 | Document the backend logic: component change → flows → WAF score | **Not started as a doc.** The logic is code (`src/lib/offering/flows.ts`, `src/lib/waf/`), not "static Postgres metadata" as the meeting notes say. Worth correcting with Jarrett |
 | 9 | Export: customer-ready PDF instead of Markdown | **Not started** |
-| 10 | Realign scope to SE-first; reconcile ISV-oriented work | **Not started.** Nav still leads with ISV concepts (Solution catalog, Releases, Delivery units, Installed base) |
+| 10 | Realign scope to SE-first; reconcile ISV-oriented work | **Started.** Nav: Engage (Customers, Engagements) first; the old ISV wizard is "Deployment onboarding" (`/onboard`) under Platform with Installed base. Catalog/Releases/Delivery units still ISV-shaped |
 
 ---
 
@@ -129,7 +129,10 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 | `src/lib/offering/design-doc.ts` | Markdown design document + findings CSV (the PDF should build on this) |
 | `src/components/offering/` | `GuidedWorkload`, `WorkloadStory`, `WafReview`, `WafGuide`, `OperatePanel`, `OfferingNav` |
 | `src/components/lz/diagram/` | The shared diagram standard (Story engine, theme, router); used by landing zones and offerings |
-| `src/components/customer/` | `FindCustomer` (TPID dialog), `CustomerProfileCard` (TPID + context) |
+| `src/components/customer/` | `CustomerProfileCard` (TPID + context), `PrepPanel` (prep), `MsxConnect` (connector status, sign-in), `hooks.ts` |
+| `src/routes/customers.onboard.tsx` | Customer onboarding: Find → What MSX says → Add context → Prep and start |
+| `src/lib/prep.ts`, `prep.functions.ts` | Prep engine (rules) and server functions (snapshot, prep, AI draft) |
+| `src/lib/msx-connector.ts`, `public/msx-connector.mjs` | Browser client for, and the source of, the local MSX connector |
 | `src/components/engagement/` | Engagement UI incl. `MsxLink`, `Realize` |
 | `db/migrations/` | 0001–0016. 0014 = MSX keys; 0015/0016 = demo customer removal |
 | `db/seed/` | Demo data, used **only** by the e2e database now |
@@ -143,8 +146,10 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 - **Engagements**: Understand → Explore → Illustrate → Validate → Agree → Prove → Realize value; working summary with
   confirmed/hypothesis/unknown; customer-safe recap at `/recap/<id>`; CSA handoff; "Needs you" queue; optional Foundry
   assist (`AZURE_OPENAI_ENDPOINT`). Now also: origin (opportunity | proactive), MSX opportunity link in the header.
-- **Customers**: "Find or add by TPID" (searches **Cloud Delivery's own** customers; creates a profile for a new TPID);
-  profile card with TPID, MSX account name, and context entries (notes, MSX, email, transcript, prompt).
+- **Customers**: **Onboard customer** (`/customers/onboard`, the sidebar's main button): TPID → MSX account and open
+  opportunities (via the connector) → reuse or create the profile → pick the opportunity or proactive → add context →
+  prep → start the engagement. The customer page shows the profile, context and the same prep, with "Refresh from MSX".
+  "Deployment onboarding" (`/onboard`) is the old ISV wizard that puts a customer onto an offering.
 - **Offerings (solution design)**: lifecycle nav Design / Build / Validate / Release / Operate with a "Next step" bar;
   Guided (10 WAF steps, requirements first) or Canvas; reference designs; computed flows per lens; Well-Architected
   score with one-click fixes; `/well-architected` guide; design doc download; Terraform + pipeline generation;
@@ -155,8 +160,25 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 
 ## 5. MSX integration: design and where it stands
 
-**Design.** Cloud Delivery never holds MSX credentials and doesn't call MSX. MSX lives in Microsoft's corporate tenant
-behind an app registration the MSX team must approve. The working pattern is **Copilot as the orchestrator**:
+**Design (revised 2 Oct, late: Lukman wants onboarding in the web app, not in a Copilot chat).** Cloud Delivery's
+server never holds MSX credentials and never calls MSX: a token for MSX Dataverse comes only from the SE's own
+signed-in device (an app registration would need MSX team approval). So:
+
+- **MSX connector** (`public/msx-connector.mjs`, served at `/msx-connector.mjs`): a no-dependency Node program on the
+  SE's PC, `http://127.0.0.1:47615`. It runs msx-mcp's `msx` server over stdio (silent auth) and answers only fixed
+  read-only questions: `GET /status`, `POST /signin` (runs `msx_login`; needs header `x-cloud-delivery: 1`),
+  `GET /customer?tpid=` (top-parent account, active account count, open opportunities via the TPID FetchXML join).
+  Allows only Cloud Delivery's origins (Azure URL, localhost:3000; more via `MSX_CONNECTOR_ORIGINS`), checks the Host
+  header, answers the Private Network Access preflight. `--install` copies it to `%LOCALAPPDATA%\CloudDelivery` and
+  adds a hidden start at Windows sign-in (Startup folder `.vbs`); `--uninstall` removes that.
+- **The browser** (on the SE's PC) calls the connector, shows the data, and sends Cloud Delivery a **snapshot**: a
+  context entry with `source: "msx"` and an `msx` field (account, opportunities: number, name, stage, solution area,
+  sales play, dates, owner, description, forecast comments). One snapshot per customer; refresh replaces it. No
+  estimated values are stored. Edge/Chrome may ask once to allow local network access.
+- Tested: connector against real msx-mcp (status `signed-out`, origin/host/TPID checks, preflight, `--install` in a
+  sandbox); the whole onboarding with a mocked connector in `e2e/msx.spec.ts`. **Not yet run against real MSX.**
+
+**Copilot path (still there):**
 
 - **msx-mcp** (runs locally in VS Code/Copilot as the signed-in SE) reads and writes MSX.
 - **Cloud Delivery MCP server** at `/api/mcp` (Streamable HTTP, stateless JSON-RPC; on when `MCP_TOKEN` is set; bearer
@@ -188,14 +210,14 @@ behind an app registration the MSX team must approve. The working pattern is **C
   `cloud-delivery` on the Azure URL with the token as a password prompt). The skill now names the real tools and
   queries, and posts milestone updates as `dataverse_write` PATCH of `msp_engagementmilestones.msp_forecastcomments`
   with only the new text (an MSX plug-in appends history; see msx-mcp's `skills/msx-write`).
-- The TPID dialog now says it searches Cloud Delivery only, and to ask Copilot "prep customer TPID …" for MSX data.
+- The old TPID dialog is gone; onboarding is `/customers/onboard`.
 
 **Next steps for MSX:**
 
-1. In VS Code: start the `msx` and `cloud-delivery` servers from `.vscode/mcp.json` (paste `MCP_TOKEN` when asked),
-   connect the VPN, open a **new** chat (servers added mid-chat aren't visible), and run "prep customer TPID <real>".
-   The first MSX call triggers `msx_login`.
-2. Fix anything the real run shows in `SKILL.md` (e.g. field names on the opportunity fetch).
+1. With Lukman: connector running (`--install`), VPN on, **Onboard customer** → "Sign in to MSX" once → a real TPID.
+   Check the account, counts and opportunity fields against MSX; fix the connector's FetchXML if a field is wrong.
+2. Milestone updates from the app (today only via the Copilot skill): add a confirmed write path to the connector
+   (`dataverse_write` PATCH of `msp_forecastcomments`, new text only) behind an explicit confirm in the UI.
 3. Later: per-person tokens or Entra sign-in for `/api/mcp`. Today one shared token, and audit says "Copilot (via MCP)".
 
 ---
@@ -227,11 +249,9 @@ behind an app registration the MSX team must approve. The working pattern is **C
 
 ## 8. Recommended next work (in order)
 
-1. **Finish the msx-mcp setup with Lukman**: a real TPID run (§5 next steps 1–2).
-2. **Prep** (follow-up 6): from a customer's context (MSX summary, notes, emails, transcripts) produce a context map,
-   2–3 discovery questions, technical hints (e.g. Azure Local, AKS, Oracle, DC migration → what to review and ask), and
-   similar prior engagements. Use the Foundry assist path that already exists in `engagements.functions.ts`, grounded
-   only in stored context.
+1. **First real MSX run with Lukman** (§5 next step 1).
+2. **Prep, next iteration**: weight the technical areas by the chosen opportunity; read attachments (.docx, .vtt,
+   .eml) instead of pasted text only; more similar-work signal as engagements accumulate.
 3. **Customer-ready PDF** (follow-up 9) from `design-doc.ts` + the diagram SVGs (`WorkloadStory` can export SVG/PNG).
-4. **SE-first navigation** (follow-up 10): lead with Customers → Engagements → Design; demote ISV vending screens.
+4. **SE-first navigation** (follow-up 10): started; the catalog, releases and delivery units are still ISV-shaped.
 5. **Drag-and-drop canvas** (follow-up 7) and a written explanation of the flows/WAF logic (follow-up 8).

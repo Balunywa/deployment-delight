@@ -74,16 +74,21 @@ Either way, it's the same product setup, the same deployment process and the sam
    confirmation, which closes the engagement and is audited. The recap becomes the value report. Kept apart and
    internal: the MSX opportunity and milestone links (pasted, https only), the installs' estimated run cost, and
    a milestone update for MSX.
-   **MSX through Copilot, not a sync:**
+   **MSX in the app, read on your own PC:**
    - **The link:** MSX stays the system of record. Customers carry their **TPID**, and each engagement is either
      tracked under an **MSX opportunity** or **proactive** until it has one.
-   - **Customer profile:** "Find or add by TPID" opens or creates the profile. The profile holds context MSX
-     doesn't (meeting notes, emails, transcripts, a brief in your own words) for preparing the next conversation.
-   - **Copilot:** the app is also an MCP server (`/api/mcp`, Streamable HTTP, on when `MCP_TOKEN` is set). Copilot
-     can use it beside [msx-mcp](https://github.com/mcaps-microsoft/msx-mcp), which reads and writes MSX as the
-     signed-in user.
-   - **The skill:** `.github/skills/prep-customer` looks the account up in MSX by TPID, records it here, starts or
-     links the engagement, and posts the milestone update to MSX only after you confirm.
+   - **Onboard customer** (`/customers/onboard`): type the TPID; Cloud Delivery shows what MSX has (account, active
+     accounts, open opportunities) and whether the customer is already onboarded (it reuses that profile). Pick the
+     opportunity or go proactive, add what MSX doesn't hold (meeting notes, emails, transcripts, a brief in your own
+     words), then **prep**: a context map (where it came from, what they want, why now, people, unknowns, each quote
+     with its source), three discovery questions, technical areas to review with Microsoft Learn links, and similar
+     work by peers. Optionally "Draft a brief with AI" from the same context. Then start the engagement.
+   - **MSX connector:** MSX is read by a small program on your PC (`/msx-connector.mjs`, run once with `--install`)
+     that uses [msx-mcp](https://github.com/mcaps-microsoft/msx-mcp) as you. It answers only Cloud Delivery's pages
+     and only read-only questions. Cloud Delivery keeps a dated snapshot, never your MSX sign-in.
+   - **Copilot:** the app is also an MCP server (`/api/mcp`, Streamable HTTP, on when `MCP_TOKEN` is set) for use
+     beside msx-mcp; `.github/skills/prep-customer` does the same from a chat and posts milestone updates to MSX
+     only after you confirm.
    - **No MSX credentials:** Cloud Delivery never holds them. Settings → Connect Copilot has the `mcp.json` entry. The optional **Foundry assist** (the `AZURE_OPENAI_ENDPOINT` model, called with the app's identity)
    suggests next questions and hypotheses from the presenter's notes and drafts the follow-up email; it can only
    suggest existing questions, and nothing is added until the presenter accepts it. See `src/lib/conversation.ts`.

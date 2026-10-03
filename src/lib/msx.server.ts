@@ -4,6 +4,7 @@
  * and by the MCP endpoint, so Copilot with msx-mcp beside it can pull from MSX and record here in one conversation.
  */
 import { type Engagement, measuresOf, milestoneUpdate } from "./engagements";
+import { type MsxSnapshot, snapshotText } from "./msx-connector";
 
 export const ORG_ID = "11111111-1111-1111-1111-111111111111";
 
@@ -19,6 +20,8 @@ export type ContextEntry = {
   text: string;
   by: string;
   at: string;
+  /** Set on the snapshot pulled through the MSX connector; there is at most one. */
+  msx?: MsxSnapshot;
 };
 
 export type CustomerProfile = {
@@ -213,6 +216,69 @@ export async function removeContext(customerId: string, entryId: string) {
        where x ->> 'id' <> $1), '[]'::jsonb) where id = $2 and organization_id = $3`,
     [entryId, customerId, ORG_ID],
   );
+}
+
+/**
+ * Keeps what MSX said at the last look-up as the customer's MSX context, replacing the previous snapshot. MSX stays
+ * the record: this is a dated copy of the account name and open opportunities, for prep.
+ */
+export async function saveSnapshot(customerId: string, snapshot: MsxSnapshot, by: string) {
+  const d = await db();
+  const c = await getCustomer(customerId);
+  if (c.tpid && c.tpid !== snapshot.tpid)
+    throw new Error(`This customer's TPID is ${c.tpid}, not ${snapshot.tpid}.`);
+  if (!c.tpid) await setTpid(customerId, snapshot.tpid, by);
+  const entry: ContextEntry = {
+    id: crypto.randomUUID(),
+    source: "msx",
+    title: `MSX: ${snapshot.account?.name ?? `TPID ${snapshot.tpid}`}, ${snapshot.fetchedAt.slice(0, 10)}`,
+    text: snapshotText(snapshot).slice(0, 20000),
+    by,
+    at: new Date().toISOString(),
+    msx: snapshot,
+  };
+  await d.query(
+    `update public.customers set
+       context = coalesce((select jsonb_agg(x) from jsonb_array_elements(context) x where not (x ? 'msx')), '[]'::jsonb)
+         || $1::jsonb,
+       msx_account_name = coalesce($2, msx_account_name)
+     where id = $3 and organization_id = $4`,
+    [JSON.stringify([entry]), snapshot.account?.name ?? null, customerId, ORG_ID],
+  );
+  await audit("customer.msx_snapshot", { type: "customer", id: customerId }, customerId, by, {
+    tpid: snapshot.tpid,
+    opportunities: snapshot.opportunities.length,
+  });
+  return getCustomer(customerId);
+}
+
+/** Other customers' context and engagements, to find similar work by peers. */
+export async function peers(customerId: string) {
+  const d = await db();
+  const rows = await d.query<{
+    id: string;
+    name: string;
+    context: ContextEntry[] | null;
+    engagements: { id: string; name: string; stage: string; words: string | null }[] | null;
+  }>(
+    `select c.id, c.name, c.context,
+       (select jsonb_agg(jsonb_build_object('id', e.id, 'name', e.name, 'stage', e.stage, 'words', e.brief ->> 'words')
+          order by e.updated_at desc)
+        from public.engagements e where e.customer_id = c.id) as engagements
+     from public.customers c where c.organization_id = $1 and c.id <> $2`,
+    [ORG_ID, customerId],
+  );
+  return rows
+    .map((r) => ({
+      customerId: r.id,
+      customerName: r.name,
+      engagements: (r.engagements ?? []).map(({ id, name, stage }) => ({ id, name, stage })),
+      text: [
+        ...(r.context ?? []).map((x) => x.text),
+        ...(r.engagements ?? []).flatMap((e) => [e.name, e.words ?? ""]),
+      ].join("\n"),
+    }))
+    .filter((p) => p.text.trim());
 }
 
 const ENGAGEMENT = `select id, name, stage, origin, msx_opportunity_id, msx_opportunity_name, customer_id, updated_at

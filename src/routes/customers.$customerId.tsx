@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { ArchitectureCanvas } from "@/components/architecture/ArchitectureCanvas";
 import { CustomerProfileCard } from "@/components/customer/CustomerProfileCard";
+import { PrepPanel } from "@/components/customer/PrepPanel";
 import { StageBadge, VersionCell } from "@/components/Fleet";
 import {
   Dot,
@@ -319,6 +320,7 @@ function CustomerDetail() {
       )}
 
       <CustomerProfileCard customerId={customerId} />
+      <PrepPanel customerId={customerId} />
       <CustomerEngagements customerId={customerId} />
 
       <Tabs defaultValue="architecture">

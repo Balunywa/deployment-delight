@@ -123,9 +123,16 @@ test.describe("every page loads @readonly", () => {
     }
   });
 
-  test("onboarding wizard opens", async ({ page }) => {
+  test("deployment onboarding wizard opens", async ({ page }) => {
     await open(page, "/onboard");
+    await heading(page, "Deployment onboarding");
+  });
+
+  test("customer onboarding opens: TPID, MSX, context, prep", async ({ page }) => {
+    await open(page, "/customers/onboard");
     await heading(page, "Onboard a customer");
+    await expect(page.getByRole("list", { name: "Steps" })).toContainText("What MSX says");
+    await expect(page.getByLabel("TPID")).toBeVisible();
   });
 
   test("unknown route shows 404", async ({ page, problems }) => {
