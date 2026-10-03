@@ -61,8 +61,9 @@ export function FindCustomer({
         <DialogHeader>
           <DialogTitle>Find or add a customer</DialogTitle>
           <DialogDescription>
-            Start with the TPID from MSX. An existing profile opens; a new TPID creates one. MSX
-            stays the record for the account.
+            Searches customers already in Cloud Delivery by TPID or name. It doesn't read MSX. To
+            fill a profile from MSX, ask Copilot to “prep customer TPID 12345” (Settings → Connect
+            Copilot).
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -97,13 +98,19 @@ export function FindCustomer({
                 </li>
               ))}
               {!results.isLoading && !list.length && (
-                <li className="text-[12.5px] text-muted-foreground">No customer matches.</li>
+                <li className="text-[12.5px] text-muted-foreground">
+                  No customer in Cloud Delivery matches.
+                </li>
               )}
             </ul>
           )}
           {isTpid && !exact && !results.isLoading && (
             <div className="space-y-2 rounded-lg border border-dashed border-border p-3">
               <p className="text-[12.5px] font-medium">New customer with TPID {term}</p>
+              <p className="text-[12px] text-muted-foreground">
+                Type the name yourself, or let Copilot fill it from MSX with “prep customer TPID{" "}
+                {term}”.
+              </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <Label htmlFor="new-name" className="text-xs">

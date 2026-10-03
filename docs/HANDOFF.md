@@ -36,7 +36,7 @@ interaction rather than building an MSX integration.
 
 | # | Follow-up | Status |
 |---|---|---|
-| 1 | Onboarding by TPID: search, reuse an existing profile, retrieve MSX info, create if new | **Partly done.** TPID profiles exist; "retrieve MSX info" works only through Copilot + msx-mcp (see §5) |
+| 1 | Onboarding by TPID: search, reuse an existing profile, retrieve MSX info, create if new | **Partly done.** TPID profiles exist; "retrieve MSX info" works through Copilot + msx-mcp, now wired in `.vscode/mcp.json` (see §5) |
 | 2 | Postgres model for engagement state and metadata, MSX as source of truth | **Done** (migration 0014) |
 | 3 | MSX integration spec: link engagements to opportunities; milestone, deal team and ACR updates via MSX Helper | **Done for link + milestone update text** via MCP; posting to MSX is msx-mcp's job and isn't verified yet |
 | 4 | Manual context (notes, recordings, emails, prompts) → context map | **Storage and UI done** (customer profile context). The context map itself isn't built |
@@ -94,6 +94,20 @@ npx playwright test            # full suite: 76 pass, 1 skipped (pre-existing). 
   transaction and re-enable it (see 0015, 0016).
 - A stale server after a rebuild gives blank pages or "Loading…" forever: restart it.
 - Screenshots via a small Playwright script (`chromium.launch()`) are the way to check UI; look at them.
+
+### On Lukman's Windows machine (ARM64)
+
+- `git config core.autocrlf false` is set for this repo; with `true`, prettier flags every line (`␍`).
+- Install with `bun install` (the lockfile is `bun.lock`; `npm ci` fails). Bun's `.exe` shims aren't found by `npx`,
+  so run tools through node: `node node_modules/typescript/bin/tsc --noEmit -p .`,
+  `node node_modules/eslint/bin/eslint.js src e2e`, `node node_modules/vite/bin/vite.js build`,
+  `node node_modules/@playwright/test/cli.js test`.
+- Postgres: Docker container `cd-postgres` (`postgres:14`, trust auth, port 5433). Start Docker Desktop, then
+  `docker start cd-postgres`, and set `E2E_DATABASE_URL=postgres://postgres@localhost:5433/cloud_delivery_e2e`.
+- Full suite here: 74 pass, 1 skipped, 2 fail: the landing-zone "deploy: readiness" and "deploy: Apply" tests. They
+  pass alone and time out on "Checking your Azure access" in a full run; the local deploy runner
+  (`src/lib/alz/runner.server.ts`) isn't Windows-ready (e.g. Terraform download is linux/darwin only). Not a
+  regression; Azure runs Linux.
 
 ---
 
@@ -157,23 +171,32 @@ behind an app registration the MSX team must approve. The working pattern is **C
 - Verified: the MCP endpoint works on Azure (initialize, tools/list, read-only find_customer) and locally (all tools,
   `e2e/msx.spec.ts`).
 
-**Where it stands / the current blocker.** Lukman typed a TPID in the app and expected MSX data. It returned nothing,
-because the app doesn't read MSX (by design). Pulling by TPID requires **msx-mcp installed in his VS Code**, which isn't
-installed yet. The repo `mcaps-microsoft/msx-mcp` is in the **Microsoft EMU** GitHub enterprise. Lukman's personal
-GitHub (`Balunywa`, used by `gh` here) can't see it; it needs his Microsoft EMU account. He was signing in to EMU in
-the browser when this handoff was written.
+**Where it stands (updated 2 Oct, evening).** msx-mcp is a dependency now:
+
+- Lukman's EMU GitHub account is `mubaluny_microsoft`. `gh`, git and the GitHub MCP server here are all signed in as
+  `Balunywa`, which gets a 404 on the repo, and device-code sign-in annoyed him. What worked: open
+  `https://github.com/mcaps-microsoft/msx-mcp/archive/HEAD.zip` in his Edge (already signed in to EMU) and unzip it to
+  `C:\Users\mubaluny\msx-mcp`. To update msx-mcp, do the same again. Don't ask him to sign in again.
+- msx-mcp v1.5.1 ships a prebuilt bundle: `node ~/msx-mcp/bundle/msx.mjs` (stdio), no `npm install`. The `msx` server
+  has 9 generic tools: `msx_login`, `msx_auth_status`, `msx_config`, `dataverse_metadata`, `dataverse_query`,
+  `dataverse_fetchxml`, `dataverse_write`, `open_msx_record`, `dataset_access`. There is no "account by TPID" tool;
+  its `references/dataverse/*.md` recipes give the queries (`accounts.msp_mstopparentid eq '<TPID>'`).
+- Auth: its own isolated Azure CLI profile (`~/.azure-msx`), started by `msx_login` (browser, @microsoft.com). Needs
+  the **corporate VPN**. Verified locally: the server starts and lists its tools; `msx_auth_status` said
+  `auth_required` (not signed in yet).
+- `.vscode/mcp.json` is committed with both servers (`msx` via `${userHome}/msx-mcp/bundle/msx.mjs`, and
+  `cloud-delivery` on the Azure URL with the token as a password prompt). The skill now names the real tools and
+  queries, and posts milestone updates as `dataverse_write` PATCH of `msp_engagementmilestones.msp_forecastcomments`
+  with only the new text (an MSX plug-in appends history; see msx-mcp's `skills/msx-write`).
+- The TPID dialog now says it searches Cloud Delivery only, and to ask Copilot "prep customer TPID …" for MSX data.
 
 **Next steps for MSX:**
 
-1. Once Lukman can open `github.com/mcaps-microsoft/msx-mcp`, read its README: install method (likely an npm/npx or
-   local stdio server), auth (likely his corp identity), and its **tool names**. Confirm it can look up an account
-   by TPID, list opportunities and milestones, and write notes/milestones/deal team/ACR.
-2. Create `.vscode/mcp.json` (workspace) with **both** servers: msx-mcp as its README says, and `cloud-delivery` as
-   shown in Settings → Connect Copilot (use the Azure URL, token via a `promptString` input with `password: true`).
-3. Run the skill end to end with a real TPID; adjust `SKILL.md` to msx-mcp's actual tool names if useful.
-4. Make the app's TPID dialog explain plainly that it searches Cloud Delivery, and that pulling MSX data is done by
-   asking Copilot ("prep customer TPID 12345"). Lukman hit this confusion.
-5. Later: per-person tokens or Entra sign-in for `/api/mcp`. Today one shared token, and audit says "Copilot (via MCP)".
+1. In VS Code: start the `msx` and `cloud-delivery` servers from `.vscode/mcp.json` (paste `MCP_TOKEN` when asked),
+   connect the VPN, open a **new** chat (servers added mid-chat aren't visible), and run "prep customer TPID <real>".
+   The first MSX call triggers `msx_login`.
+2. Fix anything the real run shows in `SKILL.md` (e.g. field names on the opportunity fetch).
+3. Later: per-person tokens or Entra sign-in for `/api/mcp`. Today one shared token, and audit says "Copilot (via MCP)".
 
 ---
 
@@ -204,7 +227,7 @@ the browser when this handoff was written.
 
 ## 8. Recommended next work (in order)
 
-1. **Finish the msx-mcp setup with Lukman** (§5 steps 1–4). This is what he was blocked on.
+1. **Finish the msx-mcp setup with Lukman**: a real TPID run (§5 next steps 1–2).
 2. **Prep** (follow-up 6): from a customer's context (MSX summary, notes, emails, transcripts) produce a context map,
    2–3 discovery questions, technical hints (e.g. Azure Local, AKS, Oracle, DC migration → what to review and ask), and
    similar prior engagements. Use the Foundry assist path that already exists in `engagements.functions.ts`, grounded

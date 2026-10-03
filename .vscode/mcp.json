@@ -1,0 +1,22 @@
+{
+  "inputs": [
+    {
+      "id": "cloud-delivery-token",
+      "type": "promptString",
+      "description": "Cloud Delivery MCP token (Azure app setting MCP_TOKEN)",
+      "password": true
+    }
+  ],
+  "servers": {
+    "msx": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${userHome}/msx-mcp/bundle/msx.mjs"]
+    },
+    "cloud-delivery": {
+      "type": "http",
+      "url": "https://clouddelivery-nzdefv.azurewebsites.net/api/mcp",
+      "headers": { "Authorization": "Bearer ${input:cloud-delivery-token}" }
+    }
+  }
+}

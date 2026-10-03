@@ -219,6 +219,11 @@ function CopilotPanel() {
         },
       ],
       servers: {
+        msx: {
+          type: "stdio",
+          command: "node",
+          args: ["${userHome}/msx-mcp/bundle/msx.mjs"],
+        },
         "cloud-delivery": {
           type: "http",
           url,
@@ -252,11 +257,16 @@ function CopilotPanel() {
           </p>
         )}
         <div>
-          <Label className="text-xs">Add to .vscode/mcp.json, next to msx-mcp</Label>
+          <Label className="text-xs">.vscode/mcp.json (already in this repository)</Label>
           <pre className="mt-1 max-h-72 overflow-auto rounded-md border border-border bg-muted/40 p-2.5 font-mono text-[11.5px]">
             {config}
           </pre>
         </div>
+        <p className="text-[12.5px] text-muted-foreground">
+          msx-mcp comes from github.com/mcaps-microsoft/msx-mcp (sign in with your Microsoft EMU
+          account). Put it in your home folder as <code className="font-mono">msx-mcp</code>. It
+          reads MSX only on the corporate VPN, and signs you in on first use.
+        </p>
         <p className="text-[12.5px] text-muted-foreground">
           Then ask Copilot to prep a customer by TPID. This repository's{" "}
           <code className="font-mono">prep-customer</code> skill looks the account up in MSX,
