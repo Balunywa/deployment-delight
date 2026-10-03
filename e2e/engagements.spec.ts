@@ -16,7 +16,7 @@ test.describe.serial("engagements", () => {
     await open(page, "/");
     await expect(page.getByRole("heading", { name: "Engagements" })).toBeVisible();
 
-    await open(page, `/engagements/${DEMO}`);
+    await open(page, `/engagements/${DEMO}?tab=conversation`);
     await loaded(page);
     await expect(
       page.getByRole("heading", { level: 1, name: /Maintenance work packages/ }),
@@ -64,7 +64,7 @@ test.describe.serial("engagements", () => {
     page,
   }) => {
     await open(page, "/engagements");
-    await page.getByRole("button", { name: "Start an engagement" }).click();
+    await page.getByRole("button", { name: "Start without a customer" }).click();
     const dialog = page.getByRole("dialog");
     await dialog.getByLabel("Engagement").fill(NAME);
     await dialog.getByRole("button", { name: "Start listening" }).click();
@@ -143,7 +143,7 @@ test.describe.serial("engagements", () => {
     // Agree: a next step from the conversation, with an owner.
     await page
       .getByRole("navigation", { name: "Engagement" })
-      .getByRole("button", { name: "Conversation" })
+      .getByRole("button", { name: "Question bank" })
       .click();
     await map.getByRole("button", { name: /Agree/ }).click();
     const step = "Architecture design session with the enterprise architect.";
@@ -206,7 +206,9 @@ test.describe.serial("engagements", () => {
 
     await open(page, `/engagements/${id}?tab=prove`);
     await page.getByRole("button", { name: "Scale it to production" }).click();
-    await expect(page.getByText("Decision recorded. Next: realize the value.")).toBeVisible();
+    await expect(
+      page.getByText("Decision recorded. Next: hand off and realize the value."),
+    ).toBeVisible();
 
     await open(page, `/engagements/${id}?tab=realize`);
     await expect(page.getByText("In production", { exact: true }).first()).toBeVisible();

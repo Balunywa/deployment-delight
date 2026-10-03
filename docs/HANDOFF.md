@@ -40,8 +40,8 @@ interaction rather than building an MSX integration.
 | 2 | Postgres model for engagement state and metadata, MSX as source of truth | **Done** (migration 0014) |
 | 3 | MSX integration spec: link engagements to opportunities; milestone, deal team and ACR updates via MSX Helper | **Done for link + milestone update text** via MCP; posting to MSX is msx-mcp's job and isn't verified yet |
 | 4 | Manual context (notes, recordings, emails, prompts) → context map | **Done.** Context entries (paste text; recordings as transcripts) feed the context map in the prep |
-| 5 | Engagement from an existing opportunity or proactive | **Done** |
-| 6 | Prep output: discovery questions, technical areas to review, similar prior engagements | **Done (v1).** `src/lib/prep.ts`: rules grounded in stored text (quotes with sources, gaps, 3 questions, 17 technical areas with Microsoft Learn links, similar customers by shared areas) plus an optional "Draft a brief with AI" (Azure OpenAI, context only) |
+| 5 | Engagement from an existing opportunity or proactive | **Done**, now as a draft that becomes the engagement after review |
+| 6 | Prep output: discovery questions, technical areas to review, similar prior engagements | **Done (v2).** The engagement workspace (§4): evidence brief, point of view, call plan by purpose, meeting view, findings. Rules in `src/lib/workspace.ts` + `prep.ts`, guidance in `playbook.ts` |
 | 7 | Drag-and-drop canvas with real-time changes and scoring | **Not started** (today: click to add, fixed placement) |
 | 8 | Document the backend logic: component change → flows → WAF score | **Not started as a doc.** The logic is code (`src/lib/offering/flows.ts`, `src/lib/waf/`), not "static Postgres metadata" as the meeting notes say. Worth correcting with Jarrett |
 | 9 | Export: customer-ready PDF instead of Markdown | **Not started** |
@@ -143,13 +143,38 @@ TanStack Start (React 19, file routes in `src/routes`, server functions via `cre
 
 ## 4. What's built (high level; README has detail)
 
-- **Engagements**: Understand → Explore → Illustrate → Validate → Agree → Prove → Realize value; working summary with
-  confirmed/hypothesis/unknown; customer-safe recap at `/recap/<id>`; CSA handoff; "Needs you" queue; optional Foundry
-  assist (`AZURE_OPENAI_ENDPOINT`). Now also: origin (opportunity | proactive), MSX opportunity link in the header.
-- **Customers**: **Onboard customer** (`/customers/onboard`, the sidebar's main button): TPID → MSX account and open
-  opportunities (via the connector) → reuse or create the profile → pick the opportunity or proactive → add context →
-  prep → start the engagement. The customer page shows the profile, context and the same prep, with "Refresh from MSX".
-  "Deployment onboarding" (`/onboard`) is the old ISV wizard that puts a customer onto an offering.
+- **The engagement workspace** (`/engagements/<id>`, redesigned 3 Oct from Lukman's "SE/CSA workflow" prompt): one
+  record from the first look at a customer to production. Persistent header (customer, TPID, MSX link, phase, save
+  state), journey nav, a side rail (next action, transparent readiness checks, working hypothesis, evidence, open
+  actions). Tabs: Overview · Prepare (Context, Point of view, Call plan) · Engage (Meeting, Findings, Engagement plan)
+  · Deliver (Validate, Handoff, Realize value) · Share (Customer recap); the old question navigator is "Question
+  bank" and "Fit & gap". Journey A–E: **A** resolve the customer (`/customers/onboard`) → **B** Context: the evidence
+  brief, every item with source, dates, documented vs interpretation, and status (confirmed / needs validation /
+  contradicted / unknown; marks kept on `customers.evidence` with history; refresh never erases them), "What matters
+  for this conversation", what changed in MSX → **C** Point of view: pressure, stakeholders, consequence, technical
+  factors, linked evidence, assumptions, what would disprove it, the opening as a "working hypothesis", 2–3 paths
+  incl. keeping today's approach, revision history (server-side, `workspace.povHistory`) → **D** Call plan by purpose
+  (discovery, architecture, workshop, demo, POC planning, kickoff) and length: agenda, prioritized questions (POV
+  assumptions, playbook, technical), follow-ups tied to gaps, listen-for, objections worth exploring, constraints,
+  next step, resources essential vs optional; a Meeting focus view (answers, assumption results, actions, agreed
+  next step) → **E** Findings (assumptions confirmed/corrected/rejected update the POV and the findings, need,
+  trade-offs, decisions vs open, actions, missing stakeholders) → Engagement plan (charter; success criteria warn
+  when they're activities) → **Create engagement** (draft → active; never touches MSX). After: Validate (POC/pilot
+  plan with pass/fail, "is a POC the right step?", then the existing proof), Handoff (Technical Close Plan for
+  production milestones; STU→CSU checklist; acceptance recorded only by `acceptHandoff` with the receiving owner's
+  name), Realize value, recap.
+  Code: `src/lib/workspace.ts` (types, brief, POV, call plan, readiness, next action), `src/lib/playbook.ts`
+  (versioned guidance: purposes, resources, handoff criteria, routing), `src/lib/workspace.functions.ts`,
+  `src/components/workspace/*` (views; `ws.ts` = shared state: every edit writes to the shared query data at once and
+  the server save is debounced and flushed when a view closes), migration `0017` (`engagements.status`,
+  `engagements.workspace`, `customers.evidence`).
+- **Engagements (list)**: grouped by phase (Preparing, Discovery, Validation, Handoff, Delivery and value, Closed) with
+  the next action and readiness per card; "New engagement" goes through onboarding by TPID; "Start without a
+  customer" keeps the old quick dialog (lands in the question bank).
+- **Customers**: **Onboard customer** (`/customers/onboard`, the sidebar's main button) is step A: TPID → MSX account,
+  parent/subsidiary count, account team, sources available vs not, existing engagements ("Continue") or a new one
+  under an opportunity or proactive ("Prepare discovery" opens a draft). Works without a TPID or MSX. "Deployment
+  onboarding" (`/onboard`) is the old ISV wizard that puts a customer onto an offering.
 - **Offerings (solution design)**: lifecycle nav Design / Build / Validate / Release / Operate with a "Next step" bar;
   Guided (10 WAF steps, requirements first) or Canvas; reference designs; computed flows per lens; Well-Architected
   score with one-click fixes; `/well-architected` guide; design doc download; Terraform + pipeline generation;
@@ -259,9 +284,11 @@ signed-in device (an app registration would need MSX team approval). So:
 
 ## 8. Recommended next work (in order)
 
-1. **First real MSX run with Lukman** (§5 next step 1).
-2. **Prep, next iteration**: weight the technical areas by the chosen opportunity; read attachments (.docx, .vtt,
-   .eml) instead of pasted text only; more similar-work signal as engagements accumulate.
+1. **First real MSX run with Lukman** (§5 next step 1), then the full journey on a real customer.
+2. **Workspace, next**: an AI-suggested POV and call plan from the same evidence (labelled, human-reviewed; the
+   Azure OpenAI path exists); mark brief items confirmed automatically when a meeting confirms the matching
+   assumption; read .docx attachments; per-person sign-in so "who confirmed" and handoff acceptance are real
+   identities; MSX milestone post from the Findings view (confirmed text only, through the connector).
 3. **Customer-ready PDF** (follow-up 9) from `design-doc.ts` + the diagram SVGs (`WorkloadStory` can export SVG/PNG).
 4. **SE-first navigation** (follow-up 10): started; the catalog, releases and delivery units are still ISV-shaped.
 5. **Drag-and-drop canvas** (follow-up 7) and a written explanation of the flows/WAF logic (follow-up 8).

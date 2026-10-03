@@ -273,6 +273,9 @@ export type Engagement = {
   msx_opportunity_id?: string | null;
   msx_opportunity_name?: string | null;
   customer_tpid?: string | null;
+  /** Draft while the SE prepares (not started with the customer); active once created. */
+  status?: "draft" | "active";
+  workspace?: import("./workspace").Workspace;
   brief: Brief;
   readiness: ReadinessMap;
   solution_map: MapItem[];

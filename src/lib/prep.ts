@@ -6,9 +6,11 @@
 import type { MsxSnapshot } from "./msx-connector";
 
 export type PrepEntry = {
+  id?: string | undefined;
   source: "msx" | "notes" | "email" | "transcript" | "prompt" | "other";
   title: string;
   text: string;
+  at?: string | undefined;
   msx?: MsxSnapshot | undefined;
 };
 
@@ -161,7 +163,6 @@ export const AREAS: Area[] = [
       /\blakehouse\b/i,
       /\bdata ?warehouse/i,
       /\bpower ?bi\b/i,
-      /\banalytics\b/i,
       /\bETL\b/,
     ],
     review: [
@@ -331,7 +332,16 @@ export const AREAS: Area[] = [
   },
 ];
 
-export type Quote = { text: string; from: string };
+/** A sentence from a source, with where and when it came from. */
+export type Quote = {
+  text: string;
+  from: string;
+  /** When the source says it was written (MSX: the opportunity's created date; context: when it was added). */
+  at?: string | null;
+  /** When it was pulled from MSX, for MSX sources. */
+  retrieved?: string | null;
+  origin?: "msx" | "context" | "brief";
+};
 export type MatchedArea = Omit<Area, "terms"> & { matched: string[] };
 export type Similar = {
   customerId: string;
@@ -359,7 +369,7 @@ const WHY_NOW =
 const PEOPLE =
   /\b(CIO|CTO|CDO|CISO|CEO|CFO|VP|vice president|director|head of|architect|owner|sponsor|decision[- ]maker|signs? off|budget holder)\b/i;
 const BOILERPLATE =
-  /^(MSX account:|\d+ open opportunit|No open opportunities|- .+\(.*\)$|MSX has no description)/;
+  /^(MSX account:|Microsoft account team:|\d+ open opportunit|No open opportunities|- .+\(.*\)$|MSX has no description)/;
 
 function sentences(text: string) {
   return text
@@ -370,14 +380,23 @@ function sentences(text: string) {
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
-/** Text to read for each source, labelled so every quote says where it came from. */
-function passages(entries: PrepEntry[]): { text: string; from: string }[] {
-  const out: { text: string; from: string }[] = [];
+type Passage = Omit<Quote, "text"> & { text: string };
+
+/** Text to read for each source, labelled so every quote says where and when it came from. */
+function passages(entries: PrepEntry[]): Passage[] {
+  const out: Passage[] = [];
   for (const e of entries) {
     if (e.msx) {
       for (const o of e.msx.opportunities) {
         for (const t of [o.name, o.description, o.forecastComments])
-          if (t) out.push({ text: t, from: `MSX · ${o.name}` });
+          if (t)
+            out.push({
+              text: t,
+              from: `MSX · ${o.name}`,
+              at: o.createdOn,
+              retrieved: e.msx.fetchedAt,
+              origin: "msx",
+            });
       }
     } else {
       const label =
@@ -389,13 +408,18 @@ function passages(entries: PrepEntry[]): { text: string; from: string }[] {
           prompt: "Brief",
           other: "Context",
         }[e.source] ?? "Context";
-      out.push({ text: e.text, from: `${label} · ${e.title}` });
+      out.push({
+        text: e.text,
+        from: `${label} · ${e.title}`,
+        at: e.at ?? null,
+        origin: e.source === "prompt" ? "brief" : "context",
+      });
     }
   }
   return out;
 }
 
-function pick(ps: { text: string; from: string }[], re: RegExp, max: number): Quote[] {
+function pick(ps: Passage[], re: RegExp, max: number): Quote[] {
   const seen = new Set<string>();
   const out: Quote[] = [];
   for (const p of ps)
@@ -403,7 +427,7 @@ function pick(ps: { text: string; from: string }[], re: RegExp, max: number): Qu
       const key = s.toLowerCase();
       if (re.test(s) && !seen.has(key)) {
         seen.add(key);
-        out.push({ text: clip(s, 280), from: p.from });
+        out.push({ ...p, text: clip(s, 280) });
         if (out.length >= max) return out;
       }
     }
@@ -454,6 +478,9 @@ export function buildPrep(input: {
       .filter(Boolean)
       .join(" · "),
     from: `MSX${o.number ? ` · ${o.number}` : ""}`,
+    at: o.createdOn,
+    retrieved: snap?.fetchedAt ?? null,
+    origin: "msx" as const,
   }));
   const goals = pick(ps, GOAL, 5);
   const whyNow = pick(ps, WHY_NOW, 4);
@@ -541,5 +568,26 @@ export function buildPrep(input: {
     gaps,
     questions: questions.slice(0, 3),
     similar,
+  };
+}
+
+/**
+ * Puts the engagement's own MSX opportunity first: its technical areas lead, and quotes from it come before quotes
+ * from other opportunities or notes. Nothing is removed.
+ */
+export function focusOn(p: Prep, opportunity: { name: string; text: string } | null): Prep {
+  if (!opportunity) return p;
+  const mine = new Set(matchAreas(opportunity.text).map((a) => a.id));
+  const from = `MSX · ${opportunity.name}`;
+  const first = <T>(xs: T[], test: (x: T) => boolean) => [
+    ...xs.filter(test),
+    ...xs.filter((x) => !test(x)),
+  ];
+  return {
+    ...p,
+    areas: first(p.areas, (a) => mine.has(a.id)),
+    goals: first(p.goals, (q) => q.from === from),
+    whyNow: first(p.whyNow, (q) => q.from === from),
+    origin: first(p.origin, (q) => q.text.startsWith(opportunity.name)),
   };
 }

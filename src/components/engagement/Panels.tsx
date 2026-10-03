@@ -774,10 +774,13 @@ export function HandoffView({
   e,
   products,
   apply,
+  showHandOff = true,
 }: {
   e: Engagement;
   products: CatalogProduct[];
   apply: Apply;
+  /** The workspace records the handoff with the receiving owner's acceptance instead. */
+  showHandOff?: boolean;
 }) {
   const [internal, setInternal] = useState(e.brief.internal ?? "");
   const readiness = readinessOf(e);
@@ -809,7 +812,7 @@ export function HandoffView({
         </Button>
       </div>
 
-      <HandOffCard e={e} />
+      {showHandOff && <HandOffCard e={e} />}
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">

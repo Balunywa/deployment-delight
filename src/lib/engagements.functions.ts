@@ -9,7 +9,7 @@ const ORG_ID = "11111111-1111-1111-1111-111111111111";
 const SELECT = `select e.id, e.name, e.stage, e.owner_name, e.customer_id, c.name as customer_name, e.brief,
   e.readiness, e.solution_map, e.results, e.decision, e.sessions, e.trail, e.findings, e.actions,
   e.realization, e.origin, e.msx_opportunity_id, e.msx_opportunity_name, c.tpid as customer_tpid,
-  e.created_at, e.updated_at
+  e.status, e.workspace, e.created_at, e.updated_at
   from public.engagements e left join public.customers c on c.id = e.customer_id`;
 
 export const listEngagements = createServerFn({ method: "GET" }).handler(async () => {

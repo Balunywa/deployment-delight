@@ -56,7 +56,17 @@ Either way, it's the same product setup, the same deployment process and the sam
      "How it works" shows the architecture Cloud Delivery draws from the solution's code, per delivery model,
      with the flow in numbered steps on it. Then come the business scenario, caveats to read before deploying, and how
      to deploy, including the project's own command. Catalog cards open the solution page.
-1. **Listen before you solution (Engagements).** A conversation navigator for SEs, CSAs and SSPs, used live in
+1. **The engagement workspace: from the first look at a customer to production.** Onboard the customer by TPID, then
+   one workspace carries the engagement: an **evidence brief** (every item with its source, dates, documented or
+   interpretation, and whether the customer confirmed it), a **point of view** to test (linked evidence,
+   assumptions, what would disprove it, a working-hypothesis opening, two or three paths including keeping today's
+   approach, revision history), a **call plan** for the meeting's purpose (agenda, prioritized questions,
+   follow-ups, signals, objections worth exploring, resources essential vs optional), a **meeting view**,
+   **findings** that update the point of view, an **engagement plan** (outcome, scope and exclusions, success
+   criteria with evidence), then validation, a human-accepted handoff (with a Technical Close Plan for production
+   milestones) and value. Readiness is shown as plain checks, never a score; a draft is preparation, never a
+   commitment; MSX is never changed from here. Guidance lives in `src/lib/playbook.ts` (versioned).
+1. **Listen before you solution (Question bank).** A conversation navigator for SEs, CSAs and SSPs, used live in
    the meeting. It opens with what the customer is struggling with, in their language ("our pilots don't reach
    production", "our AI answers aren't reliable"…) and their own words, then moves through **Understand**
    (outcome, workflow, why now, owner, baseline) → **Explore** (one question at a time; each answer shows what it

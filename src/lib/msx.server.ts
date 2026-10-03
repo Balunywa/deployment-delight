@@ -22,6 +22,8 @@ export type ContextEntry = {
   at: string;
   /** Set on the snapshot pulled through the MSX connector; there is at most one. */
   msx?: MsxSnapshot;
+  /** What changed in MSX since the previous snapshot. */
+  changes?: string[];
 };
 
 export type CustomerProfile = {
@@ -32,6 +34,8 @@ export type CustomerProfile = {
   msx_account_name: string | null;
   industry: string | null;
   context: ContextEntry[];
+  /** The SE's marks on the brief, and items they added (see workspace.ts). */
+  evidence: import("./workspace").EvidenceStore | null;
   engagements: number;
 };
 
@@ -46,7 +50,7 @@ export type LinkedEngagement = {
   updated_at: string;
 };
 
-const PROFILE = `select c.id, c.name, c.customer_code, c.tpid, c.msx_account_name, c.industry, c.context,
+const PROFILE = `select c.id, c.name, c.customer_code, c.tpid, c.msx_account_name, c.industry, c.context, c.evidence,
   (select count(*)::int from public.engagements e where e.customer_id = c.id) as engagements
   from public.customers c`;
 
@@ -228,6 +232,8 @@ export async function saveSnapshot(customerId: string, snapshot: MsxSnapshot, by
   if (c.tpid && c.tpid !== snapshot.tpid)
     throw new Error(`This customer's TPID is ${c.tpid}, not ${snapshot.tpid}.`);
   if (!c.tpid) await setTpid(customerId, snapshot.tpid, by);
+  const { snapshotChanges } = await import("./workspace");
+  const previous = [...(c.context ?? [])].reverse().find((x) => x.msx)?.msx ?? null;
   const entry: ContextEntry = {
     id: crypto.randomUUID(),
     source: "msx",
@@ -236,6 +242,7 @@ export async function saveSnapshot(customerId: string, snapshot: MsxSnapshot, by
     by,
     at: new Date().toISOString(),
     msx: snapshot,
+    changes: snapshotChanges(previous, snapshot),
   };
   await d.query(
     `update public.customers set

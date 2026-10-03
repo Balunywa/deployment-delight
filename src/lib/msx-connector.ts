@@ -25,6 +25,8 @@ export type MsxSnapshot = {
   fetchedAt: string;
   account: { id: string; name: string } | null;
   accounts: number | null;
+  /** The Microsoft account team on the top-parent account, when MSX shows it; null when it couldn't be read. */
+  team?: { name: string; role: string | null }[] | null | undefined;
   opportunities: MsxOpportunity[];
 };
 
@@ -75,6 +77,12 @@ export function snapshotText(s: MsxSnapshot) {
       ? `${s.opportunities.length} open opportunit${s.opportunities.length === 1 ? "y" : "ies"}:`
       : "No open opportunities.",
   ];
+  if (s.team?.length)
+    lines.splice(
+      1,
+      0,
+      `Microsoft account team: ${s.team.map((m) => (m.role ? `${m.name} (${m.role})` : m.name)).join(", ")}.`,
+    );
   for (const o of s.opportunities) {
     const facts = [
       o.number,

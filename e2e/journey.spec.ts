@@ -22,14 +22,27 @@ test("an SE and a CSA take a customer from first conversation to realized value"
   await loaded(page);
   const account = page.getByRole("region", { name: "Engagements with this customer" });
   await account.getByRole("link", { name: /Start one with this customer/ }).click();
-  const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("combobox", { name: "Customer" })).toContainText("Coastal Power");
-  await dialog.getByLabel("Engagement").fill(NAME);
-  await dialog.getByRole("button", { name: "Start listening" }).click();
+  await loaded(page);
+  // Onboarding: this customer has no TPID, so the engagement starts proactive, as a draft.
+  const start = page.getByRole("region", { name: "Start a new engagement" });
+  await start.getByRole("radio", { name: /Proactive/ }).check();
+  await start.getByRole("button", { name: /Prepare discovery/ }).click();
   await page.waitForURL(/\/engagements\/[0-9a-f-]{36}/);
   await loaded(page);
   const id = page.url().match(/engagements\/([0-9a-f-]{36})/)![1]!;
   const tabs = page.getByRole("navigation", { name: "Engagement" });
+  await expect(page.getByText("Preparing: not started with the customer.")).toBeVisible();
+
+  // Create it with the team named, so the handoff has a name on it; then listen.
+  await tabs.getByRole("button", { name: "Confirm and create" }).click();
+  await page.getByRole("textbox", { name: "CSA", exact: true }).fill("Jordan Lee");
+  await page.getByRole("button", { name: "Review engagement" }).click();
+  await page.getByRole("textbox", { name: "Engagement name" }).fill(NAME);
+  await page.getByRole("button", { name: "Create engagement" }).click();
+  await expect(
+    page.getByText("Engagement created. MSX is unchanged; nothing was deployed."),
+  ).toBeVisible();
+  await tabs.getByRole("button", { name: "Question bank" }).click();
   const card = page.getByRole("article", { name: "Current question" });
   const record = () => card.getByRole("button", { name: "Record answer" }).click();
 
@@ -72,12 +85,6 @@ test("an SE and a CSA take a customer from first conversation to realized value"
   await card.getByRole("button", { name: /Data stays in our tenant/ }).click();
   await record();
 
-  // Our team, so the handoff has a name on it.
-  await tabs.getByRole("button", { name: "Prep" }).click();
-  await page.getByLabel("Cloud solution architect").fill("Jordan Lee");
-  await page.getByRole("button", { name: "Save team" }).click();
-  await expect(page.getByText("Team saved.")).toBeVisible();
-
   // Fit & gap: the answers point to Content Processing.
   await tabs.getByRole("button", { name: "Fit & gap" }).click();
   await page
@@ -87,7 +94,7 @@ test("an SE and a CSA take a customer from first conversation to realized value"
   await expect(page.getByText("Added to the proof.")).toBeVisible();
 
   // Prove: deploy into the existing customer, in their tenant, because they said so.
-  await tabs.getByRole("button", { name: "Prove", exact: true }).click();
+  await tabs.getByRole("button", { name: "Validate", exact: true }).click();
   await page.getByRole("button", { name: "Deploy the proof" }).click();
   const deploy = page.getByRole("dialog");
   await expect(deploy.getByRole("button", { name: /In their Azure tenant/ })).toHaveAttribute(
@@ -124,16 +131,23 @@ test("an SE and a CSA take a customer from first conversation to realized value"
   await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
   await page.getByLabel("Decision note").fill("Scale it for both regions.");
   await page.getByRole("button", { name: "Scale it to production" }).click();
-  await expect(page.getByText("Decision recorded. Next: realize the value.")).toBeVisible();
-
-  // The SE hands it to the CSA named in Prep.
-  await tabs.getByRole("button", { name: "Handoff" }).click();
-  await expect(page.getByLabel("CSA")).toHaveValue("Jordan Lee");
-  await page.getByLabel("Handoff note").fill("Security wants the audit trail in the proof report.");
-  await page.getByRole("button", { name: "Hand off" }).click();
   await expect(
-    page.getByText("Handed off to Jordan Lee. Recorded in the audit log."),
+    page.getByText("Decision recorded. Next: hand off and realize the value."),
   ).toBeVisible();
+
+  // The SE hands it to the CSA: discussed, owner named, and the CSA accepts ownership.
+  await tabs.getByRole("button", { name: "Handoff" }).click();
+  const handoff = page.getByRole("region", { name: "STU-to-CSU handoff" });
+  await expect(handoff.getByRole("button", { name: "Record acceptance" })).toBeDisabled();
+  await handoff
+    .getByLabel("Discussion note")
+    .fill("Security wants the audit trail in the proof report.");
+  await handoff.getByRole("button", { name: "Record discussion" }).click();
+  await handoff.getByRole("textbox", { name: "Receiving owner" }).fill("Jordan Lee");
+  await handoff.getByRole("textbox", { name: "Accepted by" }).fill("Jordan Lee");
+  await handoff.getByRole("checkbox", { name: /reviewed this with me/ }).click();
+  await handoff.getByRole("button", { name: "Record acceptance" }).click();
+  await expect(page.getByText("Handoff acceptance recorded.")).toBeVisible();
 
   // The CSA takes it to production: security approves, then it runs.
   await tabs.getByRole("button", { name: "Realize value" }).click();
@@ -177,10 +191,11 @@ test("an SE and a CSA take a customer from first conversation to realized value"
   );
   expect(events.map((x) => x.event_type)).toEqual(
     expect.arrayContaining([
-      "engagement.started",
+      "engagement.draft_started",
+      "engagement.created",
       "engagement.proof_requested",
       "engagement.decided",
-      "engagement.handed_off",
+      "engagement.handoff_accepted",
       "engagement.production_requested",
       "engagement.value_confirmed",
     ]),

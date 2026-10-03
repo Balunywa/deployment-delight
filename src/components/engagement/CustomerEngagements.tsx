@@ -22,8 +22,8 @@ export function CustomerEngagements({ customerId }: { customerId: string }) {
           <Ear className="size-3.5 text-primary" /> Engagements
         </h2>
         <Link
-          to="/engagements"
-          search={{ new: customerId }}
+          to="/customers/onboard"
+          search={{ customer: customerId }}
           className="inline-flex items-center gap-1 text-[12px] font-medium text-primary hover:underline"
         >
           <Plus className="size-3.5" /> Start one with this customer
@@ -41,7 +41,9 @@ export function CustomerEngagements({ customerId }: { customerId: string }) {
                 <span className="min-w-0">
                   <span className="block truncate text-[13px] font-medium">{e.name}</span>
                   <span className="block truncate text-[11.5px] text-muted-foreground">
-                    {progressOf(e).next}
+                    {e.status === "draft"
+                      ? "Preparing: not started with the customer"
+                      : progressOf(e).next}
                     {e.owner_name ? ` · ${e.owner_name}` : ""}
                     {e.brief.team?.csa ? ` · CSA ${e.brief.team.csa}` : ""} ·{" "}
                     {relative(e.updated_at)}

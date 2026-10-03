@@ -13,6 +13,11 @@ const snapshotSchema = z.object({
   fetchedAt: z.string().max(40),
   account: z.object({ id: z.string().max(64), name: z.string().max(200) }).nullable(),
   accounts: z.number().int().nonnegative().nullable(),
+  team: z
+    .array(z.object({ name: z.string().max(200), role: text(200) }))
+    .max(50)
+    .nullable()
+    .optional(),
   opportunities: z
     .array(
       z.object({

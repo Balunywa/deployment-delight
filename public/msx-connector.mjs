@@ -262,11 +262,32 @@ async function customer(tpid) {
     }),
   ]);
   const account = (top.data?.records ?? [])[0] ?? null;
+  // The account team on the top-parent account, when MSX lets this person see it. Optional: never fails the look-up.
+  const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const team =
+    account && GUID.test(account.accountid)
+      ? await tool("dataverse_query", {
+          entity_set: "msp_accountteams",
+          select: "msp_fullname,msp_rolename,msp_title,msp_qualifier1",
+          filter: `_msp_accountid_value eq ${account.accountid}`,
+          top: 50,
+        })
+          .then((r) =>
+            (r.data?.records ?? [])
+              .filter((m) => m.msp_fullname)
+              .map((m) => ({
+                name: m.msp_fullname,
+                role: m.msp_rolename ?? m.msp_title ?? m.msp_qualifier1 ?? null,
+              })),
+          )
+          .catch(() => null)
+      : null;
   return {
     tpid,
     fetchedAt: new Date().toISOString(),
     account: account ? { id: account.accountid, name: account.name } : null,
     accounts: all?.meta?.totalCount ?? null,
+    team,
     opportunities: (opps.data?.records ?? []).map((o) => ({
       id: o.opportunityid,
       number: o.msp_opportunitynumber ?? null,

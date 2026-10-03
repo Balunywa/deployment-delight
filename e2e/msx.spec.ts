@@ -5,7 +5,7 @@
  */
 import { type APIRequestContext } from "@playwright/test";
 
-import { expect, loaded, open, test } from "./fixtures";
+import { expect, loaded, open, sql, test } from "./fixtures";
 
 const TOKEN = "e2e-mcp-token";
 const RUN = Date.now().toString().slice(-7);
@@ -102,7 +102,9 @@ test.describe.serial("MSX link", () => {
     expect(bad.body.result.isError).toBe(true);
   });
 
-  test("onboarding reuses the profile by TPID; added context drives the prep", async ({ page }) => {
+  test("onboarding without MSX: reuse the profile, brief from added context, POV and call plan", async ({
+    page,
+  }) => {
     // No MSX connector on this machine: the page says so and onboarding still works.
     await page.route(`${CONNECTOR}/**`, (r) => r.abort());
     await open(page, "/customers/onboard");
@@ -111,15 +113,24 @@ test.describe.serial("MSX link", () => {
     await expect(page.getByRole("region", { name: "MSX connection" })).toContainText(
       "MSX isn't connected on this PC.",
     );
-    await expect(page.getByRole("region", { name: "In Cloud Delivery" })).toContainText(
-      `Already onboarded as E2E Account ${RUN}`,
-    );
-    await page.getByRole("button", { name: "Continue with this customer" }).click();
+    const cd = page.getByRole("region", { name: "In Cloud Delivery" });
+    await expect(cd).toContainText(`Already onboarded as E2E Account ${RUN}`);
+    await cd.getByRole("button", { name: "This is the customer: continue" }).click();
 
-    await expect(page.getByRole("radio", { name: /Proactive/ })).toBeChecked();
-    await page.getByRole("button", { name: "Next: add context" }).click();
+    // The existing engagement is one click away; a new one starts as a draft.
+    await expect(page.getByRole("region", { name: "Continue an engagement" })).toContainText(
+      "Maintenance planning in days",
+    );
+    const start = page.getByRole("region", { name: "Start a new engagement" });
+    await start.getByRole("radio", { name: /Proactive/ }).check();
+    await start.getByRole("button", { name: /Prepare discovery/ }).click();
+    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}\?tab=context/);
+    await loaded(page);
+    await expect(page.getByText("Preparing: not started with the customer.")).toBeVisible();
+
+    // Context: add the account team's notes; the brief reads them, with source and status.
+    await page.getByRole("button", { name: "Notes, emails and transcripts" }).click();
     const profile = page.getByRole("region", { name: "Customer profile" });
-    await expect(profile).toContainText("Opportunity notes");
     await profile.getByRole("button", { name: "Add context" }).click();
     await profile.getByLabel("Title").fill("Discovery call");
     await profile
@@ -128,23 +139,46 @@ test.describe.serial("MSX link", () => {
         "They want to move 40 Oracle databases off Exadata before the datacenter lease ends in June 2027. The CIO sponsors it. New apps would run on AKS.",
       );
     await profile.getByRole("button", { name: "Save context" }).click();
-    await expect(profile).toContainText("Discovery call");
-
-    await page.getByRole("button", { name: "Next: prep" }).click();
-    const prep = page.getByRole("region", { name: "Prep" });
-    const questions = prep.getByRole("group", { name: "Discovery questions" });
-    await expect(questions).toContainText("Wants maintenance planning off spreadsheets");
-    await expect(questions).toContainText("Which Oracle features do they depend on");
-    const areas = prep.getByRole("group", { name: "Technical areas" });
-    await expect(areas).toContainText("Oracle workloads");
-    await expect(areas).toContainText("Containers and AKS");
-    await expect(areas.getByRole("link", { name: /Oracle Database@Azure/ })).toHaveAttribute(
-      "href",
-      /^https:\/\/learn\.microsoft\.com\//,
+    const technical = page.getByRole("region", { name: "Technical environment" });
+    await expect(technical).toContainText(
+      "Oracle workloads: the context mentions Oracle, Exadata.",
     );
-    const map = prep.getByRole("group", { name: "Context map" });
-    await expect(map).toContainText("lease ends in June 2027");
-    await expect(map).toContainText("The CIO sponsors it.");
+    const priorities = page.getByRole("region", { name: "Business priorities and why now" });
+    const lease = priorities.getByRole("listitem").filter({ hasText: "lease ends in June 2027" });
+    await expect(lease).toContainText("Documented");
+    await lease.getByRole("combobox").selectOption("confirmed");
+    await expect(
+      page.getByRole("region", { name: "What matters for this conversation" }),
+    ).toContainText("lease ends in June 2027");
+
+    // Point of view from the evidence; the opening is a working hypothesis built from it.
+    const tabs = page.getByRole("navigation", { name: "Engagement" });
+    await tabs.getByRole("button", { name: "Point of view" }).click();
+    await page.getByRole("button", { name: "Draft from the evidence" }).click();
+    await expect(page.getByRole("textbox", { name: "Opening" })).toHaveValue(
+      /^From what we've seen, .*Oracle.*What are we missing\?$/,
+    );
+    await expect(page.getByRole("region", { name: "Plausible paths" })).toContainText(
+      "Keeps today's approach",
+    );
+
+    // Call plan: built for discovery, with the technical question the context calls for.
+    await page
+      .getByRole("region", { name: "Opening statement" })
+      .getByRole("button", { name: "Prepare the conversation" })
+      .click();
+    await page.getByRole("button", { name: "Prepare initial discovery" }).click();
+    const plan = page.getByRole("region", { name: "Questions, in priority order" });
+    await expect(plan).toContainText("Tests an assumption");
+    const questions = await page
+      .getByRole("textbox", { name: /^Question \d+$/ })
+      .evaluateAll((els) => els.map((el) => (el as HTMLInputElement).value));
+    expect(questions.length).toBeGreaterThanOrEqual(5);
+    expect(questions.some((q) => q.includes("Which Oracle features do they depend on"))).toBe(true);
+    await expect(page.getByRole("region", { name: "Prepare with" })).toContainText(
+      "Oracle Database@Azure",
+    );
+    await expect(page.getByRole("region", { name: "Agenda" })).toContainText("60 of 60 minutes");
 
     await open(page, "/engagements");
     await page.getByRole("link", { name: "Maintenance planning in days" }).first().click();
@@ -152,7 +186,7 @@ test.describe.serial("MSX link", () => {
     await expect(page.getByRole("button", { name: new RegExp(`MSX ${OPP}`) })).toBeVisible();
   });
 
-  test("with MSX: pull by TPID, pick the opportunity, prep, start the engagement", async ({
+  test("with MSX: resolve, prepare, meet, confirm findings, create; the recap has only what was confirmed", async ({
     page,
   }) => {
     const tpid = `8${RUN}`;
@@ -162,6 +196,7 @@ test.describe.serial("MSX link", () => {
       fetchedAt: new Date().toISOString(),
       account: { id: "a0000000-0000-4000-8000-000000000001", name: `CONTOSO ENERGY ${RUN}` },
       accounts: 3,
+      team: [{ name: "Pat Seller", role: "Account Executive" }],
       opportunities: [
         {
           id: "b0000000-0000-4000-8000-000000000001",
@@ -207,52 +242,115 @@ test.describe.serial("MSX link", () => {
       });
     });
 
+    // A. Resolve the customer.
     await open(page, "/customers/onboard");
     await page.getByLabel("TPID").fill(tpid);
     await page.getByRole("button", { name: "Look up" }).click();
     await expect(page.getByText("MSX connected")).toBeVisible();
     const inMsx = page.getByRole("region", { name: "In MSX" });
     await expect(inMsx).toContainText(`CONTOSO ENERGY ${RUN}`);
-    await expect(inMsx).toContainText("3 active accounts · 2 open opportunities");
-    await expect(page.getByLabel("Name the team uses")).toHaveValue(`CONTOSO ENERGY ${RUN}`);
+    await expect(inMsx).toContainText("3 active accounts (parent and subsidiaries)");
+    await expect(inMsx).toContainText("Pat Seller · Account Executive");
     await page.getByLabel("Name the team uses").fill(`Contoso Energy ${RUN}`);
-    await page.getByRole("button", { name: "Create profile and continue" }).click();
-
-    await page.getByRole("radio", { name: /Azure Local for refinery sites/ }).check();
-    await page.getByRole("button", { name: "Next: add context" }).click();
-    await expect(page.getByRole("region", { name: "Customer profile" })).toContainText(
-      `MSX: CONTOSO ENERGY ${RUN}`,
-    );
-    await page.getByRole("button", { name: "Next: prep" }).click();
-
-    const prep = page.getByRole("region", { name: "Prep" });
-    const map = prep.getByRole("group", { name: "Context map" });
-    await expect(map).toContainText("Azure Local for refinery sites · 2 - Qualify");
-    await expect(map).toContainText("owner Pat Seller");
-    await expect(map).toContainText("Hardware refresh is due by Q2 2027.");
-    await expect(map).toContainText("No sponsor or decision maker is named.");
-    await expect(prep.getByRole("group", { name: "Technical areas" })).toContainText(
-      "Azure Local (edge and on-premises)",
-    );
-    await expect(prep.getByRole("group", { name: "Discovery questions" })).toContainText(
-      "Customer wants to run control-room apps",
-    );
-
-    const start = page.getByRole("region", { name: "Start the engagement" });
-    await expect(start).toContainText(`Linked to MSX opportunity ${opp}`);
-    await expect(start.getByLabel("Engagement")).toHaveValue("Azure Local for refinery sites");
-    await start.getByRole("button", { name: "Start the engagement" }).click();
+    await page.getByRole("button", { name: "Save customer draft" }).click();
+    const start = page.getByRole("region", { name: "Start a new engagement" });
+    await start.getByRole("radio", { name: /Azure Local for refinery sites/ }).check();
+    await start.getByRole("button", { name: /Prepare discovery/ }).click();
+    await page.waitForURL(/\/engagements\/[0-9a-f-]{36}/);
     await loaded(page);
-    await expect(page).toHaveURL(/\/engagements\//);
+    const id = page.url().match(/engagements\/([0-9a-f-]{36})/)![1]!;
+    const tabs = page.getByRole("navigation", { name: "Engagement" });
+
+    // B. Context: the opportunity leads; MSX facts need validation until the customer says so.
+    const matters = page.getByRole("region", { name: "What matters for this conversation" });
+    await expect(matters).toContainText("The opportunity: Azure Local for refinery sites.");
+    await expect(
+      page
+        .getByRole("region", { name: "Microsoft relationship and opportunities" })
+        .getByRole("listitem")
+        .filter({ hasText: "Azure Local for refinery sites · 2 - Qualify" }),
+    ).toContainText("Needs validation");
+
+    // C. Point of view: the opportunity's own topic leads.
+    await tabs.getByRole("button", { name: "Point of view" }).click();
+    await page.getByRole("button", { name: "Draft from the evidence" }).click();
+    await expect(page.getByRole("textbox", { name: "Opening" })).toHaveValue(
+      /From what we've seen, you want to run control-room apps .*Azure Local/,
+    );
+    await expect(page.getByRole("group", { name: "Assumptions" })).toContainText("To test");
+
+    // D. Call plan and the meeting.
+    await page
+      .getByRole("region", { name: "Opening statement" })
+      .getByRole("button", { name: "Prepare the conversation" })
+      .click();
+    await page.getByRole("button", { name: "Prepare initial discovery" }).click();
+    await page.getByRole("button", { name: "Open meeting view" }).click();
+    await page
+      .getByLabel("Answer to question 1")
+      .fill("Mostly right; the real pain is reports that arrive days late.");
+    await page
+      .getByRole("radiogroup", { name: /Result: The goal as written still holds/ })
+      .getByRole("radio", { name: "Confirmed" })
+      .click();
+    await page
+      .getByLabel(/What they said about: The goal as written/)
+      .fill("Yes, the sites must keep running offline.");
+    await page.getByLabel("New action", { exact: true }).fill("Share the site connectivity map");
+    await page.getByLabel("New action owner").fill("Site operations lead");
+    await page.getByRole("button", { name: "Add action" }).click();
+    await page
+      .getByRole("textbox", { name: "Agreed next step" })
+      .fill("Architecture session with the site operations lead");
+    await page.getByRole("button", { name: /Meeting held/ }).click();
+
+    // E. Findings: the customer's words update the point of view, keeping its history.
+    await expect(page.getByText("What the customer actually said")).toBeVisible();
+    await page
+      .getByRole("textbox", { name: "What they actually need, in their terms" })
+      .fill("Control-room apps that keep running when a site is offline.");
+    await page.getByRole("button", { name: "Apply to the point of view" }).click();
+    await expect(page.getByText(/Findings saved\. The point of view is updated/)).toBeVisible();
+
+    // Review and create: nothing in MSX changes.
+    await page.getByRole("button", { name: "Review engagement" }).first().click();
+    await expect(page.getByRole("textbox", { name: "Business outcome" })).toHaveValue(
+      "Control-room apps that keep running when a site is offline.",
+    );
+    await page.getByRole("textbox", { name: "Scope", exact: true }).fill("12 refinery sites");
+    await page.getByRole("textbox", { name: "Explicit exclusions" }).fill("Corporate ERP");
+    await page.getByRole("button", { name: "Add a criterion" }).click();
+    await page.getByLabel("Success criterion 1").fill("Run a workshop");
+    await expect(page.getByText("That reads like an activity.")).toBeVisible();
+    await page
+      .getByLabel("Success criterion 1")
+      .fill("Control-room apps run through a 48-hour link outage");
+    await page.getByLabel("Evidence for criterion 1").fill("Site lead's outage test report");
+    await page.getByRole("button", { name: "Review engagement" }).click();
+    await expect(page.getByText(/doesn't change MSX, commit a\s+milestone/)).toBeVisible();
+    await page.getByRole("button", { name: "Create engagement" }).click();
+    await expect(page.getByRole("list", { name: "Phases" })).toBeVisible();
     await expect(page.getByRole("button", { name: new RegExp(`MSX ${opp}`) })).toBeVisible();
+
+    const [row] = await sql<{ status: string; history: number; findings: number }>(
+      `select status, jsonb_array_length(coalesce(workspace->'povHistory', '[]'::jsonb))::int as history,
+         jsonb_array_length(findings)::int as findings from public.engagements where id = $1`,
+      [id],
+    );
+    expect(row!.status).toBe("active");
+    expect(row!.history).toBeGreaterThan(0);
+    expect(row!.findings).toBe(1);
+
+    // The customer view: the confirmed goal and the agreed action, nothing internal.
+    await open(page, `/recap/${id}`);
+    await expect(page.getByText(/control-room apps at 12 refinery sites/).first()).toBeVisible();
+    await expect(page.getByText("Share the site connectivity map")).toBeVisible();
+    await expect(page.getByText(/MSX opportunity reflects/)).toHaveCount(0);
   });
 
   test("a proactive engagement links an opportunity later", async ({ page }) => {
     await open(page, "/engagements");
-    await page
-      .getByRole("button", { name: /Start an engagement|New engagement/ })
-      .first()
-      .click();
+    await page.getByRole("button", { name: "Start without a customer" }).click();
     const start = page.getByRole("dialog", { name: "Start an engagement" });
     await start.getByLabel("Engagement").fill(`Proactive ${RUN}`);
     await start.getByRole("radio", { name: /Proactive/ }).click();

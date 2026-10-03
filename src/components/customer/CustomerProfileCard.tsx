@@ -36,7 +36,14 @@ const SOURCES: { id: ContextEntry["source"]; label: string; icon: typeof FileTex
   { id: "other", label: "Other", icon: FileText },
 ];
 
-export function CustomerProfileCard({ customerId }: { customerId: string }) {
+export function CustomerProfileCard({
+  customerId,
+  onChange,
+}: {
+  customerId: string;
+  /** Called after context is added or removed, so views built on it can refresh. */
+  onChange?: () => void;
+}) {
   const queryClient = useQueryClient();
   const key = ["customer-profile", customerId];
   const load = useServerFn(getCustomerProfile);
@@ -44,7 +51,10 @@ export function CustomerProfileCard({ customerId }: { customerId: string }) {
     queryKey: key,
     queryFn: () => load({ data: { id: customerId } }),
   });
-  const refresh = () => queryClient.invalidateQueries({ queryKey: key });
+  const refresh = () => {
+    onChange?.();
+    return queryClient.invalidateQueries({ queryKey: key });
+  };
   const [tpid, setTpid] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [source, setSource] = useState<ContextEntry["source"]>("notes");
