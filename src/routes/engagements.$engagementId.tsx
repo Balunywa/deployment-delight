@@ -91,7 +91,7 @@ function doneFor(e: WorkspaceEngagement, t: Tab) {
     case "findings":
       return plans.some((p) => p.review?.at);
     case "charter":
-      return e.status === "active";
+      return e.status === "active" && !!w.charter?.outcome.trim();
     case "prove":
       return !!e.decision;
     case "handoff":
