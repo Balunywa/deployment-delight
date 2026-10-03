@@ -163,7 +163,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="truncate text-[13.5px] font-semibold tracking-tight text-nav-foreground">
                 {isvName}
               </p>
-              <p className="truncate text-[11px] text-nav-muted">Cloud Delivery</p>
+              {isvName !== "Cloud Delivery" && (
+                <p className="truncate text-[11px] text-nav-muted">Cloud Delivery</p>
+              )}
             </div>
           )}
         </div>

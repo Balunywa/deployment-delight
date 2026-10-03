@@ -67,28 +67,46 @@ async function waitFor(url, ms = 60_000) {
   return false;
 }
 
-/** Who's using the app: the Microsoft account msx-mcp signed in with, else the Windows user. */
-async function whoAmI() {
-  const fallback = { name: userInfo().username, email: "" };
-  // A fixed command line (no user input); Windows runs az through cmd.exe.
+/** Runs a fixed az command (no user input) with msx-mcp's signed-in profile; Windows runs az through cmd.exe. */
+function azMsx(command, ms = 10_000) {
   const [cmd, args] =
     process.platform === "win32"
-      ? ["cmd.exe", ["/d", "/s", "/c", "az account show --query user.name -o tsv"]]
-      : ["az", ["account", "show", "--query", "user.name", "-o", "tsv"]];
-  const out = await new Promise((resolve) => {
+      ? ["cmd.exe", ["/d", "/s", "/c", `az ${command}`]]
+      : ["az", command.split(" ")];
+  return new Promise((resolve) => {
     let text = "";
     const p = spawn(cmd, args, {
       env: { ...process.env, AZURE_CONFIG_DIR: path.join(homedir(), ".azure-msx") },
       windowsHide: true,
     });
-    const t = setTimeout(() => p.kill(), 10_000);
+    const t = setTimeout(() => p.kill(), ms);
     p.stdout.on("data", (d) => (text += d));
     p.on("error", () => resolve(""));
     p.on("close", () => (clearTimeout(t), resolve(text.trim())));
   });
-  if (!/^[^@\s]+@[^@\s]+$/.test(out)) return fallback;
-  const local = out.split("@")[0];
-  return { name: local, email: out };
+}
+
+/**
+ * Who's using the app: the Microsoft account msx-mcp signed in with (display name from Microsoft Graph, kept in
+ * the data folder so later starts don't wait for it), else the Windows user.
+ */
+async function whoAmI() {
+  const fallback = { name: userInfo().username, email: "" };
+  const email = await azMsx("account show --query user.name -o tsv");
+  if (!/^[^@\s]+@[^@\s]+$/.test(email)) return fallback;
+  const file = path.join(DATA_DIR, "profile.json");
+  let cached = null;
+  try {
+    cached = JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    // First start.
+  }
+  const lookUp = azMsx("ad signed-in-user show --query displayName -o tsv").then((name) => {
+    if (name && !/[\r\n]/.test(name)) writeFileSync(file, JSON.stringify({ email, name }));
+    return name;
+  });
+  if (cached?.email === email && cached.name) return { name: cached.name, email };
+  return { name: (await lookUp) || email.split("@")[0], email };
 }
 
 async function startDatabase() {

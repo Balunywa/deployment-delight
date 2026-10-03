@@ -297,9 +297,9 @@ app itself is unchanged: the same TanStack Start build runs locally.
   creates the workspace organization (`1111…`). A **gate** proxy on a second port is the only way in: Host must be
   the loopback port, and the session cookie comes from a one-time `/__cd/session?k=` link that only the window gets.
   The app server rejects requests without the gate's header (`CD_GATE_KEY`, `src/server.ts`). It starts the MSX
-  connector with the app's origin allowed (no Local Network Access prompt: the page is itself on loopback). The
-  user's name and email come from the msx-mcp Azure CLI profile (`~/.azure-msx`). `app.lock` in the data folder
-  stops a second launcher.
+  connector with the app's origin allowed (no Local Network Access prompt: the page is itself on loopback). The user's email comes from the msx-mcp Azure CLI profile (`~/.azure-msx`), the display name from Graph
+  (`az ad signed-in-user show`, cached in `<data>/profile.json`). `app.lock` in the data folder stops a second
+  launcher.
 - **Azure from the desktop**: ARM calls use `DefaultAzureCredential` (the user's own `az login`); Terraform deploys
   use the same sign-in.
 - **Team space** (`src/lib/team.server.ts`): Settings → Team space lists the user's Microsoft 365 groups that have a
