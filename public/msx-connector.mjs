@@ -54,15 +54,48 @@ const HOME_COPY = path.join(
   "msx-connector.mjs",
 );
 
-if (process.argv.includes("--install") || process.argv.includes("--uninstall")) {
+const BASE = `http://127.0.0.1:${PORT}`;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const alive = () =>
+  fetch(`${BASE}/status`, { signal: AbortSignal.timeout(60_000) }).then(
+    (r) => r.ok,
+    () => false,
+  );
+
+/** Stops a connector already running (an older version, say), so the installed one takes its place. */
+async function stopRunning() {
+  const r = await fetch(`${BASE}/shutdown`, {
+    method: "POST",
+    headers: { "x-cloud-delivery": "1" },
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => null);
+  if (!r) return;
+  for (let i = 0; i < 20; i++) {
+    const up = await fetch(`${BASE}/status`, { signal: AbortSignal.timeout(1_000) }).then(
+      () => true,
+      () => false,
+    );
+    if (!up) return;
+    await sleep(250);
+  }
+}
+
+const CLI = process.argv.includes("--install") || process.argv.includes("--uninstall");
+
+/*
+ * Install or uninstall, then end. Never process.exit() after a fetch here: on Windows that can crash Node on the way
+ * out (libuv "UV_HANDLE_CLOSING" assertion), which turns success into an error code.
+ */
+async function cli() {
   if (process.platform !== "win32") {
     console.log("--install is for Windows. Elsewhere, start it from your login items.");
-    process.exit(1);
+    return 1;
   }
+  await stopRunning();
   if (process.argv.includes("--uninstall")) {
     rmSync(STARTUP, { force: true });
-    console.log("It no longer starts at sign-in. Stop the running one from Task Manager (node).");
-    process.exit(0);
+    console.log("Stopped, and it no longer starts when you sign in to Windows.");
+    return 0;
   }
   mkdirSync(path.dirname(HOME_COPY), { recursive: true });
   const self = fileURLToPath(import.meta.url);
@@ -75,9 +108,21 @@ if (process.argv.includes("--install") || process.argv.includes("--uninstall")) 
     `CreateObject("WScript.Shell").Run "${q(process.execPath)} ${q(HOME_COPY)}", 0, False\r\n`,
   );
   spawn("wscript.exe", [STARTUP], { detached: true, stdio: "ignore" }).unref();
-  console.log(`Installed: ${HOME_COPY}\nIt starts now and whenever you sign in to Windows.`);
-  process.exit(0);
+  let up = false;
+  for (let i = 0; i < 30 && !up; i++) {
+    await sleep(500);
+    up = await alive();
+  }
+  console.log(
+    up
+      ? `Installed and running: ${HOME_COPY}\nIt starts whenever you sign in to Windows.`
+      : `Installed (${HOME_COPY}), but it didn't answer yet. Sign out and in, or run: node "${HOME_COPY}"`,
+  );
+  if (!existsSync(MSX_MCP)) console.log(`Note: msx-mcp isn't at ${MSX_MCP} yet.`);
+  return up ? 0 : 1;
 }
+
+if (CLI) process.exitCode = await cli();
 
 /* ------------------------------------------------------------------ msx-mcp over stdio (MCP JSON-RPC) */
 
@@ -250,54 +295,68 @@ function send(res, origin, code, body) {
   res.end(JSON.stringify(body));
 }
 
-createServer(async (req, res) => {
-  const origin = req.headers.origin;
-  // Only Cloud Delivery's pages may read MSX through this, and only via this host name (no DNS rebinding).
-  if (!HOSTS.has(String(req.headers.host)) || (origin && !ORIGINS.has(origin)))
-    return send(res, null, 403, { error: "Not allowed." });
-  if (req.method === "OPTIONS") {
-    res.writeHead(204, {
-      "access-control-allow-origin": origin ?? "",
-      "access-control-allow-methods": "GET, POST",
-      "access-control-allow-headers": "content-type, x-cloud-delivery",
-      "access-control-allow-private-network": "true",
-      "access-control-max-age": "600",
-      vary: "Origin",
-    });
-    return res.end();
-  }
-  const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
-  try {
-    if (req.method === "GET" && url.pathname === "/status")
-      return send(res, origin, 200, await status());
-    if (req.method === "POST" && url.pathname === "/signin") {
-      // A custom header forces a CORS preflight, so other sites can't trigger a sign-in window.
-      if (req.headers["x-cloud-delivery"] !== "1")
-        return send(res, origin, 400, { error: "Missing header." });
-      await tool("msx_login", {}, 300_000);
-      return send(res, origin, 200, await status());
+function serve() {
+  createServer(async (req, res) => {
+    const origin = req.headers.origin;
+    // Only Cloud Delivery's pages may read MSX through this, and only via this host name (no DNS rebinding).
+    if (!HOSTS.has(String(req.headers.host)) || (origin && !ORIGINS.has(origin)))
+      return send(res, null, 403, { error: "Not allowed." });
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "access-control-allow-origin": origin ?? "",
+        "access-control-allow-methods": "GET, POST",
+        "access-control-allow-headers": "content-type, x-cloud-delivery",
+        "access-control-allow-private-network": "true",
+        "access-control-max-age": "600",
+        vary: "Origin",
+      });
+      return res.end();
     }
-    if (req.method === "GET" && url.pathname === "/customer") {
-      const tpid = url.searchParams.get("tpid") ?? "";
-      if (!TPID.test(tpid)) return send(res, origin, 400, { error: "A TPID is 3 to 12 digits." });
-      return send(res, origin, 200, await customer(tpid));
+    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    try {
+      if (req.method === "POST" && url.pathname === "/shutdown") {
+        // Only a local program (an install replacing this one) can stop it: browsers always send an Origin.
+        if (origin || req.headers["x-cloud-delivery"] !== "1")
+          return send(res, origin, 403, { error: "Not allowed." });
+        send(res, null, 200, { stopping: true });
+        child?.kill();
+        return setTimeout(() => process.exit(0), 100);
+      }
+      if (req.method === "GET" && url.pathname === "/status")
+        return send(res, origin, 200, await status());
+      if (req.method === "POST" && url.pathname === "/signin") {
+        // A custom header forces a CORS preflight, so other sites can't trigger a sign-in window.
+        if (req.headers["x-cloud-delivery"] !== "1")
+          return send(res, origin, 400, { error: "Missing header." });
+        await tool("msx_login", {}, 300_000);
+        return send(res, origin, 200, await status());
+      }
+      if (req.method === "GET" && url.pathname === "/customer") {
+        const tpid = url.searchParams.get("tpid") ?? "";
+        if (!TPID.test(tpid)) return send(res, origin, 400, { error: "A TPID is 3 to 12 digits." });
+        return send(res, origin, 200, await customer(tpid));
+      }
+      return send(res, origin, 404, { error: "Not found." });
+    } catch (e) {
+      const code = e.code ?? "MSX_ERROR";
+      return send(res, origin, code === "AUTH_REQUIRED" ? 401 : 502, { error: e.message, code });
     }
-    return send(res, origin, 404, { error: "Not found." });
-  } catch (e) {
-    const code = e.code ?? "MSX_ERROR";
-    return send(res, origin, code === "AUTH_REQUIRED" ? 401 : 502, { error: e.message, code });
-  }
-})
-  .listen(PORT, "127.0.0.1", () => {
-    console.log(`Cloud Delivery MSX connector on http://127.0.0.1:${PORT}`);
-    console.log(
-      `msx-mcp: ${MSX_MCP}${existsSync(MSX_MCP) ? "" : "  (NOT FOUND: set MSX_MCP_PATH)"}`,
-    );
-    console.log(`Allowed: ${[...ORIGINS].join(", ")}`);
   })
-  .on("error", (e) => {
-    console.error(
-      e.code === "EADDRINUSE" ? `Already running on port ${PORT}.` : `Couldn't start: ${e.message}`,
-    );
-    process.exit(1);
-  });
+    .listen(PORT, "127.0.0.1", () => {
+      console.log(`Cloud Delivery MSX connector on http://127.0.0.1:${PORT}`);
+      console.log(
+        `msx-mcp: ${MSX_MCP}${existsSync(MSX_MCP) ? "" : "  (NOT FOUND: set MSX_MCP_PATH)"}`,
+      );
+      console.log(`Allowed: ${[...ORIGINS].join(", ")}`);
+    })
+    .on("error", (e) => {
+      console.error(
+        e.code === "EADDRINUSE"
+          ? `Already running on port ${PORT}.`
+          : `Couldn't start: ${e.message}`,
+      );
+      process.exit(1);
+    });
+}
+
+if (!CLI) serve();

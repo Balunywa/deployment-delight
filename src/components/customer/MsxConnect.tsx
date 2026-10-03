@@ -42,41 +42,53 @@ export function MsxConnect() {
         <>
           <p className="font-medium">MSX isn't connected on this PC.</p>
           <p className="text-muted-foreground">
-            Cloud Delivery reads MSX through the MSX connector, a small program that runs on your PC
-            beside msx-mcp and reads MSX as you. Cloud Delivery never sees your MSX sign-in.
+            Cloud Delivery reads MSX through the MSX connector, a small program on your PC that uses
+            msx-mcp to read MSX as you. Cloud Delivery never sees your MSX sign-in. Set it up once:
           </p>
-          <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+          <ol className="list-decimal space-y-1.5 pl-5 text-muted-foreground">
             <li>
-              msx-mcp in your home folder as <code className="font-mono">msx-mcp</code> (from
-              github.com/mcaps-microsoft/msx-mcp, with your Microsoft EMU account).
+              <a
+                className="font-medium text-primary underline"
+                href="/install-msx-connector.cmd"
+                download="Install MSX connector.cmd"
+              >
+                Download Install MSX connector
+              </a>{" "}
+              and double-click it. If Edge or Windows asks whether to keep or run it, choose Keep,
+              then More info, Run anyway. It checks Node.js, gets msx-mcp if you don't have it (your
+              browser downloads it with your Microsoft EMU account), and starts the connector now
+              and whenever you sign in to Windows.
             </li>
+            <li>Keep the corporate VPN on.</li>
             <li>
-              <a className="text-primary underline" href="/msx-connector.mjs" download>
-                Download the MSX connector
-              </a>
-              , then run it once:
-              <span className="mt-1 flex items-center gap-1.5">
-                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11.5px]">
-                  {RUN}
-                </code>
-                <button
-                  aria-label="Copy command"
-                  onClick={() => {
-                    void navigator.clipboard.writeText(RUN);
-                    toast.success("Copied.");
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <Copy className="size-3.5" />
-                </button>
-              </span>
-              <span className="mt-0.5 block">
-                It starts now and whenever you sign in to Windows. Remove it with{" "}
-                <code className="font-mono">--uninstall</code>.
-              </span>
+              When Edge asks to let this site access apps and services on this device, click Allow.
+              If you blocked it before: the icon left of the address, Site permissions, Local
+              network access, Allow. Then reload.
             </li>
-            <li>Corporate VPN on. If the browser asks to allow local network access, allow it.</li>
           </ol>
+          <details className="text-muted-foreground">
+            <summary className="cursor-pointer">Other ways to install</summary>
+            <p className="mt-1">
+              With Node.js 22+ and msx-mcp in{" "}
+              <code className="font-mono">%USERPROFILE%\msx-mcp</code>:{" "}
+              <a className="text-primary underline" href="/msx-connector.mjs" download>
+                download the connector
+              </a>{" "}
+              and run{" "}
+              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11.5px]">{RUN}</code>
+              <button
+                aria-label="Copy command"
+                onClick={() => {
+                  void navigator.clipboard.writeText(RUN);
+                  toast.success("Copied.");
+                }}
+                className="ml-1 align-middle text-muted-foreground hover:text-foreground"
+              >
+                <Copy className="size-3.5" />
+              </button>
+              . Remove it with <code className="font-mono">--uninstall</code>.
+            </p>
+          </details>
         </>
       ) : s.state === "signed-out" ? (
         <>

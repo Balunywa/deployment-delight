@@ -169,8 +169,18 @@ signed-in device (an app registration would need MSX team approval). So:
   read-only questions: `GET /status`, `POST /signin` (runs `msx_login`; needs header `x-cloud-delivery: 1`),
   `GET /customer?tpid=` (top-parent account, active account count, open opportunities via the TPID FetchXML join).
   Allows only Cloud Delivery's origins (Azure URL, localhost:3000; more via `MSX_CONNECTOR_ORIGINS`), checks the Host
-  header, answers the Private Network Access preflight. `--install` copies it to `%LOCALAPPDATA%\CloudDelivery` and
-  adds a hidden start at Windows sign-in (Startup folder `.vbs`); `--uninstall` removes that.
+  header, answers the Private Network Access preflight. `--install` copies it to `%LOCALAPPDATA%\CloudDelivery`,
+  stops a running one (`POST /shutdown`, local callers only: no Origin, header `x-cloud-delivery: 1`) and adds a
+  hidden start at Windows sign-in (Startup folder `.vbs`); `--uninstall` stops it and removes that.
+- **One-click install** (`public/install-msx-connector.cmd`, linked on the page as "Install MSX connector"): checks
+  Node 22+, gets msx-mcp if missing (opens the GitHub zip in the browser, which is signed in to EMU, then unzips it
+  to `%USERPROFILE%\msx-mcp`), downloads the connector from the app and runs `--install`, opens Onboard customer.
+  Tested: fresh install, replacing a running connector, the msx-mcp unzip (sandbox). Windows asks once whether to run
+  a downloaded `.cmd`. An `.exe` was considered: it would still need Node for msx-mcp and would need code signing to
+  get past SmartScreen/Defender on managed laptops.
+- **Edge's Local Network Access**: a public site calling `127.0.0.1` needs the user's one-time Allow (verified on
+  Azure with Edge 154: blocked until allowed, then the page reaches the connector). Never call `process.exit()` right
+  after a `fetch` in the connector: on Windows it crashes Node on exit (libuv `UV_HANDLE_CLOSING`).
 - **The browser** (on the SE's PC) calls the connector, shows the data, and sends Cloud Delivery a **snapshot**: a
   context entry with `source: "msx"` and an `msx` field (account, opportunities: number, name, stage, solution area,
   sales play, dates, owner, description, forecast comments). One snapshot per customer; refresh replaces it. No

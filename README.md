@@ -83,9 +83,11 @@ Either way, it's the same product setup, the same deployment process and the sam
      words), then **prep**: a context map (where it came from, what they want, why now, people, unknowns, each quote
      with its source), three discovery questions, technical areas to review with Microsoft Learn links, and similar
      work by peers. Optionally "Draft a brief with AI" from the same context. Then start the engagement.
-   - **MSX connector:** MSX is read by a small program on your PC (`/msx-connector.mjs`, run once with `--install`)
-     that uses [msx-mcp](https://github.com/mcaps-microsoft/msx-mcp) as you. It answers only Cloud Delivery's pages
-     and only read-only questions. Cloud Delivery keeps a dated snapshot, never your MSX sign-in.
+   - **MSX connector:** MSX is read by a small program on your PC that uses
+     [msx-mcp](https://github.com/mcaps-microsoft/msx-mcp) as you. Install it once with **Install MSX connector**
+     on the page (a `.cmd` you double-click: it gets msx-mcp if needed and starts the connector at every sign-in).
+     It answers only Cloud Delivery's pages and only read-only questions. Cloud Delivery keeps a dated snapshot,
+     never your MSX sign-in. Edge asks once to let the site reach apps on your PC: allow it.
    - **Copilot:** the app is also an MCP server (`/api/mcp`, Streamable HTTP, on when `MCP_TOKEN` is set) for use
      beside msx-mcp; `.github/skills/prep-customer` does the same from a chat and posts milestone updates to MSX
      only after you confirm.
