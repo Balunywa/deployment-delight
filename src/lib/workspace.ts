@@ -7,6 +7,7 @@
  */
 import type { Action, Engagement, Finding } from "./engagements";
 import type { MsxSnapshot } from "./msx-connector";
+import { milestoneFacts, TEAM_LABEL } from "./msx-signals";
 import {
   ENGAGEMENT_TYPES,
   type EngagementType,
@@ -163,6 +164,94 @@ export function briefItems(input: {
       origin: "derived",
     });
 
+  // What MSX shows the account team doing: milestones by workload, production workloads, partners, contacts.
+  const s = p.msx;
+  const msxSource = (label: string, date: string | null = null) => ({
+    label,
+    date,
+    retrieved: p.account.fetchedAt,
+  });
+  if (s) {
+    const where = [s.industry, s.segment, s.country].filter(Boolean).join(" · ");
+    if (where)
+      add({
+        id: itemId("relationship", `profile:${where}`),
+        section: "relationship",
+        text: `MSX classifies the account as ${where}.`,
+        kind: "fact",
+        source: msxSource("MSX account"),
+        origin: "msx",
+      });
+    if (s.ownerTeams.length)
+      add({
+        id: itemId("relationship", `owners:${s.ownerTeams.map((t) => t.team).join(",")}`),
+        section: "relationship",
+        text: `Open opportunities are owned by ${s.ownerTeams
+          .map((t) => `${TEAM_LABEL[t.team] ?? t.team} (${t.count})`)
+          .join(", ")}.`,
+        kind: "fact",
+        source: msxSource("MSX opportunities"),
+        origin: "msx",
+      });
+    for (const w of s.inMotion.slice(0, 8))
+      add({
+        id: itemId("relationship", `motion:${w.workload}:${w.next.id}`),
+        section: "relationship",
+        text: `In motion: ${w.workload}. ${w.milestones.length} open milestone${
+          w.milestones.length === 1 ? "" : "s"
+        }${w.committed ? `, ${w.committed} committed` : ""}; next “${w.next.name}” (${milestoneFacts(w.next)}).`,
+        kind: "fact",
+        source: msxSource(`MSX milestone${w.next.number ? ` ${w.next.number}` : ""}`, w.next.date),
+        origin: "msx",
+      });
+    for (const pt of s.partners.slice(0, 5))
+      add({
+        id: itemId("relationship", `partner:${pt.partner}`),
+        section: "relationship",
+        text: `Partner ${pt.partner} is on ${
+          pt.opportunities.length ? pt.opportunities.slice(0, 3).join("; ") : "an open opportunity"
+        } (co-sell referral, accepted or won).`,
+        kind: "fact",
+        source: msxSource("MSX co-sell"),
+        origin: "msx",
+      });
+    for (const l of s.live.slice(0, 8))
+      add({
+        id: itemId("technical", `live:${l.workload}`),
+        section: "technical",
+        text: `Already in production per MSX: ${l.workload} (“${l.milestone.name}”, completed ${
+          l.milestone.date?.slice(0, 10) ?? "no date"
+        }).`,
+        kind: "fact",
+        source: msxSource(
+          `MSX milestone${l.milestone.number ? ` ${l.milestone.number}` : ""}`,
+          l.milestone.date,
+        ),
+        origin: "msx",
+      });
+    for (const c of s.contacts.slice(0, 10))
+      add({
+        id: itemId("stakeholders", `contact:${c.name}`),
+        section: "stakeholders",
+        text: `${c.name}${c.title ? `, ${c.title}` : ""}: a customer contact in MSX. Their role in this decision isn't known yet.`,
+        kind: "fact",
+        source: msxSource("MSX contact"),
+        origin: "msx",
+      });
+    for (const a of s.attention.slice(0, 6))
+      add({
+        id: itemId("risks", `ms:${a.milestone.id}:${a.flags.join(",")}`),
+        section: "risks",
+        text: a.text,
+        kind: "fact",
+        source: msxSource(
+          `MSX milestone${a.milestone.number ? ` ${a.milestone.number}` : ""}`,
+          a.milestone.modifiedOn,
+        ),
+        origin: "msx",
+      });
+  }
+
   for (const a of p.areas)
     add({
       id: itemId("technical", `area:${a.id}`),
@@ -259,6 +348,32 @@ export function snapshotChanges(prev: MsxSnapshot | null | undefined, next: MsxS
     }
   }
   for (const o of prev.opportunities) if (!after.has(o.id)) out.push(`No longer open: ${o.name}.`);
+  // Milestones: only when both snapshots read them, so an older snapshot doesn't report everything as new.
+  if (prev.milestones && next.milestones) {
+    const was = new Map(prev.milestones.map((m) => [m.id, m]));
+    for (const m of next.milestones) {
+      const b = was.get(m.id);
+      if (!b)
+        out.push(
+          `New milestone: “${m.name}” (${m.workload ?? "no workload"}, ${m.status ?? "no status"}).`,
+        );
+      else {
+        if ((b.status ?? "") !== (m.status ?? ""))
+          out.push(
+            `Milestone “${m.name}”: ${b.status ?? "no status"} → ${m.status ?? "no status"}.`,
+          );
+        if ((b.date ?? "").slice(0, 10) !== (m.date ?? "").slice(0, 10))
+          out.push(
+            `Milestone “${m.name}”: date ${(b.date ?? "none").slice(0, 10)} → ${(m.date ?? "none").slice(0, 10)}.`,
+          );
+        if ((b.commitment ?? "") !== (m.commitment ?? ""))
+          out.push(`Milestone “${m.name}” is now ${m.commitment ?? "without a commitment"}.`);
+      }
+    }
+    const now = new Set(next.milestones.map((m) => m.id));
+    for (const m of prev.milestones)
+      if (!now.has(m.id)) out.push(`Milestone no longer open: “${m.name}”.`);
+  }
   return out;
 }
 

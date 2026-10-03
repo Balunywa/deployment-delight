@@ -228,8 +228,46 @@ test.describe.serial("MSX link", () => {
           forecastComments: null,
         },
       ],
+      milestones: [
+        {
+          id: "c0000000-0000-4000-8000-000000000001",
+          number: `7-MS1${RUN}`,
+          name: "Refinery site pilot",
+          opportunityId: "b0000000-0000-4000-8000-000000000001",
+          workload: "Infra: Azure Local",
+          status: "Blocked",
+          category: "POC/Pilot",
+          commitment: "Committed",
+          date: new Date(Date.now() + 90 * 864e5).toISOString(),
+          owner: "Pat Seller",
+          ownerTeam: "ATU",
+          modifiedOn: new Date().toISOString(),
+        },
+        {
+          id: "c0000000-0000-4000-8000-000000000002",
+          number: `7-MS2${RUN}`,
+          name: "Historian on Azure SQL",
+          opportunityId: "b0000000-0000-4000-8000-000000000002",
+          workload: "Data: SQL",
+          status: "Completed",
+          category: "Production",
+          commitment: "Committed",
+          date: new Date(Date.now() - 120 * 864e5).toISOString(),
+          owner: "Pat Seller",
+          ownerTeam: "ATU",
+          modifiedOn: new Date(Date.now() - 100 * 864e5).toISOString(),
+        },
+      ],
+      contacts: [{ name: "Dana Ortiz", title: "VP, Operations Technology" }],
+      partners: [
+        {
+          opportunityId: "b0000000-0000-4000-8000-000000000001",
+          partner: "Fabrikam Integrators",
+          type: "Co-Sell Referral",
+          status: "Accepted",
+        },
+      ],
     };
-    // The connector on the SE's PC, stood in for: signed in, and MSX knows this TPID.
     await page.route(`${CONNECTOR}/**`, (r) => {
       const path = new URL(r.request().url()).pathname;
       return r.fulfill({
@@ -251,6 +289,23 @@ test.describe.serial("MSX link", () => {
     await expect(inMsx).toContainText(`CONTOSO ENERGY ${RUN}`);
     await expect(inMsx).toContainText("3 active accounts (parent and subsidiaries)");
     await expect(inMsx).toContainText("Pat Seller · Account Executive");
+    // What MSX shows the account team doing: milestones, production, partners, contacts.
+    const shows = page.getByRole("region", { name: "What MSX shows" });
+    await expect(shows.getByRole("region", { name: "In motion" })).toContainText(
+      "Infra: Azure Local",
+    );
+    await expect(shows.getByRole("region", { name: "Needs attention" })).toContainText(
+      "“Refinery site pilot” (Infra: Azure Local) is marked Blocked.",
+    );
+    await expect(shows.getByRole("region", { name: "Already in production" })).toContainText(
+      "Data: SQL",
+    );
+    await expect(shows.getByRole("region", { name: "Co-sell partners" })).toContainText(
+      "Fabrikam Integrators",
+    );
+    await expect(shows.getByRole("region", { name: "Customer contacts" })).toContainText(
+      "Dana Ortiz · VP, Operations Technology",
+    );
     await page.getByLabel("Name the team uses").fill(`Contoso Energy ${RUN}`);
     await page.getByRole("button", { name: "Save customer draft" }).click();
     const start = page.getByRole("region", { name: "Start a new engagement" });
@@ -270,6 +325,12 @@ test.describe.serial("MSX link", () => {
         .getByRole("listitem")
         .filter({ hasText: "Azure Local for refinery sites · 2 - Qualify" }),
     ).toContainText("Needs validation");
+    await expect(
+      page.getByRole("region", { name: "Risks, blockers and open questions" }),
+    ).toContainText("“Refinery site pilot” (Infra: Azure Local) is marked Blocked.");
+    await expect(page.getByRole("region", { name: "Technical environment" })).toContainText(
+      "Already in production per MSX: Data: SQL",
+    );
 
     // C. Point of view: the opportunity's own topic leads.
     await tabs.getByRole("button", { name: "Point of view" }).click();

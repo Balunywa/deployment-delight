@@ -18,16 +18,58 @@ export type MsxOpportunity = {
   account: string | null;
   description: string | null;
   forecastComments: string | null;
+  /** Consumption, Billed… (MSX opportunity type). */
+  type?: string | null | undefined;
+  /** The Microsoft team that owns it: ATU (account), STU (specialists), CSU (customer success), Other. */
+  ownerTeam?: string | null | undefined;
+  modifiedOn?: string | null | undefined;
+};
+
+/** A milestone on an open opportunity: what the account team is driving, for which workload, and how it's going. */
+export type MsxMilestone = {
+  id: string;
+  number: string | null;
+  name: string;
+  opportunityId: string | null;
+  workload: string | null;
+  /** On Track, At Risk, Blocked or Completed. */
+  status: string | null;
+  /** POC/Pilot, Production, Optimization… */
+  category: string | null;
+  /** Committed or Uncommitted. */
+  commitment: string | null;
+  date: string | null;
+  owner: string | null;
+  ownerTeam: string | null;
+  modifiedOn: string | null;
+};
+
+export type MsxContact = { name: string; title: string | null };
+export type MsxPartner = {
+  opportunityId: string | null;
+  partner: string | null;
+  type: string | null;
+  status: string | null;
 };
 
 export type MsxSnapshot = {
   tpid: string;
   fetchedAt: string;
-  account: { id: string; name: string } | null;
+  account: {
+    id: string;
+    name: string;
+    industry?: string | null | undefined;
+    segment?: string | null | undefined;
+    country?: string | null | undefined;
+  } | null;
   accounts: number | null;
   /** The Microsoft account team on the top-parent account, when MSX shows it; null when it couldn't be read. */
   team?: { name: string; role: string | null }[] | null | undefined;
   opportunities: MsxOpportunity[];
+  /** Absent in snapshots taken before these were read; null when MSX didn't let this person read them. */
+  milestones?: MsxMilestone[] | null | undefined;
+  contacts?: MsxContact[] | null | undefined;
+  partners?: MsxPartner[] | null | undefined;
 };
 
 export type ConnectorStatus =
@@ -96,5 +138,35 @@ export function snapshotText(s: MsxSnapshot) {
     lines.push(o.description ? `  Description: ${o.description}` : "  MSX has no description.");
     if (o.forecastComments) lines.push(`  Forecast comments: ${o.forecastComments}`);
   }
+  const open = (s.milestones ?? []).filter((m) => m.status !== "Completed");
+  if (open.length) {
+    lines.push("", `${open.length} open milestone${open.length === 1 ? "" : "s"}:`);
+    for (const m of open.slice(0, 40))
+      lines.push(
+        `- ${m.name} (${[
+          m.workload,
+          m.status,
+          m.category,
+          m.commitment,
+          m.date && day(m.date),
+          m.owner,
+        ]
+          .filter(Boolean)
+          .join(" · ")})`,
+      );
+  }
+  if (s.partners?.length)
+    lines.push(
+      "",
+      `Co-sell partners: ${[...new Set(s.partners.map((p) => p.partner).filter(Boolean))].join(", ")}.`,
+    );
+  if (s.contacts?.length)
+    lines.push(
+      "",
+      `Customer contacts in MSX: ${s.contacts
+        .slice(0, 20)
+        .map((c) => (c.title ? `${c.name} (${c.title})` : c.name))
+        .join("; ")}.`,
+    );
   return lines.join("\n");
 }

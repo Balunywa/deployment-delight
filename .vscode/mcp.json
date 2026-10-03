@@ -3,7 +3,7 @@
     {
       "id": "cloud-delivery-token",
       "type": "promptString",
-      "description": "Cloud Delivery MCP token (Azure app setting MCP_TOKEN)",
+      "description": "Cloud Delivery MCP token (in the app: Settings → Connect Copilot → Copy token)",
       "password": true
     }
   ],
@@ -15,7 +15,7 @@
     },
     "cloud-delivery": {
       "type": "http",
-      "url": "https://clouddelivery-nzdefv.azurewebsites.net/api/mcp",
+      "url": "http://127.0.0.1:47616/api/mcp",
       "headers": { "Authorization": "Bearer ${input:cloud-delivery-token}" }
     }
   }

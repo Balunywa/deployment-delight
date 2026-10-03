@@ -215,7 +215,13 @@ signed-in device (an app registration would need MSX team approval). So:
 - **MSX connector** (`public/msx-connector.mjs`, served at `/msx-connector.mjs`): a no-dependency Node program on the
   SE's PC, `http://127.0.0.1:47615`. It runs msx-mcp's `msx` server over stdio (silent auth) and answers only fixed
   read-only questions: `GET /status`, `POST /signin` (runs `msx_login`; needs header `x-cloud-delivery: 1`),
-  `GET /customer?tpid=` (top-parent account, active account count, open opportunities via the TPID FetchXML join).
+  `GET /version` (instant, no MSX call), `GET /customer?tpid=`: top-parent account (with industry, segment,
+  country), active account count, open opportunities via the TPID FetchXML join (type, owning team from the owner's
+  MSX discipline: ATU/STU/CSU; consumption engagements marked Closed are left out), and (connector v2, 3 Oct) the
+  opportunities' milestones (`msp_engagementmilestones`: workload, status, category, commitment, date, owner and
+  team; Cancelled/Lost/Hygiene excluded), customer contacts with job titles under the TPID, and accepted or won
+  co-sell referrals (`msp_partnerengagements`). Each extra part is optional (`null` = not readable). The launcher
+  replaces any connector on the port whose `/version` isn't the bundled one.
   Allows only Cloud Delivery's origins (Azure URL, localhost:3000; more via `MSX_CONNECTOR_ORIGINS`), checks the Host
   header, answers the Private Network Access preflight. `--install` copies it to `%LOCALAPPDATA%\CloudDelivery`,
   stops a running one (`POST /shutdown`, local callers only: no Origin, header `x-cloud-delivery: 1`) and adds a
@@ -231,10 +237,20 @@ signed-in device (an app registration would need MSX team approval). So:
   after a `fetch` in the connector: on Windows it crashes Node on exit (libuv `UV_HANDLE_CLOSING`).
 - **The browser** (on the SE's PC) calls the connector, shows the data, and sends Cloud Delivery a **snapshot**: a
   context entry with `source: "msx"` and an `msx` field (account, opportunities: number, name, stage, solution area,
-  sales play, dates, owner, description, forecast comments). One snapshot per customer; refresh replaces it. No
-  estimated values are stored. Edge/Chrome may ask once to allow local network access.
-- Tested: connector against real msx-mcp (status `signed-out`, origin/host/TPID checks, preflight, `--install` in a
-  sandbox); the whole onboarding with a mocked connector in `e2e/msx.spec.ts`. **Not yet run against real MSX.**
+  sales play, dates, owner, description, forecast comments, plus the v2 fields above). One snapshot per customer;
+  refresh replaces it. No estimated values (opportunity value, milestone monthly use) are stored.
+- **Signals** (`src/lib/msx-signals.ts`, rules only): Microsoft fiscal quarters (July–June; FY27 Q2 = Oct–Dec 2026);
+  open milestones by workload ("In motion"); completed Production milestones in the last two years ("Already in
+  production"); flags per milestone: Blocked, At Risk, past its date, committed for this quarter but not updated in 7
+  days, not updated in 75 days (the CAIP SSP dashboard's hygiene rules); contacts ranked by title seniority;
+  partners per opportunity; opportunities by owning team. They show on Onboard customer ("What MSX shows the account
+  team doing", `components/customer/MsxSignalsPanel.tsx`), become brief items with their MSX source (relationship,
+  technical, stakeholders, risks), add a discovery question about a stuck or live workload, and feed "what changed in
+  MSX" (milestone status, date and commitment changes).
+- Verified 3 Oct against real MSX with Lukman's account (one of his accounts: 23 opportunities, 23 milestones, 23
+  contacts, 7 co-sell referrals), and with a mocked connector in `e2e/msx.spec.ts`.
+- Tested: connector against real msx-mcp (origin/host/TPID checks, preflight, `--install` in a sandbox) and real MSX
+  (3 Oct); the whole onboarding with a mocked connector in `e2e/msx.spec.ts`.
 
 **Copilot path (still there):**
 
@@ -245,11 +261,11 @@ signed-in device (an app registration would need MSX team approval). So:
 - **Skill** `.github/skills/prep-customer`: TPID → msx-mcp reads account + opportunities → `upsert_customer` →
   `add_customer_context` (source `msx`) → `create_engagement` → first questions. Milestone updates are posted to MSX
   with msx-mcp **only after the user confirms the exact text**.
-- **Settings → Connect Copilot** shows the `.vscode/mcp.json` entry. The token is an Azure app setting; read it with
-  `az webapp config appsettings list -g oneplatform -n clouddelivery-nzdefv --query "[?name=='MCP_TOKEN'].value" -o tsv`.
-  **Never print it in chat, logs or commits.**
-- Verified: the MCP endpoint works on Azure (initialize, tools/list, read-only find_customer) and locally (all tools,
-  `e2e/msx.spec.ts`).
+- **Desktop**: the launcher serves only `/api/mcp` on `http://127.0.0.1:47616` (fixed, so `.vscode/mcp.json` doesn't
+  change; `CD_MCP_PORT` overrides), refuses requests with an Origin header (web pages) or another path, and the app
+  checks the bearer token: one per install, `<data>/mcp-token`. **Settings → Connect Copilot → Copy token** puts it on
+  the clipboard (desktop-only server function); VS Code asks for it once. **Never print it in chat, logs or commits.**
+- Verified 3 Oct: tools/list with the token (7 tools); 401 without it, 403 with a browser Origin or another path.
 
 **Where it stands (updated 2 Oct, evening).** msx-mcp is a dependency now:
 
@@ -324,6 +340,34 @@ app itself is unchanged: the same TanStack Start build runs locally.
 
 ---
 
+## 5c. What we took from caip-ssp-dashboard (and what's left)
+
+Reviewed 3 Oct (`mcaps-microsoft/caip-ssp-dashboard`, a Tauri app for sellers; local copy
+`C:\Users\mubaluny\caip-ssp-dashboard`). It reads everything as the signed-in user with the Azure CLI client (no app
+registration), one token per resource: MSX `https://microsoftsales.crm.dynamics.com`, Power BI
+`https://analysis.windows.net/powerbi/api`, Fabric `https://api.fabric.microsoft.com`, Graph.
+
+- **Taken**: its MSX reads (milestones, contacts, co-sell partners, owner discipline → ATU/STU/CSU, closed-engagement
+  filter), its milestone status/category values, its hygiene rules (stale 75 days, committed-this-quarter weekly),
+  the fiscal calendar, and the UX ideas: every item says where it came from, show what changed, turn findings into
+  actions.
+- **Consumption (ACR) is not available to Lukman yet.** Their sources, tested 3 Oct with his token:
+  - MSXI ACR model `6307665` through Power BI's report endpoint
+    (`https://df-msit-scus-redirect.analysis.windows.net/explore/querydata`, headers `Origin`/`Referer`
+    `https://msit.powerbi.com`, `X-Powerbi-Hostenv: Embed for Organization`; semantic query on `DimCustomer[TPIDTxt]`,
+    `F_ACR[ServiceLevel1]`, `M_ACR[$ ACR]`, see `src-tauri/src/pbi/acr.rs`): **401 RLSNotAuthorizedForModel**.
+  - AzureBlue `AzureBlueSubscriptionSL4` (workspace `d4ab0e7e-…`, dataset `4caeb488-…`, querydata model `6692289`):
+    querydata answers with **no rows** (RLS); `executeQueries` 401; Fabric MCP "ReaderQueryNotAllowed".
+  - MACC (`MACCBalanceShortfall`, dataset `cae15d6e-e470-4c94-96d8-6dba36734bcb`, Fabric MCP `ExecuteQuery`, DAX on
+    `'MSS_TPID_Subsid'[To Direct Top Parent ID]`): answers, but empty for the account tried.
+  With MSXI access these would give "what they run on Azure today" (consumption by service and region, new services)
+  for the brief. Their result decoding is `src-tauri/src/pbi/dsr.rs`; port it then, and keep only service names and
+  trends (no revenue figures) if the shared team space must stay free of financials.
+- **Not taken**: public signals (10-Q, earnings, stock, news) are Copilot-SDK skills with web search in their app;
+  quota, territory planning and seller tasks are seller-specific.
+
+---
+
 ## 6. Data state
 
 - **All made-up demo customers are removed** from Azure and local (migrations 0015 and 0016: the 24 utilities and
@@ -355,8 +399,8 @@ app itself is unchanged: the same TanStack Start build runs locally.
 1. **First real MSX run with Lukman** (§5 next step 1), then the full journey on a real customer, in the desktop app.
 2. **Desktop app, next**: code-sign the installers (SmartScreen warns today); an "update available" notice (check
    GitHub Releases at start, like caip-ssp-dashboard); sync deletions; show who changed a shared engagement and when;
-   a first-run checklist (msx-mcp found, az signed in, team chosen). The MCP endpoint and the Copilot skill still
-   point at the retired Azure URL: point them at the desktop app (or drop them).
+   a first-run checklist (msx-mcp found, az signed in, team chosen). Azure consumption in the brief once Lukman has
+   MSXI access (§5c).
 3. **Workspace, next**: an AI-suggested POV and call plan from the same evidence (labelled, human-reviewed; the
    Azure OpenAI path exists); mark brief items confirmed automatically when a meeting confirms the matching
    assumption; read .docx attachments; per-person sign-in so "who confirmed" and handoff acceptance are real

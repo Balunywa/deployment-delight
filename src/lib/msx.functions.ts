@@ -78,7 +78,22 @@ export const linkEngagementOpportunity = createServerFn({ method: "POST" })
     }),
   );
 
-/** Whether Copilot can connect (the token itself is never sent to the browser). */
-export const getMcpStatus = createServerFn({ method: "GET" }).handler(async () => ({
-  on: !!process.env["MCP_TOKEN"]?.trim(),
-}));
+/** Whether Copilot can connect, and where. The web app never sends the token to the browser. */
+export const getMcpStatus = createServerFn({ method: "GET" }).handler(async () => {
+  const desktop = process.env["CD_DESKTOP"] === "1";
+  const url = process.env["CD_MCP_URL"]?.trim() || null;
+  return {
+    on: !!process.env["MCP_TOKEN"]?.trim() && (!desktop || !!url),
+    desktop,
+    url,
+  };
+});
+
+/**
+ * The desktop app's own MCP token, for pasting into VS Code. Desktop only: there the app answers only its own window
+ * (the loopback gate), and the token never leaves this PC.
+ */
+export const getMcpToken = createServerFn({ method: "POST" }).handler(async () => {
+  if (process.env["CD_DESKTOP"] !== "1") throw new Error("Only in the desktop app.");
+  return { token: process.env["MCP_TOKEN"]?.trim() ?? "" };
+});

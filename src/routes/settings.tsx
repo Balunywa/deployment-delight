@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { updateBranding } from "@/lib/factory.functions";
-import { getMcpStatus } from "@/lib/msx.functions";
+import { getMcpStatus, getMcpToken } from "@/lib/msx.functions";
 import { modulesQuery, organizationQuery } from "@/lib/queries";
 
 export const Route = createFileRoute("/settings")({
@@ -202,14 +202,25 @@ function Settings() {
   );
 }
 
-/** How an SE connects Copilot: Cloud Delivery's MCP server beside msx-mcp. The token is never shown here. */
+/** How an SE connects Copilot: Cloud Delivery's MCP server beside msx-mcp. */
 function CopilotPanel() {
   const status = useServerFn(getMcpStatus);
   const mcp = useQuery({ queryKey: ["mcp-status"], queryFn: () => status() });
+  const tokenFn = useServerFn(getMcpToken);
   // The origin is only known in the browser; set after hydration so server and client render the same.
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
-  const url = `${origin}/api/mcp`;
+  const desktop = !!mcp.data?.desktop;
+  const url = mcp.data?.url ?? `${origin}/api/mcp`;
+  const copyToken = async () => {
+    try {
+      const { token } = await tokenFn();
+      await navigator.clipboard.writeText(token);
+      toast.success("Token copied. Paste it when VS Code asks for the Cloud Delivery MCP token.");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
   const config = JSON.stringify(
     {
       inputs: [
@@ -254,9 +265,21 @@ function CopilotPanel() {
         </p>
         {mcp.data && !mcp.data.on && (
           <p className="rounded-md border border-border bg-muted/40 p-2.5 text-[12.5px]">
-            Off on this deployment. An administrator turns it on by setting MCP_TOKEN in the app
-            settings.
+            {desktop
+              ? "Off: another program is using port 47616 on this PC. Close it and restart Cloud Delivery."
+              : "Off on this deployment. An administrator turns it on by setting MCP_TOKEN in the app settings."}
           </p>
+        )}
+        {desktop && mcp.data?.on && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/40 p-2.5 text-[12.5px]">
+            <span>
+              Cloud Delivery listens for Copilot at <code className="font-mono">{url}</code>, on
+              this PC only.
+            </span>
+            <Button size="sm" variant="outline" onClick={() => void copyToken()}>
+              Copy token
+            </Button>
+          </div>
         )}
         <div>
           <Label className="text-xs">.vscode/mcp.json (already in this repository)</Label>

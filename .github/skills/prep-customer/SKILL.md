@@ -15,10 +15,12 @@ Two MCP servers are involved, both configured in this repository's `.vscode/mcp.
   It needs the Microsoft corporate VPN. Tools used here: `msx_auth_status`, `msx_login`, `dataverse_query`,
   `dataverse_fetchxml`, `dataverse_metadata`, `open_msx_record`, `dataverse_write`. Its own recipes live in its
   `references/dataverse/` folder (accounts, opportunities, milestones) and win over this file if they disagree.
-- **cloud-delivery** (this repository's app, `/api/mcp`): `find_customer`, `upsert_customer`, `add_customer_context`,
-  `list_engagements`, `create_engagement`, `link_opportunity`, `get_msx_update`.
+- **cloud-delivery** (the Cloud Delivery desktop app, `http://127.0.0.1:47616/api/mcp` while the app is open; the
+  token is in the app under Settings → Connect Copilot → Copy token): `find_customer`, `upsert_customer`,
+  `add_customer_context`, `list_engagements`, `create_engagement`, `link_opportunity`, `get_msx_update`.
 
-If either server isn't connected, say which one and stop. Don't guess MSX data.
+If either server isn't connected, say which one and stop (for cloud-delivery: ask the user to open the Cloud
+Delivery app). Don't guess MSX data.
 
 ## Before reading MSX
 
@@ -53,6 +55,7 @@ usually means the VPN is off; say so rather than retrying.
   ```
 
   This misses opportunities with no parent account. If the user expects one that isn't listed, search by name.
+
 - **Milestones for an opportunity**: `dataverse_query` with `entity_set: "msp_engagementmilestones"`,
   `select: "msp_engagementmilestoneid,msp_milestonenumber,msp_name,msp_milestonestatus,msp_milestonedate,msp_forecastcomments"`,
   `filter: "_msp_opportunityid_value eq <OPPORTUNITY_GUID>"`. Judge "current" by `msp_milestonestatus`, never

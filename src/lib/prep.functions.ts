@@ -8,10 +8,19 @@ const by = async () => (await import("./identity.server")).currentUser().name;
 const msx = () => import("./msx.server");
 
 const text = (n: number) => z.string().max(n).nullable();
+const opt = (n: number) => text(n).optional();
 const snapshotSchema = z.object({
   tpid: z.string().regex(/^\d{3,12}$/),
   fetchedAt: z.string().max(40),
-  account: z.object({ id: z.string().max(64), name: z.string().max(200) }).nullable(),
+  account: z
+    .object({
+      id: z.string().max(64),
+      name: z.string().max(200),
+      industry: opt(120),
+      segment: opt(120),
+      country: opt(120),
+    })
+    .nullable(),
   accounts: z.number().int().nonnegative().nullable(),
   team: z
     .array(z.object({ name: z.string().max(200), role: text(200) }))
@@ -33,9 +42,49 @@ const snapshotSchema = z.object({
         account: text(200),
         description: text(2000),
         forecastComments: text(1500),
+        type: opt(120),
+        ownerTeam: opt(20),
+        modifiedOn: opt(40),
       }),
     )
     .max(50),
+  milestones: z
+    .array(
+      z.object({
+        id: z.string().max(64),
+        number: text(64),
+        name: z.string().max(300),
+        opportunityId: text(64),
+        workload: text(200),
+        status: text(60),
+        category: text(80),
+        commitment: text(60),
+        date: text(40),
+        owner: text(160),
+        ownerTeam: text(20),
+        modifiedOn: text(40),
+      }),
+    )
+    .max(200)
+    .nullable()
+    .optional(),
+  contacts: z
+    .array(z.object({ name: z.string().max(120), title: text(160) }))
+    .max(60)
+    .nullable()
+    .optional(),
+  partners: z
+    .array(
+      z.object({
+        opportunityId: text(64),
+        partner: text(200),
+        type: text(80),
+        status: text(60),
+      }),
+    )
+    .max(200)
+    .nullable()
+    .optional(),
 });
 
 export const saveMsxSnapshot = createServerFn({ method: "POST" })

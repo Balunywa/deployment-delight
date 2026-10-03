@@ -14,6 +14,7 @@ import { toast } from "sonner";
 
 import { Pill } from "@/components/Primitives";
 import { MsxConnect } from "@/components/customer/MsxConnect";
+import { MsxSignalsPanel } from "@/components/customer/MsxSignalsPanel";
 import { useConnector } from "@/components/customer/hooks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -371,6 +372,7 @@ function OnboardCustomer() {
               )}
             </section>
           </div>
+          {snap?.account && <MsxSignalsPanel snap={snap} />}
         </>
       )}
 

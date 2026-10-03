@@ -34,6 +34,14 @@ const DATA_DIR =
     : path.join(homedir(), ".cloud-delivery"));
 const SERVER = path.join(APP_DIR, ".output", "server", "index.mjs");
 const CONNECTOR = path.join(APP_DIR, ".output", "public", "msx-connector.mjs");
+/** The bundled connector's version (its `const VERSION = "…"`), so an older one on the port gets replaced. */
+const BUNDLED_CONNECTOR = (() => {
+  try {
+    return /const VERSION = "([^"]+)"/.exec(readFileSync(CONNECTOR, "utf8"))?.[1] ?? null;
+  } catch {
+    return null;
+  }
+})();
 const DB_DIR = path.join(APP_DIR, "db");
 const SECRET = randomBytes(32).toString("hex");
 // Between the gate and the app server: the server refuses anything without it (other programs on the PC).
@@ -123,7 +131,7 @@ async function startDatabase() {
   return { db, server, port };
 }
 
-function startServer(port, dbPort, user) {
+function startServer(port, dbPort, user, mcp) {
   const p = spawn(process.execPath, [SERVER], {
     cwd: path.dirname(SERVER),
     env: {
@@ -140,6 +148,8 @@ function startServer(port, dbPort, user) {
       CD_DESKTOP: "1",
       CD_GATE_KEY: GATE_KEY,
       CD_DATA_DIR: DATA_DIR,
+      MCP_TOKEN: mcp.token,
+      CD_MCP_URL: mcp.on ? MCP_URL : "",
       CATALOG_USER_NAME: process.env.CATALOG_USER_NAME || user.name,
       CATALOG_USER_EMAIL: process.env.CATALOG_USER_EMAIL || user.email,
       CATALOG_USER_ROLE: process.env.CATALOG_USER_ROLE || "SE",
@@ -155,26 +165,29 @@ function startServer(port, dbPort, user) {
 }
 
 async function startConnector(origin) {
-  const probe = () =>
-    fetch("http://127.0.0.1:47615/status", {
+  const BASE = "http://127.0.0.1:47615";
+  // What's on the connector port: "none", the bundled version ("ours"), or anything else ("other": an older
+  // connector, or one that doesn't accept this app's origin).
+  const probe = async () => {
+    const r = await fetch(`${BASE}/version`, {
       headers: { origin },
       signal: AbortSignal.timeout(3_000),
-    }).then(
-      (r) => r.status,
-      () => 0,
-    );
-  let status = await probe();
-  // An older connector that doesn't accept the desktop app: replace it with the one bundled here.
-  if (status === 403) {
-    await fetch("http://127.0.0.1:47615/shutdown", {
+    }).catch(() => null);
+    if (!r) return "none";
+    const v = r.ok ? await r.json().catch(() => ({})) : {};
+    return v.connector === BUNDLED_CONNECTOR ? "ours" : "other";
+  };
+  let found = await probe();
+  if (found === "other") {
+    await fetch(`${BASE}/shutdown`, {
       method: "POST",
       headers: { "x-cloud-delivery": "1" },
       signal: AbortSignal.timeout(3_000),
     }).catch(() => null);
     await new Promise((r) => setTimeout(r, 800));
-    status = await probe();
+    found = await probe();
   }
-  if (status === 200) return "running";
+  if (found === "ours") return "running";
   if (!existsSync(CONNECTOR)) return "missing";
   const p = spawn(process.execPath, [CONNECTOR], {
     env: { ...process.env, MSX_CONNECTOR_ORIGINS: origin },
@@ -252,6 +265,63 @@ function startGate(port, target) {
   return new Promise((resolve) => server.listen(port, "127.0.0.1", () => resolve(server)));
 }
 
+const MCP_PORT = Number(process.env.CD_MCP_PORT || 47616);
+const MCP_URL = `http://127.0.0.1:${MCP_PORT}/api/mcp`;
+
+/** The MCP token for Copilot in VS Code: made once per install, kept in the data folder. */
+function mcpToken() {
+  const file = path.join(DATA_DIR, "mcp-token");
+  try {
+    const t = readFileSync(file, "utf8").trim();
+    if (/^[0-9a-f]{64}$/.test(t)) return t;
+  } catch {
+    // First start.
+  }
+  const t = randomBytes(32).toString("hex");
+  writeFileSync(file, t, { mode: 0o600 });
+  return t;
+}
+
+/**
+ * Cloud Delivery's MCP server for Copilot, on a fixed loopback port so .vscode/mcp.json doesn't change between
+ * starts. Only /api/mcp, only this Host, never from a web page (browsers send Origin), and the app itself checks
+ * the bearer token.
+ */
+function startMcp(target) {
+  const hosts = new Set([`127.0.0.1:${MCP_PORT}`, `localhost:${MCP_PORT}`]);
+  const server = http.createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (!hosts.has(String(req.headers.host)) || req.headers.origin || url.pathname !== "/api/mcp") {
+      res.writeHead(403).end("Not allowed.");
+      return;
+    }
+    const { cookie: _cookie, ...headers } = req.headers;
+    const up = http.request(
+      {
+        host: "127.0.0.1",
+        port: target,
+        method: req.method,
+        path: "/api/mcp",
+        headers: { ...headers, host: `127.0.0.1:${target}`, "x-cd-gate": GATE_KEY },
+      },
+      (r) => {
+        res.writeHead(r.statusCode ?? 502, r.headers);
+        r.pipe(res);
+      },
+    );
+    up.on("error", () => {
+      if (!res.headersSent) res.writeHead(502);
+      res.end();
+    });
+    req.pipe(up);
+  });
+  return new Promise((resolve) => {
+    // Another Cloud Delivery (or anything else) on the port: the app still runs, without Copilot access.
+    server.once("error", () => resolve(false));
+    server.listen(MCP_PORT, "127.0.0.1", () => resolve(true));
+  });
+}
+
 let db;
 const LOCK = path.join(DATA_DIR, "app.lock");
 
@@ -308,7 +378,8 @@ try {
   lockDataDir();
   const [user, appPort, gatePort] = await Promise.all([whoAmI(), freePort(), freePort()]);
   db = await startDatabase();
-  startServer(appPort, db.port, user);
+  const mcp = { token: mcpToken(), on: await startMcp(appPort) };
+  startServer(appPort, db.port, user, mcp);
   const origin = `http://127.0.0.1:${gatePort}`;
   await startGate(gatePort, appPort);
   if (!(await waitFor(`http://127.0.0.1:${gatePort}/__cd/health`, 120_000)))
@@ -316,7 +387,9 @@ try {
   const msx = await startConnector(origin);
   const url = `${origin}/__cd/session?k=${SECRET}`;
   writeFileSync(path.join(DATA_DIR, "last-start.json"), JSON.stringify({ at: new Date(), msx }));
-  console.log(JSON.stringify({ event: "ready", url, dataDir: DATA_DIR, user: user.name, msx }));
+  console.log(
+    JSON.stringify({ event: "ready", url, dataDir: DATA_DIR, user: user.name, msx, mcp: mcp.on }),
+  );
   if (process.argv.includes("--open")) {
     const opener =
       process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["open", [url]];

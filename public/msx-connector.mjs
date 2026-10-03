@@ -21,7 +21,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const VERSION = "1";
+const VERSION = "2";
 const PORT = Number(process.env.MSX_CONNECTOR_PORT || 47615);
 const MSX_MCP = process.env.MSX_MCP_PATH || path.join(homedir(), "msx-mcp", "bundle", "msx.mjs");
 const ORIGINS = new Set([
@@ -233,12 +233,123 @@ async function status() {
 
 const fv = (r, k) => r[`${k}${F}`] ?? null;
 const clip = (s, n) => (typeof s === "string" && s.trim() ? s.trim().slice(0, n) : null);
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The Microsoft team that owns a record, from the owner's MSX discipline (the same buckets MCEM uses). */
+function ownerTeam(discipline) {
+  const d = String(discipline ?? "").toLowerCase();
+  if (!d.trim()) return null;
+  if (d.includes("customer success") || d.includes("cloud solution architect")) return "CSU";
+  if (d.includes("account management") || d.includes("account technology")) return "ATU";
+  if (
+    /solution area specialist|solution engineering|solution sales|specialist|telesales|channel sales|commercial sales/.test(
+      d,
+    )
+  )
+    return "STU";
+  return "Other";
+}
+
+/* Milestone statuses kept: On Track, At Risk, Blocked, Completed (not Cancelled, Lost or Hygiene/Duplicate). */
+const MILESTONE_STATUSES = [861980000, 861980001, 861980002, 861980003];
+/* Opportunities whose consumption engagement is closed are done, even while statecode is still open. */
+const ENGAGEMENT_CLOSED = 861980003;
+const inValues = (ids) => ids.map((id) => `<value>${id}</value>`).join("");
+
+/** Milestones on the open opportunities: what the account team is driving, by workload, and how it's going. */
+async function milestones(oppIds) {
+  if (!oppIds.length) return [];
+  const r = await tool("dataverse_fetchxml", {
+    entity_set: "msp_engagementmilestones",
+    top: 200,
+    fetchxml: `<fetch>
+  <entity name="msp_engagementmilestone">
+    <attribute name="msp_engagementmilestoneid" /><attribute name="msp_milestonenumber" /><attribute name="msp_name" />
+    <attribute name="msp_workload" /><attribute name="msp_milestonestatus" /><attribute name="msp_milestonecategory" />
+    <attribute name="msp_commitmentrecommendation" /><attribute name="msp_milestonedate" /><attribute name="msp_opportunityid" />
+    <attribute name="ownerid" /><attribute name="modifiedon" />
+    <order attribute="msp_milestonedate" />
+    <filter>
+      <condition attribute="statecode" operator="eq" value="0" />
+      <condition attribute="msp_milestonestatus" operator="in">${inValues(MILESTONE_STATUSES)}</condition>
+      <condition attribute="msp_opportunityid" operator="in">${inValues(oppIds)}</condition>
+    </filter>
+    <link-entity name="systemuser" from="systemuserid" to="owninguser" link-type="outer" alias="owner">
+      <attribute name="msp_discipline" />
+    </link-entity>
+  </entity>
+</fetch>`,
+  });
+  return (r.data?.records ?? []).map((m) => ({
+    id: m.msp_engagementmilestoneid,
+    number: m.msp_milestonenumber ?? null,
+    name: clip(m.msp_name, 300) ?? "Milestone",
+    opportunityId: m._msp_opportunityid_value ?? null,
+    workload: clip(fv(m, "msp_workload"), 200),
+    status: clip(fv(m, "msp_milestonestatus"), 60),
+    category: clip(fv(m, "msp_milestonecategory"), 80),
+    commitment: clip(fv(m, "msp_commitmentrecommendation"), 60),
+    date: m.msp_milestonedate ?? null,
+    owner: clip(fv(m, "_ownerid_value"), 160),
+    ownerTeam: ownerTeam(
+      m["owner.msp_discipline@OData.Community.Display.V1.FormattedValue"] ??
+        m["owner.msp_discipline"],
+    ),
+    modifiedOn: m.modifiedon ?? null,
+  }));
+}
+
+/** Customer contacts MSX holds under the TPID, with their job titles: a starting list of stakeholders. */
+async function contacts(tpid) {
+  const r = await tool("dataverse_fetchxml", {
+    entity_set: "contacts",
+    top: 60,
+    fetchxml: `<fetch>
+  <entity name="contact">
+    <attribute name="fullname" /><attribute name="jobtitle" />
+    <order attribute="modifiedon" descending="true" />
+    <filter><condition attribute="statecode" operator="eq" value="0" /><condition attribute="jobtitle" operator="not-null" /></filter>
+    <link-entity name="account" from="accountid" to="parentcustomerid" alias="acct">
+      <filter><condition attribute="msp_mstopparentid" operator="eq" value="${tpid}" /></filter>
+    </link-entity>
+  </entity>
+</fetch>`,
+  });
+  return (r.data?.records ?? [])
+    .filter((c) => c.fullname)
+    .map((c) => ({ name: clip(c.fullname, 120), title: clip(c.jobtitle, 160) }));
+}
+
+/** Partners on the opportunities through co-sell referrals that were accepted or won. */
+async function partners(oppIds) {
+  if (!oppIds.length) return [];
+  const r = await tool("dataverse_fetchxml", {
+    entity_set: "msp_partnerengagements",
+    top: 200,
+    fetchxml: `<fetch>
+  <entity name="msp_partnerengagement">
+    <attribute name="msp_opportunity" /><attribute name="msp_typeofdeal" /><attribute name="msp_finalsubstatus" />
+    <attribute name="msp_partneraccount" />
+    <filter><condition attribute="msp_opportunity" operator="in">${inValues(oppIds)}</condition></filter>
+  </entity>
+</fetch>`,
+  });
+  return (r.data?.records ?? [])
+    .map((p) => ({
+      opportunityId: p._msp_opportunity_value ?? null,
+      partner: clip(fv(p, "_msp_partneraccount_value"), 200),
+      type: clip(fv(p, "msp_typeofdeal"), 80),
+      status: clip(fv(p, "msp_finalsubstatus"), 60),
+    }))
+    .filter((p) => p.type === "Co-Sell Referral" && /^(Accepted|Won)$/.test(p.status ?? ""));
+}
 
 async function customer(tpid) {
   const [top, all, opps] = await Promise.all([
     tool("dataverse_query", {
       entity_set: "accounts",
-      select: "accountid,name,msp_mstopparentid,statecode",
+      select:
+        "accountid,name,msp_mstopparentid,statecode,msp_industrycode,msp_gpname,address1_country",
       filter: `msp_mstopparentid eq '${tpid}' and msp_parentinglevelcode eq 861980000`,
       top: 5,
     }),
@@ -256,8 +367,18 @@ async function customer(tpid) {
     <attribute name="msp_activesalesstage" /><attribute name="estimatedclosedate" /><attribute name="createdon" />
     <attribute name="msp_solutionarea" /><attribute name="msp_salesplay" /><attribute name="msp_forecastcomments" />
     <attribute name="description" /><attribute name="ownerid" /><attribute name="parentaccountid" />
+    <attribute name="msp_opportunitytype" /><attribute name="msp_engagementstatus" /><attribute name="modifiedon" />
     <order attribute="modifiedon" descending="true" />
-    <filter><condition attribute="statecode" operator="eq" value="0" /></filter>
+    <filter>
+      <condition attribute="statecode" operator="eq" value="0" />
+      <filter type="or">
+        <condition attribute="msp_engagementstatus" operator="null" />
+        <condition attribute="msp_engagementstatus" operator="ne" value="${ENGAGEMENT_CLOSED}" />
+      </filter>
+    </filter>
+    <link-entity name="systemuser" from="systemuserid" to="owninguser" link-type="outer" alias="owner">
+      <attribute name="msp_discipline" />
+    </link-entity>
     <link-entity name="account" from="accountid" to="parentaccountid" alias="acct">
       <filter><condition attribute="msp_mstopparentid" operator="eq" value="${tpid}" /></filter>
     </link-entity>
@@ -267,7 +388,6 @@ async function customer(tpid) {
   ]);
   const account = (top.data?.records ?? [])[0] ?? null;
   // The account team on the top-parent account, when MSX lets this person see it. Optional: never fails the look-up.
-  const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const team =
     account && GUID.test(account.accountid)
       ? await tool("dataverse_query", {
@@ -286,10 +406,31 @@ async function customer(tpid) {
           )
           .catch(() => null)
       : null;
+  const oppIds = (opps.data?.records ?? [])
+    .map((o) => o.opportunityid)
+    .filter((id) => GUID.test(id ?? ""))
+    .slice(0, 50);
+  // The rest is extra detail: each part is optional and never fails the look-up (null = couldn't be read).
+  const [ms, people, partnerLinks] = await Promise.all([
+    milestones(oppIds).catch(() => null),
+    contacts(tpid).catch(() => null),
+    partners(oppIds).catch(() => null),
+  ]);
   return {
     tpid,
     fetchedAt: new Date().toISOString(),
-    account: account ? { id: account.accountid, name: account.name } : null,
+    account: account
+      ? {
+          id: account.accountid,
+          name: account.name,
+          industry: clip(fv(account, "msp_industrycode"), 120),
+          segment: clip(fv(account, "msp_gpname"), 120),
+          country: clip(account.address1_country, 120),
+        }
+      : null,
+    milestones: ms,
+    contacts: people,
+    partners: partnerLinks,
     accounts: all?.meta?.totalCount ?? null,
     team,
     opportunities: (opps.data?.records ?? []).map((o) => ({
@@ -305,6 +446,12 @@ async function customer(tpid) {
       account: fv(o, "_parentaccountid_value"),
       description: clip(o.description, 2000),
       forecastComments: clip(o.msp_forecastcomments, 1500),
+      type: clip(fv(o, "msp_opportunitytype"), 120),
+      ownerTeam: ownerTeam(
+        o["owner.msp_discipline@OData.Community.Display.V1.FormattedValue"] ??
+          o["owner.msp_discipline"],
+      ),
+      modifiedOn: o.modifiedon ?? null,
     })),
   };
 }
@@ -347,6 +494,8 @@ function serve() {
         child?.kill();
         return setTimeout(() => process.exit(0), 100);
       }
+      if (req.method === "GET" && url.pathname === "/version")
+        return send(res, origin, 200, { connector: VERSION });
       if (req.method === "GET" && url.pathname === "/status")
         return send(res, origin, 200, await status());
       if (req.method === "POST" && url.pathname === "/signin") {

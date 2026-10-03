@@ -4,6 +4,7 @@
  * solution) and similar engagements by peers. Rules only, grounded in the stored text: it quotes, it doesn't invent.
  */
 import type { MsxSnapshot } from "./msx-connector";
+import { type MsxSignals, msxSignals } from "./msx-signals";
 
 export type PrepEntry = {
   id?: string | undefined;
@@ -360,6 +361,8 @@ export type Prep = {
   gaps: string[];
   questions: { text: string; because: string }[];
   similar: Similar[];
+  /** What the MSX snapshot shows: milestones, production workloads, attention, contacts, partners. */
+  msx?: MsxSignals | null | undefined;
 };
 
 const GOAL =
@@ -486,6 +489,7 @@ export function buildPrep(input: {
   const whyNow = pick(ps, WHY_NOW, 4);
   const people = pick(ps, PEOPLE, 3);
   const added = input.context.filter((e) => !e.msx).length;
+  const signals = snap ? msxSignals(snap) : null;
 
   const gaps: string[] = [];
   if (!snap) gaps.push("No MSX snapshot yet: look the TPID up in MSX.");
@@ -493,6 +497,12 @@ export function buildPrep(input: {
     gaps.push("MSX has no open opportunity for this TPID: treat it as proactive until one exists.");
   else if (snap.opportunities.every((o) => !o.description))
     gaps.push("The MSX opportunities have no description: the seller's intent isn't written down.");
+  if (snap && snap.milestones === undefined)
+    gaps.push("This MSX snapshot predates milestones, contacts and partners: refresh it from MSX.");
+  else if (snap?.opportunities.length && signals && !signals.inMotion.length)
+    gaps.push(
+      "No open milestones on the MSX opportunities: nothing is planned or committed for a workload yet.",
+    );
   if (!goals.length) gaps.push("Nothing says what the customer wants to achieve.");
   if (!whyNow.length) gaps.push("Nothing says why now: no deadline, renewal or event.");
   if (!people.length) gaps.push("No sponsor or decision maker is named.");
@@ -527,6 +537,21 @@ export function buildPrep(input: {
         },
   );
   const top = areas[0];
+  // What MSX shows the account team driving: a stuck milestone is the most useful thing to ask about.
+  const stuck = signals?.attention.find((a) =>
+    a.flags.some((f) => f === "blocked" || f === "at-risk" || f === "overdue"),
+  );
+  const live = signals?.live[0];
+  if (stuck)
+    questions.push({
+      text: `Where does ${stuck.milestone.workload?.trim() || "this work"} stand on your side, and what's in the way?`,
+      because: `MSX: ${stuck.text}`,
+    });
+  else if (live)
+    questions.push({
+      text: `How is ${live.workload} working for you in production, and what would you change?`,
+      because: `MSX shows a completed production milestone, “${live.milestone.name}” (${live.milestone.date?.slice(0, 10) ?? "no date"}).`,
+    });
   if (top)
     questions.push({
       text: top.ask[0]!,
@@ -566,8 +591,9 @@ export function buildPrep(input: {
     people,
     areas,
     gaps,
-    questions: questions.slice(0, 3),
+    questions: questions.slice(0, 4),
     similar,
+    msx: signals,
   };
 }
 

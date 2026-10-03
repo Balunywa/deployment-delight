@@ -17,6 +17,9 @@ You don't need Node.js: the app brings its own.
 
 ## Install
 
+The installers are in this repository's GitHub Releases. The repository is private: ask Lukman Balunywa to add your
+GitHub account before you download.
+
 1. Open the latest release of this repository and download the installer for your PC:
    - `CloudDelivery-<version>-arm64-setup.exe` for ARM64 PCs (for example Surface Pro with Snapdragon)
    - `CloudDelivery-<version>-x64-setup.exe` for every other PC
@@ -48,6 +51,16 @@ customer and per engagement:
 - **Stop sharing** leaves your local data and the team's files as they are.
 
 MSX is never changed by syncing.
+
+## Use it from Copilot in VS Code (optional)
+
+While the app is open, Copilot can use it beside msx-mcp (this repository's `.vscode/mcp.json` has both servers):
+the `prep-customer` skill looks a TPID up in MSX and records the customer and engagement here.
+
+1. In the app: **Settings → Connect Copilot → Copy token**.
+2. In VS Code, start the `cloud-delivery` MCP server and paste the token when it asks.
+
+The app answers Copilot only on `127.0.0.1:47616`, only with that token, and never from a web page.
 
 ## Where your data is
 
